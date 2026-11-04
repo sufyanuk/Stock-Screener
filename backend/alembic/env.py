@@ -8,15 +8,22 @@ target_metadata = Base.metadata
 
 
 def run_migrations_offline():
-    context.configure(url=get_settings().database_url, target_metadata=target_metadata, literal_binds=True)
+    context.configure(url=get_settings().sqlalchemy_url, target_metadata=target_metadata, literal_binds=True)
     with context.begin_transaction():
         context.run_migrations()
 
 
 def run_migrations_online():
-    eng = create_engine(get_settings().database_url)
-    with eng.connect() as conn:
+    # app.migrate passes its own (advisory-locked) connection; the CLI creates one.
+    conn = context.config.attributes.get("connection")
+    if conn is not None:
         context.configure(connection=conn, target_metadata=target_metadata)
+        with context.begin_transaction():
+            context.run_migrations()
+        return
+    eng = create_engine(get_settings().sqlalchemy_url)
+    with eng.connect() as c:
+        context.configure(connection=c, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()
 

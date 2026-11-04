@@ -98,10 +98,16 @@ export default function DashboardPage() {
   const { data, error, reload } = useApi<Dashboard>("/dashboard", 60_000);
   const [scanMsg, setScanMsg] = useState<string | null>(null);
   async function scan() {
+    setScanMsg("Scanning… this can take a few minutes.");
     try {
-      await api("/scan", { method: "POST" });
-      setScanMsg("Scan queued — results appear when it finishes.");
-      setTimeout(reload, 15_000);
+      const r = await api<{ queued: boolean; status?: string; new?: string[] }>("/scan", { method: "POST" });
+      if (r.queued) {
+        setScanMsg("Scan queued — results appear when it finishes.");
+        setTimeout(reload, 15_000);
+      } else {
+        setScanMsg(`Scan finished (${r.status}).${r.new?.length ? ` New: ${r.new.join(", ")}` : ""}`);
+        reload();
+      }
     } catch (e) {
       setScanMsg((e as Error).message);
     }

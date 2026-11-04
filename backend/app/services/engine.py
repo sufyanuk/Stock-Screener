@@ -18,7 +18,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app import market_calendar as mc
-from app.config import ScreeningConfig
+from app.config import ScreeningConfig, get_settings
 from app.models import (AppSettings, BusinessReviewRow, DailyBar, InsiderTransaction, OptionsDaily, ProviderHealth,
                         Recommendation, ScanResult, ScanRun, Security, ShariahScreen)
 from app.providers.http import ProviderError
@@ -78,10 +78,18 @@ class ScanEngine:
         return len(rows)
 
     async def ingest_options(self, sessions: list[date]) -> None:
+        """Fetch missing sessions newest-first. ``BACKFILL_SESSIONS_PER_RUN`` caps how many are fetched
+        in one run so a serverless invocation finishes in time; later runs continue the backfill."""
         have = set(self.db.scalars(select(OptionsDaily.session).distinct()).all())
-        for d in sessions:
+        cap = get_settings().backfill_sessions_per_run or len(sessions)
+        fetched = 0
+        for d in sorted(sessions, reverse=True):
             if d in have and d != sessions[-1]:
                 continue
+            if fetched >= cap:
+                self.errors.append(f"options history backfill incomplete: continuing next run ({len(have)} sessions stored)")
+                break
+            fetched += 1
             res = await self._call("orats", self.ds.options_day(d))
             if not res:
                 continue

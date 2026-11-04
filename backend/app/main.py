@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select
@@ -25,7 +27,25 @@ from app.tools.pnl import Dividend, Fill, summarize
 from app.tools.position import PositionInput, calculate_position
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-app = FastAPI(title="Stock Intel API", version="0.1.0")
+log = logging.getLogger("app")
+MIGRATION_ERROR: str | None = None
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    global MIGRATION_ERROR
+    if get_settings().auto_migrate:
+        try:
+            from app.migrate import upgrade_head
+
+            await asyncio.to_thread(upgrade_head)
+        except Exception as e:  # keep serving so /api/health can report the problem
+            MIGRATION_ERROR = repr(e)
+            log.exception("database migration failed")
+    yield
+
+
+app = FastAPI(title="Stock Intel API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=get_settings().cors_origins.split(","), allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
 
@@ -203,10 +223,14 @@ def health_rows(db: Session) -> list[dict]:
 
 @app.get("/api/health")
 def health(db: Session = Depends(get_db)):
-    db.execute(select(1))
     ds = make_datasource()
-    return {"db": "ok", "providers_configured": ds.describe(), "provider_health": health_rows(db),
-            "config_errors": getattr(ds, "errors", []), "market_phase": mc.market_phase(datetime.now(timezone.utc))}
+    out = {"providers_configured": ds.describe(), "config_errors": getattr(ds, "errors", []),
+           "market_phase": mc.market_phase(datetime.now(timezone.utc)), "migration_error": MIGRATION_ERROR}
+    try:
+        db.execute(select(1))
+        return out | {"db": "ok", "provider_health": health_rows(db)}
+    except Exception as e:
+        return out | {"db": f"error: {type(e).__name__}: {str(e)[:300]}", "provider_health": []}
 
 
 # ------------------------------------------------------------------ recommendations
@@ -307,23 +331,89 @@ async def stock_external(ticker: str, db: Session = Depends(get_db), _: User = D
 
 # ------------------------------------------------------------------ scanning
 _scan_lock = asyncio.Lock()
+STALE_RUN_MINUTES = 20  # a "running" scan older than this is treated as crashed
 
 
-async def _do_scan(kind: str, by: str):
+def _scan_running(db: Session) -> bool:
+    """Checked in the database so it also works across serverless instances."""
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=STALE_RUN_MINUTES)
+    return db.scalars(select(ScanRun.id).where(ScanRun.status == "running", ScanRun.started_at >= cutoff)
+                      .limit(1)).first() is not None
+
+
+async def _do_scan(kind: str, by: str) -> dict:
     async with _scan_lock:
         with SessionLocal() as db:
             ds = make_datasource()
             eng = ScanEngine(db, ds)
             eng.errors.extend(getattr(ds, "errors", []))
-            await eng.run(kind=kind, triggered_by=by)
+            run = await eng.run(kind=kind, triggered_by=by)
+            prior = set(db.scalars(select(Recommendation.ticker).where(
+                Recommendation.session_date == run.session_date, Recommendation.run_id != run.id)).all())
+            new = [r for r in db.scalars(select(Recommendation).where(Recommendation.run_id == run.id)).all()
+                   if r.ticker not in prior]
+            if new:
+                from app.services.notify import notify_new
+
+                notify_new(db, new)
+            return {"run_id": run.id, "status": run.status, "kind": kind, "new": [r.ticker for r in new]}
+
+
+def _serverless() -> bool:
+    return bool(os.environ.get("VERCEL"))
 
 
 @app.post("/api/scan")
-async def manual_scan(bg: BackgroundTasks, u: User = Depends(current_user)):
-    if _scan_lock.locked():
+async def manual_scan(bg: BackgroundTasks, u: User = Depends(current_user), db: Session = Depends(get_db)):
+    if _scan_lock.locked() or _scan_running(db):
         raise HTTPException(409, "a scan is already running")
+    if _serverless():
+        # Serverless instances may be frozen after the response, so run inside the request.
+        return {"queued": False, **await _do_scan("manual", u.email)}
     bg.add_task(_do_scan, "manual", u.email)
     return {"queued": True}
+
+
+def cron_kind(now: datetime) -> str | None:
+    """Which scheduled scan (if any) belongs to this moment, in New York time.
+    Vercel Cron schedules are UTC; the cron fires every 30 minutes and this function maps the
+    time to a scan, so daylight-saving changes, holidays and early closes are handled here."""
+    local = now.astimezone(mc.NY)
+    times = mc.session_times(local.date())
+    if not times:
+        return None
+    open_, close = times
+    t = local.replace(second=0, microsecond=0)
+    if t < open_ - timedelta(minutes=90):
+        return None
+    if t < open_:
+        return "premarket"
+    if t < open_ + timedelta(minutes=30):
+        return "open"
+    if t < close:
+        return "intraday"
+    if t < close + timedelta(minutes=90):
+        return "close"
+    return None
+
+
+@app.get("/api/cron/scan")
+async def cron_scan(authorization: str | None = Header(default=None), db: Session = Depends(get_db)):
+    secret = get_settings().cron_secret
+    if not secret or authorization != f"Bearer {secret}":
+        raise HTTPException(401, "invalid cron secret")
+    kind = cron_kind(datetime.now(timezone.utc))
+    if kind is None:
+        return {"skipped": "market closed or outside scan windows"}
+    if kind != "intraday":  # premarket / open / close run once per day
+        since = datetime.now(timezone.utc) - timedelta(hours=12)
+        done = db.scalars(select(ScanRun.id).where(ScanRun.kind == kind, ScanRun.started_at >= since,
+                                                   ScanRun.status.in_(("ok", "partial")))).first()
+        if done:
+            return {"skipped": f"{kind} scan already completed today"}
+    if _scan_lock.locked() or _scan_running(db):
+        return {"skipped": "a scan is already running"}
+    return await _do_scan(kind, "vercel-cron")
 
 
 @app.get("/api/scans")

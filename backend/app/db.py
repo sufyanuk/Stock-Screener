@@ -14,8 +14,14 @@ _Session: sessionmaker | None = None
 def engine():
     global _engine, _Session
     if _engine is None:
-        url = get_settings().database_url
-        kw = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {"pool_pre_ping": True}
+        url = get_settings().sqlalchemy_url
+        if url.startswith("sqlite"):
+            kw: dict = {"connect_args": {"check_same_thread": False}}
+        else:
+            # Small pool for serverless instances; prepare_threshold=None keeps psycopg compatible with
+            # transaction-mode poolers (e.g. Neon's pooled endpoint).
+            kw = {"pool_pre_ping": True, "pool_size": 3, "max_overflow": 2, "pool_recycle": 300,
+                  "connect_args": {"prepare_threshold": None}}
         _engine = create_engine(url, **kw)
         _Session = sessionmaker(_engine, expire_on_commit=False)
     return _engine

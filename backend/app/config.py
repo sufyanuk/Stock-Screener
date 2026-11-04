@@ -43,11 +43,26 @@ class Settings(BaseSettings):
 
     http_cache_ttl_seconds: int = 300
 
+    # Serverless (Vercel) settings
+    database_url_unpooled: str = ""  # set by the Neon integration; preferred (session-level features)
+    cron_secret: str = ""  # Vercel Cron sends "Authorization: Bearer <CRON_SECRET>"
+    backfill_sessions_per_run: int = 0  # 0 = unlimited; cap per invocation so a scan fits maxDuration
+    auto_migrate: bool = False  # run Alembic migrations at startup (Vercel has no release step)
+
     @model_validator(mode="after")
     def _guard_production(self) -> "Settings":
         if self.app_env == "production" and self.jwt_secret in ("", "change-me"):
             raise ValueError("JWT_SECRET must be set to a strong random value in production")
         return self
+
+    @property
+    def sqlalchemy_url(self) -> str:
+        """Normalise provider URLs (``postgres://`` / ``postgresql://``) to the psycopg 3 driver."""
+        url = self.database_url_unpooled or self.database_url
+        for prefix in ("postgres://", "postgresql://"):
+            if url.startswith(prefix):
+                return "postgresql+psycopg://" + url[len(prefix):]
+        return url
 
 
 @lru_cache
