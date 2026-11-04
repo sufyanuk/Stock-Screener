@@ -1,0 +1,30 @@
+# User manual
+
+**Dashboard** — Daily Top 5 table (all the spec fields; click column headers to sort, click `?` to see the formula),
+unusual options, latest Form-4 open-market buys, stocks near support, low-float names, Shariah
+counts, the near-qualified watchlist with the reason each stock fails, and data-freshness/API health.
+**Run scan now** queues a manual scan. A yellow banner appears if an admin relaxed any requirement.
+
+**Stock page** — why the stock was or wasn't selected (pass/fail/missing per criterion, in plain
+English); a candlestick chart with SMAs, support/resistance, entry, stop and targets; options
+detail and largest contracts; insider purchases with joint-filing de-duplication; analyst
+consensus and changes; float and liquidity; Shariah ratios with denominator and source; news; SEC
+filings; and a data-provenance table. **Size this trade** opens the position calculator pre-filled.
+
+**Calculators** — position size (long/short, fees, slippage, allocation cap, fractional shares),
+expectancy (R-multiples, profit factor, break-even win rate, Monte-Carlo risk of ruin and drawdown,
+scenario grid), and dividend purification.
+
+**Journal** — record buys and sells (FIFO matching; a sell with no open long opens a short) and
+dividends. Shows realized/unrealized P&L, fees, exposure, win rate, equity and drawdown curves,
+daily-to-yearly breakdowns, and actual vs. recommended levels when you enter a recommendation ID.
+
+**History** — every final daily Top 5 with return since recommendation, stop/target hits and revisions.
+
+**Backtest** — choose dates, hold period, costs. Results include win rate, average return, profit
+factor, expectancy, max drawdown, an approximate Sharpe ratio, a regime split (SPY vs. its 200-day
+SMA) and the trade list, with the limitations listed.
+
+**Admin** — thresholds, hard/soft toggles, weights, Shariah methodology, business reviews and notifications.
+
+Disclaimer: research tool only, not investment advice. Shariah screening is not a fatwa.

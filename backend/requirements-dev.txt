@@ -1,0 +1,5 @@
+-r requirements.txt
+pytest==9.2.0
+respx==0.23.1
+# starlette TestClient transport (replaces deprecated httpx-based client)
+httpx2==2.13.1
