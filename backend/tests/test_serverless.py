@@ -114,6 +114,20 @@ def test_options_backfill_capped(db, monkeypatch):
         get_settings.cache_clear()
 
 
+def test_register_without_database_gives_clear_503(tmp_path):
+    import app.main as main
+    from app import db as dbmod
+
+    # Point at an unreachable PostgreSQL server (nothing listens on port 1).
+    dbmod.reset_engine_for_tests("postgresql+psycopg://u:p@127.0.0.1:1/none?connect_timeout=2")
+    try:
+        r = TestClient(main.app).post("/api/auth/register",
+                                      json={"email": "a@example.com", "password": "correct horse battery"})
+        assert r.status_code == 503 and "database is not connected" in r.json()["detail"]
+    finally:
+        dbmod.reset_engine_for_tests(f"sqlite:///{tmp_path}/x.db")
+
+
 def test_health_reports_db_ok(client):
     r = client.get("/api/health").json()
     assert r["db"] == "ok" and r["migration_error"] is None

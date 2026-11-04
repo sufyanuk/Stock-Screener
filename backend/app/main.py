@@ -9,6 +9,8 @@ from datetime import date, datetime, timedelta, timezone
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -48,6 +50,19 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="Stock Intel API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=get_settings().cors_origins.split(","), allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
+
+
+@app.exception_handler(OperationalError)
+@app.exception_handler(ProgrammingError)
+async def database_unavailable(_request, exc):
+    """Show a clear reason instead of a bare 500 when the database is missing or not migrated."""
+    log.error("database error: %s", exc)
+    if isinstance(exc, ProgrammingError) and "does not exist" not in str(exc):
+        return JSONResponse({"detail": "Database error. Check the server logs."}, status_code=500)
+    return JSONResponse(
+        {"detail": "The database is not connected or not set up yet. Connect a PostgreSQL database "
+                   "(e.g. Neon in Vercel → Storage) and redeploy. See /api/health for details."},
+        status_code=503)
 
 DISCLAIMER = ("Research tool only — not investment advice. Screening results depend on third-party data that may be "
               "delayed or incomplete. Shariah screening is an analytical aid, not a fatwa.")
