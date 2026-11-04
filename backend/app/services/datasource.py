@@ -47,7 +47,10 @@ class DataSource(Protocol):
     async def option_contracts(self, ticker: str) -> tuple[list[ContractActivity], float | None, Provenance]: ...
     async def bars(self, ticker: str, start: date, end: date) -> tuple[pd.DataFrame, Provenance]: ...
     async def quote(self, ticker: str) -> tuple[dict, Provenance]: ...
-    async def insider_filings(self, day: date) -> tuple[list[InsiderTxn], Provenance]: ...
+    async def insider_filings(self, day: date, skip: set[str] | None = None, limit: int | None = None
+                              ) -> tuple[list[InsiderTxn], Provenance, set[str], int]:
+        """Returns (transactions, provenance, accessions processed, filings left unfetched)."""
+        ...
     async def fundamentals(self, ticker: str, cik: str, as_of: date, market_cap: float | None,
                            avg_24: float | None, avg_36: float | None) -> tuple[Fundamentals, float | None, Provenance]: ...
     async def analyst(self, ticker: str) -> tuple[AnalystData, Provenance]: ...
@@ -116,17 +119,22 @@ class LiveDataSource:
         q = await m.snapshot(ticker)
         return q, m.prov("/v2/snapshot/.../tickers", q.get("market_ts"))
 
-    async def insider_filings(self, day: date):
+    async def insider_filings(self, day: date, skip: set[str] | None = None, limit: int | None = None):
         from app.providers.sec_edgar import parse_form4
 
         sec = self._need(self.sec, "sec_edgar")
+        todo = [f for f in await sec.form4_index(day) if f["accession"] not in (skip or set())]
+        batch = todo if limit is None else todo[:limit]
         out: list[InsiderTxn] = []
-        for f in await sec.form4_index(day):
+        processed: set[str] = set()
+        for f in batch:
             try:
                 out.extend(parse_form4(await sec.filing_text(f["file"]), f["accession"], f["filed"]))
-            except ProviderError as e:
+                processed.add(f["accession"])
+            except ProviderError as e:  # not marked processed, so it is retried next run
                 self.errors.append(str(e))
-        return out, sec.prov("/Archives/edgar/daily-index form.idx", pd.Timestamp(day).to_pydatetime())
+        prov = sec.prov("/Archives/edgar/daily-index form.idx", pd.Timestamp(day).to_pydatetime())
+        return out, prov, processed, len(todo) - len(batch)
 
     async def fundamentals(self, ticker, cik, as_of, market_cap, avg_24, avg_36):
         from app.providers.sec_edgar import fundamentals_from_xbrl, shares_outstanding

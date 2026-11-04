@@ -392,7 +392,9 @@ def cron_kind(now: datetime) -> str | None:
         return "open"
     if t < close:
         return "intraday"
-    if t < close + timedelta(minutes=90):
+    # Generous window: Vercel Hobby fires a daily cron at any minute within its scheduled hour,
+    # and early-close days end at 13:00.
+    if t < max(close + timedelta(minutes=90), local.replace(hour=20, minute=0, second=0, microsecond=0)):
         return "close"
     return None
 

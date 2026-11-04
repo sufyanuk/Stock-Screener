@@ -75,12 +75,14 @@ cd frontend && npm install && BACKEND_URL=http://localhost:8000 npm run dev
 |---|---|
 | PostgreSQL container | **Neon** Postgres (Vercel Marketplace). Connecting it sets `DATABASE_URL` / `DATABASE_URL_UNPOOLED`. |
 | `alembic upgrade head` on start | `AUTO_MIGRATE=1`: migrations run at cold start under a Postgres advisory lock |
-| Celery beat + worker + Redis | **Vercel Cron** calls `/api/cron/scan` every 30 min on weekdays (UTC). The backend maps the time to premarket / open / intraday / close in New York time, so DST, holidays and early closes are handled there. |
+| Celery beat + worker + Redis | **Vercel Cron** calls `/api/cron/scan`. The Hobby plan allows one cron per day, so `vercel.json` runs the **closing scan** on weekdays at 21:15 UTC (16:15–17:15 New York). The backend maps the time to premarket / open / intraday / close in New York time and skips holidays. On Pro you can use `"0,30 12-22 * * 1-5"` to get every scan window. |
 | Manual scan in the background | Runs inside the request (serverless instances can freeze after responding) |
 
 Environment variables (project → Settings → Environment Variables): `APP_ENV=production`, `JWT_SECRET`,
-`CRON_SECRET`, `AUTO_MIGRATE=1`, `BACKFILL_SESSIONS_PER_RUN=60`, `SEC_USER_AGENT`, plus the provider keys
+`CRON_SECRET`, `AUTO_MIGRATE=1`, `BACKFILL_SESSIONS_PER_RUN=60`, `INSIDER_FILINGS_PER_RUN=400`, `SEC_USER_AGENT`, plus the provider keys
 and optional SMTP/Telegram values from `.env.example`.
 
 The first options backfill (~260 sessions) is spread over several scans (60 sessions each) so that each
-invocation finishes within the function time limit; until it completes, scans report it as incomplete.
+invocation finishes within the function time limit (300 s on Hobby); Form 4 filings are fetched
+incrementally (at most 400 new filings per scan, already-processed filings are skipped). Until a backfill
+completes, scans finish as `partial` and say so.

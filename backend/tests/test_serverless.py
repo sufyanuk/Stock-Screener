@@ -25,6 +25,11 @@ def test_cron_kind_handles_dst_holidays_and_early_close():
     assert cron_kind(utc(2026, 11, 26, 17, 0)) is None  # Thanksgiving
     assert cron_kind(utc(2026, 11, 27, 18, 30)) == "close"  # 13:30 NY after 13:00 early close
     assert cron_kind(utc(2026, 11, 7, 17, 0)) is None  # Saturday
+    # The daily cron (21:15 UTC, may fire anywhere in 21:00-21:59) is a closing scan all year:
+    for d in (utc(2026, 1, 5, 21, 0), utc(2026, 1, 5, 21, 59), utc(2026, 7, 6, 21, 0), utc(2026, 7, 6, 21, 59),
+              utc(2026, 11, 27, 21, 15)):  # incl. day-after-Thanksgiving early close
+        assert cron_kind(d) == "close", d
+    assert cron_kind(utc(2026, 7, 7, 0, 30)) is None  # 20:30 NY
 
 
 def test_database_url_normalisation():
@@ -54,6 +59,57 @@ def test_cron_endpoint_requires_secret(client, monkeypatch):
         assert client.get("/api/cron/scan", headers={"Authorization": "Bearer wrong"}).status_code == 401
         r = client.get("/api/cron/scan", headers={"Authorization": "Bearer s3cret-value"})
         assert r.status_code == 200  # result depends on the current clock: skipped or a run
+    finally:
+        get_settings.cache_clear()
+
+
+def test_insider_ingest_is_incremental_and_capped(db, monkeypatch):
+    import asyncio
+
+    from sqlalchemy import func, select
+
+    from app.config import get_settings
+    from app.models import InsiderTransaction, ProcessedFiling
+    from app.services.engine import ScanEngine
+    from tests.conftest import AS_OF, FakeDataSource
+
+    monkeypatch.setenv("INSIDER_FILINGS_PER_RUN", "2")
+    get_settings.cache_clear()
+    try:
+        FakeDataSource.filing_fetches = 0
+        eng = ScanEngine(db, FakeDataSource())
+        asyncio.run(eng.ingest_insiders([AS_OF]))
+        assert FakeDataSource.filing_fetches == 2 and any("not yet fetched" in e for e in eng.errors)
+        asyncio.run(ScanEngine(db, FakeDataSource()).ingest_insiders([AS_OF]))
+        assert FakeDataSource.filing_fetches == 3  # only the remaining filing was fetched
+        asyncio.run(ScanEngine(db, FakeDataSource()).ingest_insiders([AS_OF]))
+        assert FakeDataSource.filing_fetches == 3  # nothing re-downloaded
+        assert db.scalar(select(func.count()).select_from(ProcessedFiling)) == 3
+        assert db.scalar(select(func.count()).select_from(InsiderTransaction)) == 4  # joint filing has 2 owners
+    finally:
+        get_settings.cache_clear()
+
+
+def test_options_backfill_capped(db, monkeypatch):
+    import asyncio
+
+    from sqlalchemy import func, select
+
+    from app import market_calendar as mc
+    from app.config import get_settings
+    from app.models import OptionsDaily
+    from app.services.engine import ScanEngine
+    from tests.conftest import AS_OF, FakeDataSource
+
+    monkeypatch.setenv("BACKFILL_SESSIONS_PER_RUN", "10")
+    get_settings.cache_clear()
+    try:
+        sessions = mc.previous_sessions(AS_OF, 25)
+        asyncio.run(ScanEngine(db, FakeDataSource()).ingest_options(sessions))
+        stored = db.scalars(select(OptionsDaily.session).distinct()).all()
+        assert len(stored) == 10 and max(stored) == AS_OF  # newest first
+        asyncio.run(ScanEngine(db, FakeDataSource()).ingest_options(sessions))
+        assert db.scalar(select(func.count(func.distinct(OptionsDaily.session)))) == 19  # +9 older + today refresh
     finally:
         get_settings.cache_clear()
 

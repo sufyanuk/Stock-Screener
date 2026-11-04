@@ -77,14 +77,20 @@ class FakeDataSource:
     async def quote(self, ticker):
         return {"price": None, "day_change_pct": None, "bid": 20.28, "ask": 20.32}, prov()
 
-    async def insider_filings(self, day):
+    filing_fetches = 0  # counts simulated per-filing downloads (for incremental-ingest tests)
+
+    async def insider_filings(self, day, skip=None, limit=None):
         if day != AS_OF:
-            return [], prov()
+            return [], prov(), set(), 0
         t = InsiderTxn("0001-26-1", 1, "0000000001", "GOOD", "Jane Doe", "9", "Chief Executive Officer", False, True,
                        False, date(2026, 10, 28), AS_OF, "P", "A", 2_000_000, 20.0, 3_000_000, "D")
-        return [t, InsiderTxn(**(t.__dict__ | {"owner_name": "Doe Trust", "owner_cik": "10", "direct_indirect": "I"})),
+        rows = [t, InsiderTxn(**(t.__dict__ | {"owner_name": "Doe Trust", "owner_cik": "10", "direct_indirect": "I"})),
                 InsiderTxn(**(t.__dict__ | {"ticker": "PCR", "issuer_cik": "0000000002", "accession": "0002-26-1"})),
-                InsiderTxn(**(t.__dict__ | {"ticker": "BANK", "issuer_cik": "0000000003", "accession": "0003-26-1"}))], prov("sec")
+                InsiderTxn(**(t.__dict__ | {"ticker": "BANK", "issuer_cik": "0000000003", "accession": "0003-26-1"}))]
+        todo = sorted({r.accession for r in rows} - (skip or set()))
+        batch = set(todo if limit is None else todo[:limit])
+        FakeDataSource.filing_fetches += len(batch)
+        return [r for r in rows if r.accession in batch], prov("sec"), batch, len(todo) - len(batch)
 
     async def fundamentals(self, ticker, cik, as_of, market_cap, a24, a36):
         v = next(x for x in self.TICKERS.values() if x["cik"] == cik)

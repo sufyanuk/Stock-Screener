@@ -19,7 +19,8 @@ from sqlalchemy.orm import Session
 
 from app import market_calendar as mc
 from app.config import ScreeningConfig, get_settings
-from app.models import (AppSettings, BusinessReviewRow, DailyBar, InsiderTransaction, OptionsDaily, ProviderHealth,
+from app.models import (AppSettings, BusinessReviewRow, DailyBar, InsiderTransaction, OptionsDaily, ProcessedFiling,
+                        ProviderHealth,
                         Recommendation, ScanResult, ScanRun, Security, ShariahScreen)
 from app.providers.http import ProviderError
 from app.screening import analyst as an, float_liquidity as fl, insider as ins, options as op, shariah as sh
@@ -101,11 +102,21 @@ class ScanEngine:
             self.db.commit()
 
     async def ingest_insiders(self, days: list[date]) -> None:
+        """Incremental: filings already processed are skipped, and at most ``INSIDER_FILINGS_PER_RUN``
+        new filings are fetched per run (0 = unlimited) so serverless invocations stay within limits."""
+        budget = get_settings().insider_filings_per_run or None
         for d in days:
-            res = await self._call("sec_edgar", self.ds.insider_filings(d))
+            done = set(self.db.scalars(select(ProcessedFiling.accession).where(ProcessedFiling.filed == d)).all())
+            res = await self._call("sec_edgar", self.ds.insider_filings(d, skip=done, limit=budget))
             if not res:
                 continue
-            txns, _ = res
+            txns, _, processed, remaining = res
+            for acc in processed - done:
+                self.db.add(ProcessedFiling(accession=acc, filed=d))
+            if budget is not None:
+                budget = max(0, budget - len(processed - done))
+            if remaining:
+                self.errors.append(f"insider filings for {d}: {remaining} not yet fetched; continuing next run")
             existing = set(self.db.execute(select(InsiderTransaction.accession, InsiderTransaction.txn_index,
                                                   InsiderTransaction.owner_cik)
                                            .where(InsiderTransaction.filing_date == d)).all())

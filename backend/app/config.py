@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     database_url_unpooled: str = ""  # set by the Neon integration; preferred (session-level features)
     cron_secret: str = ""  # Vercel Cron sends "Authorization: Bearer <CRON_SECRET>"
     backfill_sessions_per_run: int = 0  # 0 = unlimited; cap per invocation so a scan fits maxDuration
+    insider_filings_per_run: int = 0  # 0 = unlimited; new Form 4 filings fetched per scan
     auto_migrate: bool = False  # run Alembic migrations at startup (Vercel has no release step)
 
     @model_validator(mode="after")

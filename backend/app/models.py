@@ -125,6 +125,15 @@ class FundamentalsSnapshot(Base):
     source: Mapped[str] = mapped_column(String(255))
 
 
+class ProcessedFiling(Base):
+    """Form 4 filings already fetched and parsed (including ones with no transactions)."""
+
+    __tablename__ = "processed_filings"
+    accession: Mapped[str] = mapped_column(String(25), primary_key=True)
+    filed: Mapped[date] = mapped_column(Date, index=True)
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class ShariahScreen(Base):
     __tablename__ = "shariah_screens"
     __table_args__ = (Index("ix_shariah_ticker_date", "ticker", "screened_on"),)
