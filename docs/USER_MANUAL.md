@@ -6,6 +6,22 @@ Tickers are coloured by Shariah status everywhere: **green** = compliant, **red*
 blue = not yet screened. Shariah status does not affect which stocks qualify.
 **Run scan now** queues a manual scan. A yellow banner appears if an admin relaxed any requirement.
 
+**Stock panel (right side)** — click any ticker on any screen to open it: price and day change, P/E,
+float ratio, market cap, next earnings date, analyst ratings (how many recommend Buy / Strong Buy) with
+the price target, a one-year chart, unusual-options and insider-buying context, and recent news.
+Ctrl/Cmd-click a ticker (or "Full analysis →") for the full page. An amber **E** next to a ticker means
+earnings are due within 7 days.
+
+**Earnings** — companies reporting in the next 7 days with insider buying (open-market, last 90 days),
+unusual options from the latest CSV, and analyst Strong Buy / Buy counts ("Load analyst counts" fetches
+them; they are cached for a day). Filters show only names with insider buying or unusual options.
+
+**Seasonality** — choose a list (latest options CSV, earnings next week, all scanned stocks, or your own
+tickers), click **Update price history**, then pick a month: stocks are ranked by their average return in
+that month across past years (or by % of years positive), with median, best/worst year, years of history
+and a 12-month heatmap. "Top 5 for each month" shows the leaders for every month. Past seasonality does
+not guarantee future returns.
+
 **Stock page** — why the stock was or wasn't selected (pass/fail/missing per criterion, in plain
 English); a candlestick chart with SMAs, support/resistance, entry, stop and targets; options
 detail and largest contracts; insider purchases with joint-filing de-duplication; analyst

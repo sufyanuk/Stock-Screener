@@ -106,7 +106,7 @@ def test_api_dashboard_recommendations_revisions(client, db):
     s = client.get("/api/stocks/GOOD", headers=admin).json()
     assert s["result"]["ticker"] == "GOOD" and len(s["bars"]) > 100
     ext = client.get("/api/stocks/GOOD/external", headers=admin).json()
-    assert ext["news"] == [] and "filings_error" in ext  # fake source has no SEC client -> explicit error
+    assert len(ext["news"]) == 1 and "filings_error" in ext  # fake source has no SEC client -> explicit error
     h = client.get("/api/recommendations/history", headers=admin).json()
     assert {x["ticker"]: x["shariah_status"] for x in h} == {"BANK": "Non-Compliant", "GOOD": "Compliant"}
 

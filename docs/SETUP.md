@@ -7,7 +7,8 @@
 | `SEC_USER_AGENT` | none — set `"YourApp you@domain.com"` | free |
 | `ORATS_API_KEY` | orats.com → Data API | Only if Admin → Options data source = ORATS (default is CSV import) |
 | `MASSIVE_API_KEY` | massive.com (Polygon.io keys work) | Stocks + Options (Starter or higher) |
-| `FMP_API_KEY` | financialmodelingprep.com | Starter |
+| `FMP_API_KEY` | financialmodelingprep.com | Starter — analysts, P/E, float, earnings calendar, news & price history (panel, earnings and seasonality screens) |
+| `ALPHAVANTAGE_API_KEY` | alphavantage.co (free key) | Optional — earnings-calendar fallback if FMP is not set |
 | `SMTP_*`, `TELEGRAM_BOT_TOKEN` | optional | — |
 
 Without a key, the affected criteria show as **missing** and nothing qualifies. This is intentional.

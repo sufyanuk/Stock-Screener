@@ -2,10 +2,14 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
+import { StockPane } from "@/components/stock-pane";
 import { api, logout } from "@/lib/api";
+import { PaneProvider, usePane } from "@/lib/pane-context";
 
 const NAV = [
   ["/", "Dashboard"],
+  ["/earnings", "Earnings"],
+  ["/seasonality", "Seasonality"],
   ["/history", "History"],
   ["/tools", "Calculators"],
   ["/journal", "Journal"],
@@ -48,11 +52,34 @@ export function Shell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </nav>
-      <main className="mx-auto max-w-[1500px] px-4 py-5">{children}</main>
+      <PaneProvider>
+        <MainWithPane>{children}</MainWithPane>
+      </PaneProvider>
       <footer className="mx-auto max-w-[1500px] px-4 pb-8 text-xs text-muted">
         Research tool only — not investment advice. Data may be delayed or incomplete; every value shows its source and timestamp.
         Shariah highlighting (green / red) is an analytical aid, not a fatwa.
       </footer>
     </div>
+  );
+}
+
+/** Content on the left, selected-stock panel on the right (slide-over on small screens). */
+function MainWithPane({ children }: { children: ReactNode }) {
+  const pane = usePane();
+  const open = !!pane?.selected;
+  return (
+    <main className={`mx-auto px-4 py-5 ${open ? "max-w-[1900px]" : "max-w-[1500px]"}`}>
+      <div className={open ? "lg:grid lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-4" : ""}>
+        <div className="min-w-0">{children}</div>
+        {open && (
+          <>
+            <div className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={() => pane?.select(null)} />
+            <div className="fixed inset-y-0 right-0 z-40 w-[min(420px,100vw)] p-2 lg:sticky lg:top-16 lg:z-auto lg:w-auto lg:self-start lg:p-0">
+              <StockPane />
+            </div>
+          </>
+        )}
+      </div>
+    </main>
   );
 }

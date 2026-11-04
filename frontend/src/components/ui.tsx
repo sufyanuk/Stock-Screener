@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { ReactNode, useState } from "react";
+import { earningsLabel, usePane } from "@/lib/pane-context";
 
 export function Card({ title, right, children, className = "" }: { title?: ReactNode; right?: ReactNode; children: ReactNode; className?: string }) {
   return (
@@ -33,17 +34,48 @@ export function shariahTone(status?: string | null) {
   return status === "Compliant" ? "text-bull" : status === "Non-Compliant" ? "text-bear" : "text-accent";
 }
 
+/** Small amber "E" next to a ticker that reports earnings within the next 7 days. */
+export function EarningsMarker({ symbol }: { symbol: string }) {
+  const m = usePane()?.earnings[symbol];
+  if (!m) return null;
+  return (
+    <span title={earningsLabel(m)} aria-label={earningsLabel(m)}
+      className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded border border-warn/50 bg-warn/15 px-0.5 align-middle text-[9px] font-bold text-warn">
+      E
+    </span>
+  );
+}
+
+/** Ticker coloured by Shariah status. Clicking opens the stock in the right-hand panel
+ *  (ctrl/cmd-click opens the full analysis page). */
 export function Ticker({ symbol, status, link = true, className = "" }: { symbol: string; status?: string | null; link?: boolean; className?: string }) {
+  const pane = usePane();
   const title = status === "Compliant" ? "Shariah-compliant" : status === "Non-Compliant" ? "Not Shariah-compliant" : "Shariah status not available";
   const cls = `font-semibold ${shariahTone(status)} ${className}`;
-  return link ? <Link href={`/stock/${symbol}`} title={title} className={`${cls} hover:underline`}>{symbol}</Link> : <span title={title} className={cls}>{symbol}</span>;
+  const active = pane?.selected === symbol.toUpperCase();
+  if (!link) return <span className="whitespace-nowrap"><span title={title} className={cls}>{symbol}</span><EarningsMarker symbol={symbol} /></span>;
+  return (
+    <span className="whitespace-nowrap">
+      <Link href={`/stock/${symbol}`} title={`${title} — click for details`}
+        className={`${cls} hover:underline ${active ? "rounded bg-panel-2 px-1 underline" : ""}`}
+        onClick={(e) => {
+          if (!pane || e.metaKey || e.ctrlKey || e.shiftKey) return;
+          e.preventDefault();
+          pane.select(symbol);
+        }}>
+        {symbol}
+      </Link>
+      <EarningsMarker symbol={symbol} />
+    </span>
+  );
 }
 
 export function ShariahLegend() {
   return (
     <span className="text-xs text-muted">
       <span className="font-semibold text-bull">Green</span> = Shariah-compliant · <span className="font-semibold text-bear">red</span> = non-compliant ·{" "}
-      <span className="font-semibold text-accent">blue</span> = not yet screened
+      <span className="font-semibold text-accent">blue</span> = not yet screened ·{" "}
+      <span className="rounded border border-warn/50 bg-warn/15 px-0.5 text-[9px] font-bold text-warn">E</span> = earnings within 7 days
     </span>
   );
 }

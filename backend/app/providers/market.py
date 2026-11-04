@@ -217,3 +217,99 @@ class Fmp:
             return None
         return {"float_shares": r.get("floatShares"), "outstanding_shares": r.get("outstandingShares"),
                 "free_float_pct": r.get("freeFloat"), "date": r.get("date")}
+
+
+# ===================================================================== FMP (extra endpoints)
+def _f(v):
+    try:
+        return None if v in (None, "") else float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+async def fmp_quote(f: "Fmp", symbol: str) -> dict:
+    q = await f._first("/quote", symbol) or {}
+    ratios = await f._first("/ratios-ttm", symbol) or {}
+    pe = _f(ratios.get("priceToEarningsRatioTTM")) or _f(q.get("pe"))
+    return {"name": q.get("name"), "price": _f(q.get("price")), "day_change_pct": _f(q.get("changePercentage")),
+            "market_cap": _f(q.get("marketCap")), "pe": pe, "year_high": _f(q.get("yearHigh")),
+            "year_low": _f(q.get("yearLow")), "volume": _f(q.get("volume")),
+            "earnings_announcement": q.get("earningsAnnouncement")}
+
+
+async def fmp_earnings_calendar(f: "Fmp", start: date, end: date) -> list[dict]:
+    j = await f.http.get_json("/earnings-calendar", {"from": start.isoformat(), "to": end.isoformat(), "apikey": f.key})
+    out = []
+    for r in j if isinstance(j, list) else []:
+        if not r.get("symbol") or not r.get("date"):
+            continue
+        out.append({"symbol": r["symbol"].upper(), "name": r.get("name"), "report_date": r["date"][:10],
+                    "fiscal_date_ending": r.get("fiscalDateEnding"), "eps_estimate": _f(r.get("epsEstimated")),
+                    "time_of_day": r.get("time") or None})
+    return out
+
+
+async def fmp_news(f: "Fmp", symbol: str, limit: int = 10) -> list[dict]:
+    j = await f.http.get_json("/news/stock", {"symbols": symbol, "limit": limit, "apikey": f.key}, cache_ttl=900)
+    return [{"title": r.get("title"), "url": r.get("url"), "published": r.get("publishedDate"),
+             "publisher": r.get("publisher") or r.get("site")} for r in (j if isinstance(j, list) else [])][:limit]
+
+
+async def fmp_daily_bars(f: "Fmp", symbol: str, start: date, end: date) -> pd.DataFrame:
+    j = await f.http.get_json("/historical-price-eod/full",
+                              {"symbol": symbol, "from": start.isoformat(), "to": end.isoformat(), "apikey": f.key})
+    rows = j.get("historical", []) if isinstance(j, dict) else (j if isinstance(j, list) else [])
+    if not rows:
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+    df = pd.DataFrame(rows)
+    df.index = pd.to_datetime(df["date"])
+    adj = "adjClose" if "adjClose" in df else "close"
+    return df.sort_index()[["open", "high", "low", "close", "volume"]].assign(adj_close=df[adj].astype(float))
+
+
+# ===================================================================== Alpha Vantage (earnings calendar)
+class AlphaVantage:
+    """Only the free EARNINGS_CALENDAR endpoint is used (one request returns ~3 months of US earnings)."""
+
+    name = "alphavantage"
+
+    def __init__(self):
+        key = get_settings().alphavantage_api_key
+        if not key:
+            raise NotConfigured(self.name, "ALPHAVANTAGE_API_KEY not set")
+        self.key = key
+        self.http = HttpProvider(self.name, "https://www.alphavantage.co", requests_per_second=1, cache_ttl=6 * 3600)
+
+    async def earnings_calendar(self) -> list[dict]:
+        import csv
+        import io
+
+        txt = await self.http.get_text(f"/query?function=EARNINGS_CALENDAR&horizon=3month&apikey={self.key}")
+        if not txt.lower().startswith("symbol"):
+            from app.providers.http import ProviderError
+
+            raise ProviderError(self.name, f"unexpected response: {txt[:120]!r}")
+        return parse_av_earnings(txt)
+
+
+def parse_av_earnings(txt: str) -> list[dict]:
+    import csv
+    import io
+
+    out = []
+    for r in csv.DictReader(io.StringIO(txt)):
+        if not r.get("symbol") or not r.get("reportDate"):
+            continue
+        out.append({"symbol": r["symbol"].upper(), "name": r.get("name"), "report_date": r["reportDate"][:10],
+                    "fiscal_date_ending": r.get("fiscalDateEnding") or None, "eps_estimate": _f(r.get("estimate")),
+                    "time_of_day": r.get("timeOfTheDay") or None})
+    return out
+
+
+async def massive_monthly_closes(m: "Massive", symbol: str, start: date, end: date) -> list[tuple[date, float]]:
+    j = await m._get(f"/v2/aggs/ticker/{symbol}/range/1/month/{start}/{end}", adjusted="true", sort="asc", limit=5000)
+    out = []
+    for r in j.get("results", []) or []:
+        d = datetime.fromtimestamp(r["t"] / 1000, timezone.utc).date()
+        out.append((date(d.year, d.month, 1), float(r["c"])))
+    return out

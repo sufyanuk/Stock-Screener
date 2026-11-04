@@ -20,7 +20,7 @@ from app.auth import SESSION_COOKIE, admin_user, create_token, current_user, has
 from app.config import ScreeningConfig, get_settings
 from app.db import SessionLocal, get_db
 from app.models import (AppSettings, BusinessReviewRow, DailyBar, InsiderTransaction, JournalDividend, JournalFill,
-                        OptionsImportBatch, OptionsImportRow, ProviderHealth, Recommendation, RecommendationRevision,
+                        EarningsEvent, OptionsImportBatch, OptionsImportRow, ProviderHealth, Recommendation, RecommendationRevision,
                         ScanResult, ScanRun, Security, ShariahScreen, User)
 from app.screening.shariah import METHODOLOGIES, purification
 from app.services.engine import ScanEngine, load_config
@@ -186,8 +186,7 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(current_user)):
     run = _latest_run(db)
     now = datetime.now(timezone.utc)
     out: dict = {"disclaimer": DISCLAIMER, "market_phase": mc.market_phase(now), "now": now.isoformat(),
-                 "latest_run": _run_dict(run), "top": [], "watchlist": [], "unusual_options": [], "low_float": [],
-                 "insider_buys": []}
+                 "latest_run": _run_dict(run), "top": [], "watchlist": [], "unusual_options": [], "insider_buys": []}
     if run:
         recs = db.scalars(select(Recommendation).where(Recommendation.run_id == run.id).order_by(Recommendation.rank)).all()
         out["top"] = [_effective(db, r) for r in recs]
@@ -198,10 +197,6 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(current_user)):
                                    **{k: r.criteria["options"]["metrics"].get(k) for k in (
             "current_volume", "baseline_volume", "volume_change_pct", "iv_rank", "put_call_ratio", "call_volume", "put_volume",
             "current_session")}} for r in sorted(opt, key=lambda r: -(r.criteria["options"]["metrics"].get("volume_change_pct") or 0))[:20]]
-        out["low_float"] = [{"ticker": r.ticker, "shariah_status": r.shariah_status,
-                             "float_ratio_pct": r.criteria["float"]["metrics"].get("float_ratio_pct"),
-                             "category": r.criteria["float"]["metrics"].get("category")}
-                            for r in results if r.criteria.get("float", {}).get("metrics", {}).get("category") in ("Very Low Float", "Low Float")][:20]
     since = date.today() - timedelta(days=7)
     buys = db.scalars(select(InsiderTransaction).where(InsiderTransaction.code == "P", InsiderTransaction.acquired_disposed == "A",
                                                        InsiderTransaction.is_derivative.is_(False),
@@ -224,7 +219,6 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(current_user)):
     status = shariah_statuses(db, {b["ticker"] for b in out["insider_buys"]})
     for b in out["insider_buys"]:
         b["shariah_status"] = status.get(b["ticker"])
-    out["provider_health"] = health_rows(db)
     out["options_source"] = _options_source(db)
     return out
 
@@ -386,6 +380,9 @@ async def _do_scan(kind: str, by: str) -> dict:
             eng = ScanEngine(db, ds)
             eng.errors.extend(getattr(ds, "errors", []))
             run = await eng.run(kind=kind, triggered_by=by)
+            from app.services.research import refresh_earnings
+
+            await refresh_earnings(db, ds)
             prior = set(db.scalars(select(Recommendation.ticker).where(
                 Recommendation.session_date == run.session_date, Recommendation.run_id != run.id)).all())
             new = [r for r in db.scalars(select(Recommendation).where(Recommendation.run_id == run.id)).all()
@@ -673,6 +670,102 @@ def journal_summary(db: Session = Depends(get_db), u: User = Depends(current_use
     s["mark_dates"] = mark_dates
     s["mark_source"] = "last stored daily close (EOD)"
     return s
+
+
+# ------------------------------------------------------------------ research: side panel, earnings, seasonality
+@app.get("/api/stocks/{ticker}/summary")
+async def stock_panel(ticker: str, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    from app.services.research import stock_summary
+
+    return await stock_summary(db, make_datasource(), ticker)
+
+
+@app.get("/api/earnings/markers")
+async def earnings_marker_map(days: int = 7, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    from app.services.research import earnings_markers, refresh_earnings
+
+    info = await refresh_earnings(db, make_datasource())  # at most once every 12 hours
+    return {"days": days, "markers": earnings_markers(db, days), "refresh": info}
+
+
+@app.get("/api/earnings/upcoming")
+async def earnings_upcoming(days: int = 7, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    from app.services import research as rs
+
+    refresh = await rs.refresh_earnings(db, make_datasource())
+    events = rs.upcoming_earnings(db, min(max(days, 1), 21))
+    syms = sorted({e.symbol for e in events})
+    insider = rs.insider_summary(db, syms)
+    batch, opts = rs.options_rows(db, syms)
+    an = rs.analyst_counts(db, syms)
+    sh = rs.shariah_map(db, set(syms))
+    rows = []
+    for e in events:
+        o, a = opts.get(e.symbol), an.get(e.symbol)
+        rows.append({"symbol": e.symbol, "name": e.name, "date": e.report_date.isoformat(), "time_of_day": e.time_of_day,
+                     "eps_estimate": e.eps_estimate, "shariah_status": sh.get(e.symbol),
+                     "insider": insider.get(e.symbol),
+                     "options": None if not o else {"vol_change_1m_pct": o.vol_change_1m_pct, "options_volume": o.options_volume,
+                                                    "iv_rank": o.iv_rank, "put_call": o.pc_ratio},
+                     "analysts": None if not a else {"strong_buy": a.strong_buy, "buy": a.buy, "hold": a.hold,
+                                                     "sell": a.sell, "strong_sell": a.strong_sell,
+                                                     "retrieved_at": a.retrieved_at.isoformat()}})
+    src = db.scalars(select(EarningsEvent.provider).limit(1)).first()
+    return {"days": days, "rows": rows, "refresh": refresh, "earnings_source": src,
+            "options_import": {"id": batch.id, "filename": batch.filename, "session_date": batch.session_date.isoformat()} if batch else None,
+            "analysts_missing": sum(1 for s in syms if s not in an), "insider_window_days": 90}
+
+
+@app.post("/api/earnings/load-analysts")
+async def earnings_load_analysts(days: int = 7, limit: int = 100, db: Session = Depends(get_db),
+                                 _: User = Depends(current_user)):
+    from app.services import research as rs
+
+    syms = sorted({e.symbol for e in rs.upcoming_earnings(db, days)})
+    insider = rs.insider_summary(db, syms)
+    _, opts = rs.options_rows(db, syms)
+    syms.sort(key=lambda s: (s not in insider and s not in opts, s))  # most interesting first
+    return await rs.load_analyst_counts(db, make_datasource(), syms, min(max(limit, 1), 200))
+
+
+class SeasonalityRefresh(BaseModel):
+    universe: str = Field("options", pattern="^(options|earnings|scanned|custom)$")
+    symbols: str | None = None
+    years: int = Field(10, ge=3, le=25)
+    limit: int = Field(40, ge=1, le=120)
+
+
+@app.post("/api/seasonality/refresh")
+async def seasonality_refresh(p: SeasonalityRefresh, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    from app.services import research as rs
+
+    syms = rs.universe_symbols(db, p.universe, p.symbols)
+    if not syms:
+        raise HTTPException(422, "no symbols in this universe (import an options CSV or enter tickers)")
+    return await rs.refresh_monthly(db, make_datasource(), syms, p.years, p.limit) | {"universe_size": len(syms)}
+
+
+@app.get("/api/seasonality")
+def seasonality(month: int | None = None, universe: str = "options", symbols: str | None = None, min_years: int = 5,
+                rank_by: str = "avg", db: Session = Depends(get_db), _: User = Depends(current_user)):
+    from app.services import research as rs
+
+    if universe not in ("options", "earnings", "scanned", "custom"):
+        raise HTTPException(422, "unknown universe")
+    month = month or rs.today_ny().month
+    if not 1 <= month <= 12:
+        raise HTTPException(422, "month must be 1-12")
+    syms = rs.universe_symbols(db, universe, symbols)
+    out = rs.seasonality_table(db, syms, month, max(1, min_years), "win" if rank_by == "win" else "avg")
+    sh = rs.shariah_map(db, {e["symbol"] for e in out["ranked"]})
+    for e in out["ranked"]:
+        e["shariah_status"] = sh.get(e["symbol"])
+    best = rs.best_by_month(db, syms, max(1, min_years))
+    sh |= rs.shariah_map(db, {t["symbol"] for m in best for t in m["top"]} - set(sh))
+    for m in best:
+        for t in m["top"]:
+            t["shariah_status"] = sh.get(t["symbol"])
+    return out | {"universe": universe, "universe_size": len(syms), "best_by_month": best}
 
 
 @app.get("/api/methodology")

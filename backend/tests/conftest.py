@@ -109,7 +109,28 @@ class FakeDataSource:
         return {"float_shares": 15_000_000, "outstanding_shares": 100_000_000}, prov("fmp")
 
     async def news(self, ticker):
-        return [], prov()
+        return [{"title": f"{ticker} news", "url": "https://example.com/n", "published": "2026-11-01", "publisher": "X"}], prov()
+
+    async def company_quote(self, ticker):
+        return {"name": f"{ticker} Inc", "price": 20.3, "day_change_pct": 0.5, "pe": 18.4, "market_cap": 2.03e9}, prov("fmp")
+
+    async def earnings_calendar(self, start, end):
+        from datetime import timedelta as td
+
+        rows = [("GOOD", 2, 0.25, "post-market"), ("BANK", 5, 1.1, "pre-market"), ("LATE", 10, None, None)]
+        return [{"symbol": s, "name": f"{s} Inc", "report_date": (start + td(days=d)).isoformat(),
+                 "fiscal_date_ending": None, "eps_estimate": e, "time_of_day": t} for s, d, e, t in rows], prov("fmp")
+
+    async def monthly_closes(self, ticker, start, end):
+        """GOOD gains 10% every November; BANK loses 5% every November; other months flat."""
+        out, px = [], 100.0
+        y, m = start.year, start.month
+        while (y, m) <= (end.year, end.month):
+            if m == 11:
+                px *= 1.10 if ticker == "GOOD" else 0.95
+            out.append((date(y, m, 1), px))
+            y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+        return out, prov("massive")
 
 
 @pytest.fixture

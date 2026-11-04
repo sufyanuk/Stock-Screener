@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     massive_api_key: str = ""  # Massive.com (formerly Polygon.io); Polygon keys keep working
     massive_base_url: str = "https://api.massive.com"
     fmp_api_key: str = ""
+    alphavantage_api_key: str = ""  # optional: free earnings calendar fallback
 
     smtp_host: str = ""
     smtp_port: int = 587

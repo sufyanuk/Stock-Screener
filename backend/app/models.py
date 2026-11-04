@@ -306,3 +306,44 @@ class NotificationLog(Base):
 @event.listens_for(Recommendation, "before_update")
 def _block_rec_update(mapper, conn, target):  # pragma: no cover - guard
     raise RuntimeError("Recommendations are immutable; write a RecommendationRevision instead")
+
+
+class EarningsEvent(Base):
+    """Upcoming/recent earnings dates from the earnings-calendar provider (refreshed daily)."""
+
+    __tablename__ = "earnings_events"
+    __table_args__ = (UniqueConstraint("symbol", "report_date", name="uq_earnings_symbol_date"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16), index=True)
+    name: Mapped[str | None] = mapped_column(String(255))
+    report_date: Mapped[date] = mapped_column(Date, index=True)
+    fiscal_date_ending: Mapped[str | None] = mapped_column(String(10))
+    eps_estimate: Mapped[float | None] = mapped_column(Float)
+    time_of_day: Mapped[str | None] = mapped_column(String(32))
+    provider: Mapped[str] = mapped_column(String(32))
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AnalystSnapshot(Base):
+    """Cached analyst rating counts per symbol (used by list screens; refreshed when older than a day)."""
+
+    __tablename__ = "analyst_snapshots"
+    symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
+    strong_buy: Mapped[int | None] = mapped_column(Integer)
+    buy: Mapped[int | None] = mapped_column(Integer)
+    hold: Mapped[int | None] = mapped_column(Integer)
+    sell: Mapped[int | None] = mapped_column(Integer)
+    strong_sell: Mapped[int | None] = mapped_column(Integer)
+    provider: Mapped[str] = mapped_column(String(32))
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class MonthlyClose(Base):
+    """Split/dividend-adjusted month-end close, for seasonality analysis."""
+
+    __tablename__ = "monthly_closes"
+    symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
+    month: Mapped[date] = mapped_column(Date, primary_key=True)  # first day of the month
+    close: Mapped[float] = mapped_column(Float)
+    provider: Mapped[str] = mapped_column(String(32))
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

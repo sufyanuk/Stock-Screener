@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Badge, Button, Card, Empty, ErrorBox, Info, ShariahLegend, Ticker, useSort } from "@/components/ui";
 import { api, useApi } from "@/lib/api";
 import { ago, compact, nf, pct, tone, usd } from "@/lib/format";
-import type { Dashboard, Health, Rec } from "@/lib/types";
+import type { Dashboard, Rec } from "@/lib/types";
 
 function rr(r: Rec) {
   if (!r.entry || !r.stop || !r.target1 || r.entry <= r.stop) return null;
@@ -75,24 +75,6 @@ function Top5({ rows }: { rows: Rec[] }) {
   );
 }
 
-function HealthPanel({ rows }: { rows: Health[] }) {
-  if (!rows.length) return <Empty>No provider calls recorded yet. Run a scan after configuring API keys.</Empty>;
-  return (
-    <div className="space-y-2">
-      {rows.map((h) => (
-        <div key={h.provider} className="flex items-center justify-between rounded-lg border border-line bg-panel-2 px-3 py-2 text-sm">
-          <div>
-            <div className="font-medium">{h.provider}</div>
-            <div className="text-xs text-muted">last OK {ago(h.last_success_at)} · {h.failures}/{h.calls} failed</div>
-            {h.last_error && <div className="max-w-xs truncate text-xs text-bear" title={h.last_error}>{h.last_error}</div>}
-          </div>
-          <Badge tone={h.state === "fresh" ? "bull" : h.state === "stale" ? "warn" : "bear"}>{h.state}</Badge>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export default function DashboardPage() {
   const { data, error, reload } = useApi<Dashboard>("/dashboard", 60_000);
   const [scanMsg, setScanMsg] = useState<string | null>(null);
@@ -157,8 +139,8 @@ export default function DashboardPage() {
         <Top5 rows={data?.top ?? []} />
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card title="Unusual options activity" className="lg:col-span-2">
+      <div className="grid gap-4">
+        <Card title="Unusual options activity">
           {data?.unusual_options.length ? (
             <div className="overflow-x-auto"><table className="text-sm"><thead><tr><th>Ticker</th><th>Volume</th><th>Baseline</th><th>Δ</th><th>Calls</th><th>Puts</th><th>P/C</th><th>IV rank</th><th>Session</th></tr></thead>
               <tbody>{data.unusual_options.map((o) => (
@@ -168,7 +150,6 @@ export default function DashboardPage() {
                   <td className="num">{nf(o.iv_rank, 1)}</td><td className="text-muted">{o.current_session}</td></tr>))}</tbody></table></div>
           ) : <Empty>No stocks passed the options filter in the latest scan.</Empty>}
         </Card>
-        <Card title="Data freshness & API health"><HealthPanel rows={data?.provider_health ?? []} /></Card>
       </div>
 
       <div className="grid gap-4">
@@ -183,12 +164,7 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Low-float opportunities">
-          {data?.low_float.length ? data.low_float.map((s) => (
-            <div key={s.ticker} className="flex justify-between border-b border-line py-1.5 text-sm"><Ticker symbol={s.ticker} status={s.shariah_status} />
-              <span className="text-muted">{s.category}</span><span className="num">{pct(s.float_ratio_pct, 1)}</span></div>)) : <Empty>None in the latest scan.</Empty>}
-        </Card>
+      <div className="grid gap-4">
         <Card title="Watchlist — near-qualified">
           {data?.watchlist.length ? data.watchlist.map((w) => (
             <div key={w.ticker} className="border-b border-line py-1.5 text-sm">
