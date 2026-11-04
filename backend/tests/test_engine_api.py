@@ -12,8 +12,15 @@ from app.services.engine import ScanEngine
 from tests.conftest import AS_OF, FakeDataSource, oscillating_bars
 
 
+def orats(cfg: ScreeningConfig | None = None) -> ScreeningConfig:
+    """These tests exercise the ORATS/API options path; CSV imports are covered in test_options_import."""
+    cfg = cfg or ScreeningConfig()
+    cfg.options.source = "orats"
+    return cfg
+
+
 def run_scan(db, ds=None, cfg=None, kind="close"):
-    eng = ScanEngine(db, ds or FakeDataSource(), cfg)
+    eng = ScanEngine(db, ds or FakeDataSource(), orats(cfg))
     return asyncio.run(eng.run(kind=kind, as_of=AS_OF, live=True))
 
 
@@ -60,7 +67,7 @@ def test_simulate_trade_conservative_same_bar():
 
 def test_backtest_runs_point_in_time(db):
     run_scan(db)  # ingest data
-    eng = ScanEngine(db, PointInTimeDataSource(FakeDataSource()))
+    eng = ScanEngine(db, PointInTimeDataSource(FakeDataSource()), orats())
     out = asyncio.run(run_backtest(eng, BacktestParams(start=date(2026, 10, 26), end=AS_OF)))
     assert out["sessions"] == 5
     # options spike only exists on AS_OF; earlier sessions produce no signals

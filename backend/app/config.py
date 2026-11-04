@@ -78,6 +78,8 @@ class Criterion(BaseModel):
 
 
 class OptionsCriteria(Criterion):
+    # "csv": latest uploaded unusual-options CSV (default); "orats": ORATS API with stored history
+    source: Literal["csv", "orats"] = "csv"
     min_volume_change_pct: float = 300.0  # current vs baseline, strictly >= this
     baseline_method: Literal["trailing_20d_avg", "single_session_1m_ago"] = "trailing_20d_avg"
     min_baseline_volume: int = 100  # below this the % change is statistically meaningless -> fails

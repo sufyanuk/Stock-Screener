@@ -21,7 +21,8 @@ from app.backtest.engine import BacktestParams, PointInTimeDataSource, run_backt
 from app.config import ScreeningConfig, get_settings
 from app.db import SessionLocal, get_db
 from app.models import (AppSettings, BusinessReviewRow, DailyBar, InsiderTransaction, JournalDividend, JournalFill,
-                        ProviderHealth, Recommendation, RecommendationRevision, ScanResult, ScanRun, Security, User)
+                        OptionsImportBatch, OptionsImportRow, ProviderHealth, Recommendation, RecommendationRevision,
+                        ScanResult, ScanRun, Security, User)
 from app.screening.shariah import METHODOLOGIES, purification
 from app.services.engine import ScanEngine, load_config
 from app.tools.expectancy import ExpectancyInput, calculate_expectancy, scenario_grid
@@ -219,7 +220,19 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(current_user)):
                      "shares": b.shares, "price": b.price, "value": (b.price or 0) * b.shares}
     out["insider_buys"] = list(seen.values())[:25]
     out["provider_health"] = health_rows(db)
+    out["options_source"] = _options_source(db)
     return out
+
+
+def _options_source(db: Session) -> dict:
+    cfg = load_config(db)
+    if cfg.options.source != "csv":
+        return {"type": cfg.options.source}
+    b = db.scalars(select(OptionsImportBatch).order_by(OptionsImportBatch.session_date.desc(),
+                                                       OptionsImportBatch.id.desc()).limit(1)).first()
+    last = mc.last_completed_session(datetime.now(timezone.utc))
+    return {"type": "csv", "latest": _batch_dict(b) if b else None,
+            "current": bool(b and b.session_date >= last), "last_completed_session": last.isoformat()}
 
 
 def health_rows(db: Session) -> list[dict]:
@@ -243,7 +256,11 @@ def health(db: Session = Depends(get_db)):
            "market_phase": mc.market_phase(datetime.now(timezone.utc)), "migration_error": MIGRATION_ERROR}
     try:
         db.execute(select(1))
-        return out | {"db": "ok", "provider_health": health_rows(db)}
+        src = _options_source(db)
+        if src["type"] == "csv":  # ORATS is optional when options data comes from CSV imports
+            out["providers_configured"] = out["providers_configured"] | {"orats": "not needed (CSV import mode)"}
+            out["config_errors"] = [e for e in out["config_errors"] if "[orats]" not in e]
+        return out | {"db": "ok", "provider_health": health_rows(db), "options_source": src}
     except Exception as e:
         return out | {"db": f"error: {type(e).__name__}: {str(e)[:300]}", "provider_health": []}
 
@@ -481,6 +498,72 @@ def add_review(r: ReviewIn, db: Session = Depends(get_db), u: User = Depends(adm
         old.superseded = True
     db.add(BusinessReviewRow(ticker=r.ticker.upper(), status=r.status, reviewer=u.email, reviewed_on=date.today(),
                              notes=r.notes, prohibited_revenue_pct=r.prohibited_revenue_pct))
+    db.commit()
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ options CSV import
+class OptionsImportIn(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    csv: str = Field(min_length=1, max_length=4_000_000)  # Vercel request bodies are limited to ~4.5 MB
+    session_date: date | None = None  # overrides the date found in the file
+    percent_numbers: str = Field("auto", pattern="^(auto|fraction|percent)$")
+    dry_run: bool = False
+
+
+def _batch_dict(b: OptionsImportBatch) -> dict:
+    return {"id": b.id, "filename": b.filename, "session_date": b.session_date.isoformat(), "rows": b.row_count,
+            "percent_interpretation": b.percent_interpretation, "imported_by": b.imported_by,
+            "imported_at": b.imported_at.isoformat(), "summary": b.summary}
+
+
+@app.post("/api/admin/options-import")
+def options_import(p: OptionsImportIn, db: Session = Depends(get_db), u: User = Depends(admin_user)):
+    from app.imports.options_csv import ImportError_, parse, to_dict
+
+    try:
+        res = parse(p.csv, p.percent_numbers, p.session_date)
+    except ImportError_ as e:
+        raise HTTPException(422, str(e))
+    session = res.session_date or datetime.now(mc.NY).date()
+    summary = res.summary() | {"session_date": session.isoformat()}
+    preview = [to_dict(r) for r in res.rows[:15]]
+    if p.dry_run:
+        return {"dry_run": True, "summary": summary, "preview": preview}
+    b = OptionsImportBatch(filename=p.filename, session_date=session, row_count=len(res.rows),
+                           percent_interpretation=res.percent_interpretation, summary=summary, imported_by=u.email)
+    b.rows = [OptionsImportRow(symbol=r.symbol, name=r.name, price=r.price, change=r.change, pct_change=r.pct_change,
+                               iv_rank=r.iv_rank, options_volume=r.options_volume,
+                               vol_change_1m_pct=r.vol_change_1m_pct, put_volume=r.put_volume,
+                               call_volume=r.call_volume, pc_ratio=r.pc_ratio) for r in res.rows]
+    db.add(b)
+    db.commit()
+    return {"dry_run": False, "batch": _batch_dict(b), "summary": summary, "preview": preview}
+
+
+@app.get("/api/options-imports")
+def list_options_imports(db: Session = Depends(get_db), _: User = Depends(current_user)):
+    return [_batch_dict(b) for b in db.scalars(select(OptionsImportBatch).order_by(OptionsImportBatch.id.desc())
+                                               .limit(30)).all()]
+
+
+@app.get("/api/options-imports/{batch_id}")
+def get_options_import(batch_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    b = db.get(OptionsImportBatch, batch_id)
+    if not b:
+        raise HTTPException(404)
+    rows = sorted(b.rows, key=lambda r: -(r.vol_change_1m_pct or 0))
+    return _batch_dict(b) | {"data": [{c: getattr(r, c) for c in (
+        "symbol", "name", "price", "change", "pct_change", "iv_rank", "options_volume", "vol_change_1m_pct",
+        "put_volume", "call_volume", "pc_ratio")} for r in rows]}
+
+
+@app.delete("/api/admin/options-import/{batch_id}")
+def delete_options_import(batch_id: int, db: Session = Depends(get_db), _: User = Depends(admin_user)):
+    b = db.get(OptionsImportBatch, batch_id)
+    if not b:
+        raise HTTPException(404)
+    db.delete(b)
     db.commit()
     return {"ok": True}
 

@@ -19,7 +19,8 @@ from sqlalchemy.orm import Session
 
 from app import market_calendar as mc
 from app.config import ScreeningConfig, get_settings
-from app.models import (AppSettings, BusinessReviewRow, DailyBar, InsiderTransaction, OptionsDaily, ProcessedFiling,
+from app.models import (AppSettings, BusinessReviewRow, DailyBar, InsiderTransaction, OptionsDaily, OptionsImportBatch,
+                        ProcessedFiling,
                         ProviderHealth,
                         Recommendation, ScanResult, ScanRun, Security, ShariahScreen)
 from app.providers.http import ProviderError
@@ -175,8 +176,21 @@ class ScanEngine:
                             .order_by(BusinessReviewRow.id.desc())).first()
         return sh.BusinessReview(r.status, r.reviewer, r.reviewed_on, r.notes, r.prohibited_revenue_pct) if r else None
 
-    async def evaluate(self, sec: Security, as_of: date, opt_result: CriterionResult, snap: op.OptionsSnapshot,
-                       live: bool) -> Candidate:
+    def latest_options_import(self, as_of: date) -> OptionsImportBatch | None:
+        return self.db.scalars(select(OptionsImportBatch).where(OptionsImportBatch.session_date <= as_of)
+                               .order_by(OptionsImportBatch.session_date.desc(), OptionsImportBatch.id.desc())
+                               .limit(1)).first()
+
+    @staticmethod
+    def import_stale_reason(batch: OptionsImportBatch | None, as_of: date) -> str | None:
+        """An import counts as current only if it is for ``as_of`` (the scan's session)."""
+        if batch is None or batch.session_date >= as_of:
+            return None
+        return (f"options CSV is from {batch.session_date.isoformat()} but the scan is for {as_of.isoformat()}: "
+                "import a current file")
+
+    async def evaluate(self, sec: Security, as_of: date, opt_result: CriterionResult, snap,
+                       live: bool, fallback_price: float | None = None) -> Candidate:
         cfg = self.cfg
         t = sec.ticker
         provenance: dict = {}
@@ -188,6 +202,10 @@ class ScanEngine:
                 quote, provenance["quote"] = res[0], res[1].to_dict()
         bars = await self.load_bars(t, as_of)
         price = (quote or {}).get("price") or (float(bars["close"].iloc[-1]) if bars is not None and len(bars) else None)
+        if price is None and fallback_price is not None:
+            price = fallback_price
+            provenance["price"] = {"provider": "CSV import (Latest column)", "freshness": "end_of_day",
+                                   "market_ts": as_of.isoformat(), "retrieved_at": None, "endpoint": None}
         day_chg = (quote or {}).get("day_change_pct")
         if day_chg is None and bars is not None and len(bars) > 1:
             day_chg = (bars["close"].iloc[-1] / bars["close"].iloc[-2] - 1) * 100
@@ -256,34 +274,71 @@ class ScanEngine:
         cfg = self.cfg
         q = select(Security) if include_inactive else select(Security).where(Security.active.is_(True))
         universe = {s.ticker: s for s in self.db.scalars(q).all()}
-        day_rows = self.db.scalars(select(OptionsDaily).where(OptionsDaily.session == as_of)).all()
         stage1, priced_out = [], 0
-        for r in day_rows:
-            sec = universe.get(r.ticker)
-            if not sec:
-                continue
-            if r.stock_price is None or not r.stock_price < cfg.max_price:
-                priced_out += 1
-                continue
-            snap = self.options_snapshot(r.ticker, as_of)
-            stage1.append((sec, op.evaluate_options(snap, cfg.options), snap))
+        funnel: dict = {}
+        stale: str | None = None
+        if cfg.options.source == "csv":
+            batch = self.latest_options_import(as_of)
+            rows = batch.rows if batch else []
+            stale = self.import_stale_reason(batch, as_of) if live else None
+            if batch is None:
+                self.errors.append("no unusual-options CSV imported yet: upload one under Admin → Options CSV import")
+            elif stale:
+                self.errors.append(stale)
+            label = f"CSV import #{batch.id} ({batch.filename})" if batch else ""
+            for r in rows:
+                sec = universe.get(r.symbol)
+                if sec is None:  # ticker not in the SEC universe (or SEC not configured): evaluate without a CIK
+                    sec = Security(ticker=r.symbol, name=r.name or r.symbol, cik=None, exchange=None)
+                    self.db.merge(sec)
+                    universe[r.symbol] = sec
+                if r.price is None or not r.price < cfg.max_price:
+                    priced_out += 1
+                    continue
+                imp = op.ImportedOptions(r.symbol, batch.session_date, r.options_volume, r.vol_change_1m_pct, r.iv_rank,
+                                         r.put_volume, r.call_volume, r.pc_ratio, r.price, label)
+                stage1.append((sec, op.evaluate_options_import(imp, cfg.options, stale), imp))
+            self.db.commit()
+            funnel["options_source"] = {"type": "csv", "batch_id": batch.id if batch else None,
+                                        "filename": batch.filename if batch else None,
+                                        "session_date": batch.session_date.isoformat() if batch else None,
+                                        "stale": bool(stale)}
+            options_rows = len(rows)
+        else:
+            day_rows = self.db.scalars(select(OptionsDaily).where(OptionsDaily.session == as_of)).all()
+            for r in day_rows:
+                sec = universe.get(r.ticker)
+                if not sec:
+                    continue
+                if r.stock_price is None or not r.stock_price < cfg.max_price:
+                    priced_out += 1
+                    continue
+                snap = self.options_snapshot(r.ticker, as_of)
+                stage1.append((sec, op.evaluate_options(snap, cfg.options), snap))
+            funnel["options_source"] = {"type": "orats"}
+            options_rows = len(day_rows)
         if cfg.options.hard:
             survivors = [s for s in stage1 if s[1].passed]
         else:
             survivors = sorted(stage1, key=lambda s: -s[1].score)[:STAGE2_MAX]
-        funnel = {"universe": len(universe), "options_rows": len(day_rows), "price_filtered_out": priced_out,
-                      "stage1_evaluated": len(stage1), "stage1_options_pass": sum(s[1].passed for s in stage1),
-                      "stage2": len(survivors)}
+        funnel |= {"universe": len(universe), "options_rows": options_rows, "price_filtered_out": priced_out,
+                   "stage1_evaluated": len(stage1), "stage1_options_pass": sum(s[1].passed for s in stage1),
+                   "stage2": len(survivors)}
 
         cands: list[Candidate] = []
         for sec, ores, snap in survivors:
-            c = await self.evaluate(sec, as_of, ores, snap, live)
+            fallback_price = snap.price if isinstance(snap, op.ImportedOptions) else None
+            c = await self.evaluate(sec, as_of, ores, snap, live, fallback_price=fallback_price)
             if cfg.options.hard and live:
                 cres = await self._call("massive", self.ds.option_contracts(sec.ticker))
                 if cres:
                     contracts, spot, _ = cres
-                    snap.contracts, snap.spot = contracts, spot or snap.spot
-                    c.criteria["options"] = op.evaluate_options(snap, cfg.options)
+                    if isinstance(snap, op.ImportedOptions):
+                        snap.contracts = contracts
+                        c.criteria["options"] = op.evaluate_options_import(snap, cfg.options, stale)
+                    else:
+                        snap.contracts, snap.spot = contracts, spot or snap.spot
+                        c.criteria["options"] = op.evaluate_options(snap, cfg.options)
             cands.append(c)
         top, watch = rank(cands, cfg)
         return cands, top, watch, funnel
@@ -292,8 +347,14 @@ class ScanEngine:
     async def run(self, kind: str = "manual", as_of: date | None = None, triggered_by: str = "scheduler",
                   live: bool = True, ingest: bool = True) -> ScanRun:
         now = datetime.now(timezone.utc)
-        as_of = as_of or mc.last_completed_session(now)
         cfg = self.cfg
+        if as_of is None:
+            as_of = mc.last_completed_session(now)
+            if cfg.options.source == "csv":
+                # An intraday CSV for today's session is newer than the last completed session: scan that day.
+                latest = self.latest_options_import(now.astimezone(mc.NY).date())
+                if latest and latest.session_date > as_of:
+                    as_of = latest.session_date
         run = ScanRun(kind=kind, session_date=as_of, config_snapshot=cfg.model_dump(by_alias=True),
                       relaxed_criteria=cfg.relaxed_criteria(), triggered_by=triggered_by, funnel={}, errors=[])
         self.db.add(run)
@@ -302,7 +363,8 @@ class ScanEngine:
             if ingest:
                 if not self.db.scalars(select(Security).limit(1)).first():
                     await self.refresh_universe()
-                await self.ingest_options(mc.previous_sessions(as_of, HISTORY_SESSIONS if not self._has_history() else 3))
+                if cfg.options.source == "orats":
+                    await self.ingest_options(mc.previous_sessions(as_of, HISTORY_SESSIONS if not self._has_history() else 3))
                 await self.ingest_insiders([as_of - timedelta(days=i) for i in range(0, 4)])
 
             cands, top, watch, funnel = await self.screen(as_of, live)

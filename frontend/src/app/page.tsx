@@ -130,6 +130,17 @@ export default function DashboardPage() {
         </div>
       </div>
       <ErrorBox error={error} />
+      {data?.options_source?.type === "csv" && (() => {
+        const o = data.options_source!;
+        if (!o.latest)
+          return <div className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm text-warn">No unusual-options CSV imported yet — upload one under <Link className="underline" href="/admin">Admin → Unusual options CSV import</Link>. Until then nothing can qualify.</div>;
+        return (
+          <div className={`rounded-lg border p-3 text-sm ${o.current ? "border-line text-muted" : "border-warn/40 bg-warn/10 text-warn"}`}>
+            Options data: CSV import #{o.latest.id} <span className="text-ink">{o.latest.filename}</span> · session {o.latest.session_date} · {o.latest.rows} rows
+            {!o.current && <> — older than the last completed session ({o.last_completed_session}); scans treat it as missing. <Link className="underline" href="/admin">Import a current file</Link>.</>}
+          </div>
+        );
+      })()}
       {run && run.relaxed_criteria.length > 0 && (
         <div className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm text-warn">
           An administrator relaxed these requirements for this scan: <b>{run.relaxed_criteria.join(", ")}</b>. Results are not the strict Top 5.

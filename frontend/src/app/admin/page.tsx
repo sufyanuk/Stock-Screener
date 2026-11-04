@@ -1,6 +1,7 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useState } from "react";
+import { OptionsImport } from "@/components/options-import";
 import { Badge, Button, Card, Empty, ErrorBox, Field } from "@/components/ui";
 import { api, useApi } from "@/lib/api";
 
@@ -71,6 +72,8 @@ export default function AdminPage() {
       <ErrorBox error={err || s.error} />
       {msg && <div className="rounded-lg border border-accent/40 bg-accent/10 p-3 text-sm">{msg}</div>}
 
+      <OptionsImport isAdmin={isAdmin} />
+
       <Card title="Notifications (your account)">
         <div className="flex flex-wrap items-end gap-4">
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={np.notify_email} onChange={(e) => setNp({ ...np, notify_email: e.target.checked })} /> Email</label>
@@ -83,7 +86,7 @@ export default function AdminPage() {
 
       <Card title="Provider configuration">
         {health.data ? (
-          <div className="flex flex-wrap gap-2">{Object.entries(health.data.providers_configured).map(([k, v]: [string, any]) => <Badge key={k} tone={v === "configured" ? "bull" : "warn"}>{k}: {v}</Badge>)}</div>
+          <div className="flex flex-wrap gap-2">{Object.entries(health.data.providers_configured).map(([k, v]: [string, any]) => <Badge key={k} tone={v === "configured" ? "bull" : String(v).startsWith("not needed") ? "muted" : "warn"}>{k}: {v}</Badge>)}</div>
         ) : <Empty>Loading…</Empty>}
       </Card>
 
@@ -95,6 +98,11 @@ export default function AdminPage() {
             </div>
             <section className="space-y-2"><h3 className="text-sm font-semibold">Unusual options</h3><HardToggle cfg={cfg} name="options" onChange={change} />
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <Field label="Options data source">
+                  <select value={cfg.options.source} onChange={(e) => change(["options", "source"], e.target.value)}>
+                    <option value="csv">CSV import (uploaded file)</option><option value="orats">ORATS API</option>
+                  </select>
+                </Field>
                 <NumberField cfg={cfg} path={["options", "min_volume_change_pct"]} label="Min volume change (%)" hint="spec: 300" onChange={change} />
                 <NumberField cfg={cfg} path={["options", "min_iv_rank"]} label="IV rank greater than" hint="spec: 20" onChange={change} />
                 <NumberField cfg={cfg} path={["options", "max_put_call_ratio"]} label="Put/call below" hint="spec: 0.20" onChange={change} />

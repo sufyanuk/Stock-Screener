@@ -211,3 +211,72 @@ def evaluate_options(snap: OptionsSnapshot, cfg: OptionsCriteria) -> CriterionRe
     expl += (". Activity is concentrated in " + concentration + "." if concentration else "")
     expl += " Large call volume is not automatically bullish — it may be hedging, spreads or closing trades."
     return CriterionResult("options", Outcome.PASS if ok else Outcome.FAIL, cfg.hard, score, expl, metrics)
+
+
+@dataclass
+class ImportedOptions:
+    """One row of an uploaded unusual-options CSV (values already in percent units)."""
+
+    ticker: str
+    session: date
+    options_volume: int | None
+    vol_change_1m_pct: float | None
+    iv_rank: float | None
+    put_volume: int | None
+    call_volume: int | None
+    pc_ratio: float | None
+    price: float | None
+    source_label: str  # e.g. "CSV import #12 (uov-2026-11-04.csv)"
+    contracts: list[ContractActivity] = field(default_factory=list)
+
+
+def evaluate_options_import(row: ImportedOptions, cfg: OptionsCriteria, stale_reason: str | None = None) -> CriterionResult:
+    """Options criterion from an imported CSV row. The source's own "1M Vol %Chg" is used as the
+    volume change; baseline volume is derived as current ÷ (1 + change)."""
+    chg = row.vol_change_1m_pct
+    cur = row.options_volume
+    base = None if cur is None or chg is None or chg <= -100 else cur / (1 + chg / 100)
+    pcr = row.pc_ratio if row.pc_ratio is not None else put_call_ratio(row.put_volume, row.call_volume)
+    concentration = None
+    if row.call_volume is not None and row.put_volume is not None and (row.call_volume + row.put_volume) > 0:
+        concentration = "calls" if row.call_volume >= row.put_volume else "puts"
+    largest = []
+    for c in sorted(row.contracts, key=lambda c: c.premium or 0, reverse=True)[:10]:
+        largest.append({
+            "contract": c.contract, "type": c.option_type, "expiration": c.expiration.isoformat(), "strike": c.strike,
+            "volume": c.volume, "open_interest": c.open_interest, "premium": c.premium,
+            "moneyness": moneyness(c.option_type, c.strike, row.price or 0, cfg.atm_band_pct),
+            "is_block": False, "side": trade_side(c), "open_close": opening_inference(c)})
+    metrics = {
+        "current_volume": cur, "baseline_volume": base, "volume_change_pct": chg,
+        "baseline_method": "source 1M Vol %Chg (CSV import)", "current_session": row.session.isoformat(),
+        "baseline_sessions": None, "call_volume": row.call_volume, "put_volume": row.put_volume,
+        "put_call_ratio": pcr, "put_call_period": row.session.isoformat(), "iv_rank": row.iv_rank,
+        "iv_rank_source": "CSV import", "concentration": concentration, "largest_contracts": largest,
+        "source": row.source_label,
+    }
+    missing = []
+    if stale_reason:
+        missing.append(stale_reason)
+    if chg is None or cur is None:
+        missing.append("options volume / 1M change")
+    if row.iv_rank is None:
+        missing.append("IV rank")
+    if pcr is None:
+        missing.append("put/call ratio (no call volume)")
+    if missing:
+        return CriterionResult("options", Outcome.MISSING, cfg.hard, 0.0,
+                               "Insufficient options data: " + "; ".join(missing), metrics)
+    checks = [
+        (chg >= cfg.min_volume_change_pct, f"1M volume change {chg:.0f}% (need ≥{cfg.min_volume_change_pct:.0f}%)"),
+        (row.iv_rank > cfg.min_iv_rank, f"IV rank {row.iv_rank:.1f} (need >{cfg.min_iv_rank:.0f})"),
+        (pcr < cfg.max_put_call_ratio, f"put/call {pcr:.3f} (need <{cfg.max_put_call_ratio:.2f})"),
+    ]
+    ok = all(c[0] for c in checks)
+    score = (0.5 * lerp_score(chg, cfg.min_volume_change_pct * 0.5, 1500, 0, 100)
+             + 0.25 * lerp_score(row.iv_rank, 0, 80) + 0.25 * lerp_score(pcr, 1.0, 0.0))
+    expl = ("Passes" if ok else "Fails") + ": " + "; ".join(("✓ " if c[0] else "✗ ") + c[1] for c in checks)
+    expl += f". Source: {row.source_label}, session {row.session.isoformat()}."
+    expl += (" Activity is concentrated in " + concentration + "." if concentration else "")
+    expl += " Large call volume is not automatically bullish — it may be hedging, spreads or closing trades."
+    return CriterionResult("options", Outcome.PASS if ok else Outcome.FAIL, cfg.hard, score, expl, metrics)

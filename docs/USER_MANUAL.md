@@ -25,6 +25,10 @@ daily-to-yearly breakdowns, and actual vs. recommended levels when you enter a r
 factor, expectancy, max drawdown, an approximate Sharpe ratio, a regime split (SPY vs. its 200-day
 SMA) and the trade list, with the limitations listed.
 
+**Unusual options CSV (Admin page, top)** — choose the day's export, click **Preview** to check how
+it was read (e.g. +1,639% and IV rank 3.3), then **Import**. The dashboard shows which file is in use and
+warns when it is out of date. Import a new file each trading day before scanning.
+
 **Admin** — thresholds, hard/soft toggles, weights, Shariah methodology, business reviews and notifications.
 
 Disclaimer: research tool only, not investment advice. Shariah screening is not a fatwa.

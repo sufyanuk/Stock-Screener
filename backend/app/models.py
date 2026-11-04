@@ -125,6 +125,40 @@ class FundamentalsSnapshot(Base):
     source: Mapped[str] = mapped_column(String(255))
 
 
+class OptionsImportBatch(Base):
+    """One uploaded unusual-options CSV. Rows are immutable; a newer upload supersedes older ones."""
+
+    __tablename__ = "options_import_batches"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    filename: Mapped[str] = mapped_column(String(255))
+    session_date: Mapped[date] = mapped_column(Date, index=True)
+    row_count: Mapped[int] = mapped_column(Integer)
+    percent_interpretation: Mapped[str] = mapped_column(String(64))
+    summary: Mapped[dict] = mapped_column(Json, default=dict)
+    imported_by: Mapped[str] = mapped_column(String(255))
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    rows: Mapped[list["OptionsImportRow"]] = relationship(back_populates="batch", cascade="all, delete-orphan")
+
+
+class OptionsImportRow(Base):
+    __tablename__ = "options_import_rows"
+    __table_args__ = (UniqueConstraint("batch_id", "symbol", name="uq_options_import_row"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    batch_id: Mapped[int] = mapped_column(ForeignKey("options_import_batches.id", ondelete="CASCADE"), index=True)
+    symbol: Mapped[str] = mapped_column(String(16), index=True)
+    name: Mapped[str | None] = mapped_column(String(255))
+    price: Mapped[float | None] = mapped_column(Float)
+    change: Mapped[float | None] = mapped_column(Float)
+    pct_change: Mapped[float | None] = mapped_column(Float)
+    iv_rank: Mapped[float | None] = mapped_column(Float)
+    options_volume: Mapped[int | None] = mapped_column(Integer)
+    vol_change_1m_pct: Mapped[float | None] = mapped_column(Float)
+    put_volume: Mapped[int | None] = mapped_column(Integer)
+    call_volume: Mapped[int | None] = mapped_column(Integer)
+    pc_ratio: Mapped[float | None] = mapped_column(Float)
+    batch: Mapped[OptionsImportBatch] = relationship(back_populates="rows")
+
+
 class ProcessedFiling(Base):
     """Form 4 filings already fetched and parsed (including ones with no transactions)."""
 

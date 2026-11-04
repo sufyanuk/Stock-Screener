@@ -24,4 +24,6 @@ export type Dashboard = {
   disclaimer: string; market_phase: string; now: string; latest_run: Run | null; top: Rec[]; watchlist: ScanRow[];
   unusual_options: Record<string, any>[]; near_support: Record<string, any>[]; low_float: Record<string, any>[];
   shariah_counts: Record<string, number>; insider_buys: Record<string, any>[]; provider_health: Health[];
+  options_source?: { type: string; current?: boolean; last_completed_session?: string;
+    latest?: { id: number; filename: string; session_date: string; rows: number } | null };
 };

@@ -5,7 +5,7 @@
 | Variable | Where | Minimum plan |
 |---|---|---|
 | `SEC_USER_AGENT` | none — set `"YourApp you@domain.com"` | free |
-| `ORATS_API_KEY` | orats.com → Data API | Delayed Data API |
+| `ORATS_API_KEY` | orats.com → Data API | Only if Admin → Options data source = ORATS (default is CSV import) |
 | `MASSIVE_API_KEY` | massive.com (Polygon.io keys work) | Stocks + Options (Starter or higher) |
 | `FMP_API_KEY` | financialmodelingprep.com | Starter |
 | `SMTP_*`, `TELEGRAM_BOT_TOKEN` | optional | — |

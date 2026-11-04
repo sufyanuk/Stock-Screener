@@ -19,6 +19,21 @@ This page summarises them.
 (weights are admin-configurable but must sum to 100). Ties are broken alphabetically for determinism.
 
 ## Options
+
+**Data source (default: CSV import).** Unusual-options data comes from the CSV you upload under
+Admin → *Unusual options — CSV import* (Barchart "Unusual Options Volume" export, or the same columns
+from a spreadsheet: Symbol, Name, Latest, Change, %Change, IV Rank, Options Vol, 1M Vol %Chg, Put Vol,
+Call Vol, P/C Vol, Date). With a CSV:
+* Volume change % = the file's **1M Vol %Chg** (the source's own month-over-month definition);
+  baseline volume shown = Options Vol ÷ (1 + change).
+* IV rank and put/call come from the file (P/C is computed as Put Vol ÷ Call Vol if the column is missing).
+* Percent columns: values with a % sign are percents; plain numbers are read as fractions (0.2 = 20%)
+  unless you choose otherwise when importing. The preview shows how the file was read.
+* One session per import: rows dated other than the chosen session are ignored.
+* An import older than the last completed trading session is **missing**, never current.
+* Insider data is unaffected: it still comes from SEC EDGAR Form 4 filings.
+
+**Alternative (Admin → Options data source = ORATS API):**
 * Volume = calls + puts traded in the session, all expirations. Open interest is separate.
 * Baseline (default) = mean daily volume of the 20 sessions **ending 21 sessions before** the
   evaluation session (equivalent one-session comparison, one month earlier). The alternative is
