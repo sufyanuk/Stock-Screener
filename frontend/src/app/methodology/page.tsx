@@ -4,7 +4,7 @@ import { useApi } from "@/lib/api";
 
 const TITLES: Record<string, string> = {
   options: "Unusual options activity", insider: "Insider buying", analyst: "Analyst ratings", technical: "Technical support",
-  float_liquidity: "Float & liquidity", shariah: "Shariah screening", ranking: "Eligibility & ranking",
+  float_liquidity: "Float & liquidity", shariah: "Shariah status (highlight colour only)", ranking: "Eligibility & ranking",
 };
 
 export default function MethodologyPage() {

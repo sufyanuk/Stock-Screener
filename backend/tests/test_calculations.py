@@ -279,13 +279,18 @@ def _cand(t, score=50, shariah_status="Compliant", price=10.0, **fails):
     return ranking.Candidate(t, t, price, 1.0, shariah_status, crit)
 
 
-def test_ranking_never_manufactures_and_respects_mandatory():
+def test_ranking_never_manufactures_and_shariah_is_display_only():
     cands = [_cand("A", 90), _cand("B", 80), _cand("C", 70, options=True), _cand("D", 99, shariah_status="Needs Review"),
-             _cand("E", 95, price=100.0), _cand("F", 60, shariah_status="Non-Compliant"), _cand("G", 10, price=None)]
+             _cand("E", 95, price=100.0), _cand("F", 60, shariah_status="Non-Compliant"), _cand("G", 10, price=None),
+             _cand("H", 50)]
     top, watch = ranking.rank(cands, ScreeningConfig())
-    assert [c.ticker for c in top] == ["A", "B"]
-    assert top[0].score == pytest.approx(90)
-    assert {c.ticker for c in watch} == {"C", "D"}
+    # Shariah status no longer filters; price < $100 and hard criteria still do; max 5
+    assert [c.ticker for c in top] == ["D", "A", "B", "F", "H"]
+    assert next(c for c in top if c.ticker == "F").shariah_status == "Non-Compliant"  # kept for the red highlight
+    assert top[1].score == pytest.approx(90)
+    assert {c.ticker for c in watch} == {"C"}
+    top3, _ = ranking.rank(cands[:3], ScreeningConfig())
+    assert [c.ticker for c in top3] == ["A", "B"]  # fewer qualify -> fewer returned, never padded
 
 
 def test_missing_never_passes():

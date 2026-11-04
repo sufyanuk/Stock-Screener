@@ -1,4 +1,4 @@
-"""Data-source abstraction used by the scan engine and the backtester.
+"""Data-source abstraction used by the scan engine.
 
 ``LiveDataSource`` composes the provider adapters with fallbacks. Every call returns values plus
 a ``Provenance``; failures raise ``ProviderError`` which the engine records — the affected

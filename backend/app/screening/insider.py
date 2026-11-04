@@ -15,7 +15,7 @@ De-duplication:
 
 % of outstanding = qualifying shares / shares outstanding, where shares outstanding is the
 latest ``dei:EntityCommonStockSharesOutstanding`` value reported *on or before* the trade date
-(point-in-time, so it is also valid for backtesting).
+(point-in-time).
 """
 from __future__ import annotations
 

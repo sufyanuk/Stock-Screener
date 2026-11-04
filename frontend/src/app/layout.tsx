@@ -3,8 +3,8 @@ import { Shell } from "@/components/shell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Stock Intel — Shariah-screened US stock discovery",
-  description: "Unusual options, insider buying, analyst sentiment, technical support and Shariah screening for US stocks.",
+  title: "Stock Intel — US stock discovery",
+  description: "Unusual options, insider buying, analyst sentiment and technical support for US stocks, with Shariah-compliance highlighting.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

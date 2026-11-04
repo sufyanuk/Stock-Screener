@@ -22,8 +22,6 @@
 * **Scan engine** (`services/engine.py`) – ingest → funnel → evaluate → rank → persist → notify.
   Every run stores the full config snapshot, the list of relaxed criteria, the funnel counts and
   every provider error. A failed run never produces recommendations.
-* **Backtester** (`backtest/engine.py`) reuses the same `screen()` code path through a
-  point-in-time data-source wrapper.
 
 ### Funnel (keeps whole-market scanning inside API budgets)
 
@@ -84,7 +82,6 @@ Hosting (1 small VM, 2 vCPU / 4 GB, managed backups) adds ≈ $20–60/month.
 | Verified analyst track records | Not available from FMP. Weighting code exists but is only applied when a sourced success rate is present; otherwise ratings are equal-weighted and the UI says so. |
 | Institutional ownership change | Needs 13F aggregation (FMP higher tier or SEC 13F parsing); field is shown as unavailable. |
 | Trading halts | No adapter yet; reported as "unknown" in liquidity checks. |
-| Point-in-time analyst consensus & float | Providers only offer current snapshots, so backtests exclude these factors (documented in each backtest result). |
 | Mixed-revenue Shariah screening | XBRL has no prohibited-segment revenue; requires admin business review (recorded with reviewer/date). |
 
 ## 4. Database schema (Alembic migrations `0001`, `0002`)

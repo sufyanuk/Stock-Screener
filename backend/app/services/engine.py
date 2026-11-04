@@ -57,7 +57,7 @@ class ScanEngine:
         self.db, self.ds = db, ds
         self.cfg = cfg or load_config(db)
         self.errors: list[str] = []
-        self.persist = True  # False in backtests: no side-effect rows
+        self.persist = True  # False to evaluate without writing side-effect rows
 
     async def _call(self, provider: str, coro):
         try:

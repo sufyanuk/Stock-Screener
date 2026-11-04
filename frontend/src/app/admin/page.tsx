@@ -94,7 +94,7 @@ export default function AdminPage() {
         <Card title="Screening thresholds" right={!isAdmin && <Badge tone="warn">read-only (admin required)</Badge>}>
           <fieldset disabled={!isAdmin} className="space-y-5">
             <div className="rounded-lg border border-line p-3 text-sm text-muted">
-              <b className="text-ink">Mandatory, not configurable:</b> Shariah status must be Compliant · price must be below $100 · missing data never passes · at most 5 recommendations, never padded.
+              <b className="text-ink">Mandatory, not configurable:</b> price must be below $100 · missing data never passes · at most 5 recommendations, never padded. Shariah status does not filter; it only colours tickers green (compliant) or red (non-compliant).
             </div>
             <section className="space-y-2"><h3 className="text-sm font-semibold">Unusual options</h3><HardToggle cfg={cfg} name="options" onChange={change} />
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -134,7 +134,7 @@ export default function AdminPage() {
             <section className="space-y-2"><h3 className="text-sm font-semibold">Ranking weights (must total 100)</h3>
               <div className="grid grid-cols-3 gap-3 md:grid-cols-6">{["options", "insider", "analyst", "technical", "float", "liquidity"].map((k) =>
                 <NumberField key={k} cfg={cfg} path={["weights", k]} label={k} onChange={change} />)}</div></section>
-            <section className="space-y-2"><h3 className="text-sm font-semibold">Shariah methodology</h3>
+            <section className="space-y-2"><h3 className="text-sm font-semibold">Shariah methodology (used for green / red highlighting)</h3>
               <select value={cfg.shariah.methodology} onChange={(e) => change(["shariah", "methodology"], e.target.value)}>
                 {Object.entries(s.data!.methodologies).map(([k, m]: [string, any]) => <option key={k} value={k}>{m.label}</option>)}</select>
               <p className="text-xs text-muted">Denominator: {s.data!.methodologies[cfg.shariah.methodology].denominator} · debt &lt; {s.data!.methodologies[cfg.shariah.methodology].debt}% · cash &lt; {s.data!.methodologies[cfg.shariah.methodology].cash}%</p>
@@ -148,7 +148,7 @@ export default function AdminPage() {
         </Card>
       )}
 
-      <Card title="Shariah business-activity reviews">
+      <Card title="Shariah business-activity reviews (affects highlighting only)">
         {isAdmin && (
           <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-5">
             <Field label="Ticker"><input value={rv.ticker} onChange={(e) => setRv({ ...rv, ticker: e.target.value })} /></Field>

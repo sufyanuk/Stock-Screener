@@ -5,7 +5,6 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.backtest.engine import BacktestParams, PointInTimeDataSource, run_backtest, simulate_trade
 from app.config import ScreeningConfig
 from app.models import Recommendation, ScanResult
 from app.services.engine import ScanEngine
@@ -29,11 +28,13 @@ def test_end_to_end_scan_selects_only_fully_qualified(db):
     assert run.status == "ok", run.errors
     assert run.funnel["price_filtered_out"] == 1  # PRICY ($150)
     recs = db.scalars(select(Recommendation).where(Recommendation.run_id == run.id)).all()
-    assert [r.ticker for r in recs] == ["GOOD"]
-    rec = recs[0]
+    # BANK is a bank (Shariah non-compliant) but Shariah no longer filters: it qualifies and is highlighted red
+    assert [r.ticker for r in recs] == ["BANK", "GOOD"]
+    rec = next(r for r in recs if r.ticker == "GOOD")
     assert rec.is_final and rec.stop < rec.entry and rec.target1 > rec.entry
     res = {r.ticker: r for r in db.scalars(select(ScanResult).where(ScanResult.run_id == run.id)).all()}
-    assert res["BANK"].shariah_status == "Non-Compliant" and not res["BANK"].eligible
+    assert res["BANK"].shariah_status == "Non-Compliant" and res["BANK"].eligible
+    assert res["GOOD"].shariah_status == "Compliant"
     assert "PCR" not in res  # failed hard options filter at stage 1 (P/C = 0.33)
     good = res["GOOD"].criteria
     assert good["insider"]["metrics"]["aggregate_pct"] == pytest.approx(2.0)  # joint report counted once
@@ -55,24 +56,6 @@ def test_relaxed_config_is_recorded(db):
     run = run_scan(db, cfg=cfg)
     assert "options" in run.relaxed_criteria
     assert run.funnel["stage2"] == 3  # PCR now reaches stage 2 (preference, not filter)
-
-
-def test_simulate_trade_conservative_same_bar():
-    df = oscillating_bars()
-    d = df.index[-10].date()
-    p = BacktestParams(start=d, end=df.index[-1].date(), slippage_bps=0, commission_per_trade=0)
-    sim = simulate_trade(df, d, stop=df["low"].iloc[-9] + 0.0001, target=df["high"].iloc[-9] - 0.0001, p=p)
-    assert sim[3] == "stop"
-
-
-def test_backtest_runs_point_in_time(db):
-    run_scan(db)  # ingest data
-    eng = ScanEngine(db, PointInTimeDataSource(FakeDataSource()), orats())
-    out = asyncio.run(run_backtest(eng, BacktestParams(start=date(2026, 10, 26), end=AS_OF)))
-    assert out["sessions"] == 5
-    # options spike only exists on AS_OF; earlier sessions produce no signals
-    assert out["signals"] <= 1
-    assert out["limitations"]
 
 
 @pytest.fixture
@@ -108,9 +91,11 @@ def test_api_dashboard_recommendations_revisions(client, db):
     admin, _ = _auth(client)
     run_scan(db)
     d = client.get("/api/dashboard", headers=admin).json()
-    assert [t["ticker"] for t in d["top"]] == ["GOOD"]
-    assert d["insider_buys"] == [] or d["insider_buys"][0]["ticker"]
-    rec = d["top"][0]
+    assert [t["ticker"] for t in d["top"]] == ["BANK", "GOOD"]
+    assert {t["ticker"]: t["extra"]["shariah"]["status"] for t in d["top"]} == {"BANK": "Non-Compliant", "GOOD": "Compliant"}
+    assert "near_support" not in d and "shariah_counts" not in d
+    assert all("shariah_status" in o for o in d["unusual_options"])
+    rec = next(t for t in d["top"] if t["ticker"] == "GOOD")
     r = client.post(f"/api/recommendations/{rec['id']}/revise", headers=admin,
                     json={"reason": "corrected stop after data fix", "changes": {"stop": 19.0}})
     assert r.status_code == 200 and r.json()["stop"] == 19.0 and r.json()["revisions"][0]["before"]["stop"] == rec["stop"]
@@ -123,7 +108,7 @@ def test_api_dashboard_recommendations_revisions(client, db):
     ext = client.get("/api/stocks/GOOD/external", headers=admin).json()
     assert ext["news"] == [] and "filings_error" in ext  # fake source has no SEC client -> explicit error
     h = client.get("/api/recommendations/history", headers=admin).json()
-    assert h[0]["ticker"] == "GOOD"
+    assert {x["ticker"]: x["shariah_status"] for x in h} == {"BANK": "Non-Compliant", "GOOD": "Compliant"}
 
 
 def test_cookie_session_and_csrf(client):

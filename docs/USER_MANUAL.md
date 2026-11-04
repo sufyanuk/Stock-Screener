@@ -1,14 +1,15 @@
 # User manual
 
 **Dashboard** — Daily Top 5 table (all the spec fields; click column headers to sort, click `?` to see the formula),
-unusual options, latest Form-4 open-market buys, stocks near support, low-float names, Shariah
-counts, the near-qualified watchlist with the reason each stock fails, and data-freshness/API health.
+unusual options, latest Form-4 open-market buys, low-float names, the near-qualified watchlist with the reason each stock fails, and data-freshness/API health.
+Tickers are coloured by Shariah status everywhere: **green** = compliant, **red** = non-compliant,
+blue = not yet screened. Shariah status does not affect which stocks qualify.
 **Run scan now** queues a manual scan. A yellow banner appears if an admin relaxed any requirement.
 
 **Stock page** — why the stock was or wasn't selected (pass/fail/missing per criterion, in plain
 English); a candlestick chart with SMAs, support/resistance, entry, stop and targets; options
 detail and largest contracts; insider purchases with joint-filing de-duplication; analyst
-consensus and changes; float and liquidity; Shariah ratios with denominator and source; news; SEC
+consensus and changes; float and liquidity; news; SEC
 filings; and a data-provenance table. **Size this trade** opens the position calculator pre-filled.
 
 **Calculators** — position size (long/short, fees, slippage, allocation cap, fractional shares),
@@ -20,10 +21,6 @@ dividends. Shows realized/unrealized P&L, fees, exposure, win rate, equity and d
 daily-to-yearly breakdowns, and actual vs. recommended levels when you enter a recommendation ID.
 
 **History** — every final daily Top 5 with return since recommendation, stop/target hits and revisions.
-
-**Backtest** — choose dates, hold period, costs. Results include win rate, average return, profit
-factor, expectancy, max drawdown, an approximate Sharpe ratio, a regime split (SPY vs. its 200-day
-SMA) and the trade list, with the limitations listed.
 
 **Unusual options CSV (Admin page, top)** — choose the day's export, click **Preview** to check how
 it was read (e.g. +1,639% and IV rank 3.3), then **Import**. The dashboard shows which file is in use and

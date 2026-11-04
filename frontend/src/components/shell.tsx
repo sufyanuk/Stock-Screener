@@ -9,7 +9,6 @@ const NAV = [
   ["/history", "History"],
   ["/tools", "Calculators"],
   ["/journal", "Journal"],
-  ["/backtest", "Backtest"],
   ["/methodology", "Methodology"],
   ["/admin", "Admin"],
 ] as const;
@@ -52,7 +51,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <main className="mx-auto max-w-[1500px] px-4 py-5">{children}</main>
       <footer className="mx-auto max-w-[1500px] px-4 pb-8 text-xs text-muted">
         Research tool only — not investment advice. Data may be delayed or incomplete; every value shows its source and timestamp.
-        Shariah screening is an analytical aid, not a fatwa.
+        Shariah highlighting (green / red) is an analytical aid, not a fatwa.
       </footer>
     </div>
   );

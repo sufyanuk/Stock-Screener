@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { use, useMemo } from "react";
 import { PriceChart, type Bar, type Level } from "@/components/charts";
-import { Badge, Card, Empty, ErrorBox, OutcomeBadge, ShariahBadge, Stat } from "@/components/ui";
+import { Badge, Card, Empty, ErrorBox, OutcomeBadge, ShariahLegend, Stat, Ticker } from "@/components/ui";
 import { useApi } from "@/lib/api";
 import { compact, nf, pct, usd } from "@/lib/format";
 import type { Criterion, ScanRow } from "@/lib/types";
@@ -54,7 +54,6 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
   const ins = c.insider?.metrics ?? {};
   const an = c.analyst?.metrics ?? {};
   const fl = c.float?.metrics ?? {};
-  const sh = r?.extra?.shariah;
   const prov = r?.extra?.provenance ?? {};
 
   return (
@@ -63,12 +62,12 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
       <ErrorBox error={error} />
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">{ticker.toUpperCase()} <span className="text-base font-normal text-muted">{data?.security?.name ?? r?.company}</span></h1>
+          <h1 className="text-2xl font-semibold"><Ticker symbol={ticker.toUpperCase()} status={r?.shariah_status} link={false} /> <span className="text-base font-normal text-muted">{data?.security?.name ?? r?.company}</span></h1>
           <p className="text-sm text-muted">{data?.security?.exchange} · {ext.data?.company_profile?.sic_description ?? "—"} {ext.data?.company_profile?.website && <>· {ext.data.company_profile.website}</>}</p>
         </div>
         {r && (
           <div className="flex items-center gap-2">
-            <ShariahBadge status={r.shariah_status} />
+            <ShariahLegend />
             <Badge tone={r.eligible ? "bull" : "warn"}>{r.eligible ? "Qualifies for Top 5" : "Does not qualify"}</Badge>
             <span className="num text-2xl">{nf(r.score, 1)}</span><span className="text-xs text-muted">/100</span>
           </div>
@@ -169,18 +168,6 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
         </Card>
       </div>
 
-      <Card title="Shariah screening" right={sh && <span className="text-xs text-muted">{sh.methodology_label} · screened {sh.screened_on} · financials {sh.financials_period_end ?? "—"}</span>}>
-        {sh ? (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2"><ShariahBadge status={sh.status} /><span className="text-sm text-muted">Business: {sh.business?.explanation}</span></div>
-            <table className="text-sm"><thead><tr><th>Ratio</th><th>Value</th><th>Limit</th><th>Denominator</th><th>Status</th></tr></thead>
-              <tbody>{sh.ratios.map((x: any) => (
-                <tr key={x.name}><td>{x.name}</td><td className="num">{pct(x.value, 2)}</td><td className="num">&lt; {x.limit}%</td><td className="text-muted">{x.denominator}</td><td><OutcomeBadge outcome={x.status} /></td></tr>))}</tbody></table>
-            {sh.reasons.length > 0 && <ul className="list-disc pl-5 text-xs text-warn">{sh.reasons.map((x: string, i: number) => <li key={i}>{x}</li>)}</ul>}
-            <p className="text-xs text-muted">Source: {sh.source}. {sh.disclaimer}</p>
-          </div>
-        ) : <Empty>No Shariah screen available.</Empty>}
-      </Card>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card title="Latest news">

@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { ReactNode, useState } from "react";
 
 export function Card({ title, right, children, className = "" }: { title?: ReactNode; right?: ReactNode; children: ReactNode; className?: string }) {
@@ -25,6 +26,26 @@ const TONES: Record<string, string> = {
 
 export function Badge({ tone = "muted", children }: { tone?: keyof typeof TONES; children: ReactNode }) {
   return <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${TONES[tone]}`}>{children}</span>;
+}
+
+/** Shariah status is shown only as a colour: green = compliant, red = non-compliant, default = unknown. */
+export function shariahTone(status?: string | null) {
+  return status === "Compliant" ? "text-bull" : status === "Non-Compliant" ? "text-bear" : "text-accent";
+}
+
+export function Ticker({ symbol, status, link = true, className = "" }: { symbol: string; status?: string | null; link?: boolean; className?: string }) {
+  const title = status === "Compliant" ? "Shariah-compliant" : status === "Non-Compliant" ? "Not Shariah-compliant" : "Shariah status not available";
+  const cls = `font-semibold ${shariahTone(status)} ${className}`;
+  return link ? <Link href={`/stock/${symbol}`} title={title} className={`${cls} hover:underline`}>{symbol}</Link> : <span title={title} className={cls}>{symbol}</span>;
+}
+
+export function ShariahLegend() {
+  return (
+    <span className="text-xs text-muted">
+      <span className="font-semibold text-bull">Green</span> = Shariah-compliant · <span className="font-semibold text-bear">red</span> = non-compliant ·{" "}
+      <span className="font-semibold text-accent">blue</span> = not yet screened
+    </span>
+  );
 }
 
 export function ShariahBadge({ status }: { status?: string | null }) {

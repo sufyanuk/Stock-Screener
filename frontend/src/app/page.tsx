@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useState } from "react";
-import { Badge, Button, Card, Empty, ErrorBox, Info, ShariahBadge, Stat, useSort } from "@/components/ui";
+import { Badge, Button, Card, Empty, ErrorBox, Info, ShariahLegend, Ticker, useSort } from "@/components/ui";
 import { api, useApi } from "@/lib/api";
 import { ago, compact, nf, pct, tone, usd } from "@/lib/format";
 import type { Dashboard, Health, Rec } from "@/lib/types";
@@ -25,7 +25,7 @@ function Top5({ rows }: { rows: Rec[] }) {
     };
   });
   const { sorted, th } = useSort(flat, "rank" as keyof (typeof flat)[number], false);
-  if (!rows.length) return <Empty>No stocks met every mandatory requirement in the latest scan. Nothing has been substituted — see the watchlist for near-qualified names.</Empty>;
+  if (!rows.length) return <Empty>No stocks met every requirement in the latest scan. Nothing has been substituted — see the watchlist for near-qualified names.</Empty>;
   return (
     <div className="overflow-x-auto">
       <table className="text-sm">
@@ -40,7 +40,7 @@ function Top5({ rows }: { rows: Rec[] }) {
             {th("consensus", "Analysts")}{th("upside", "Upside")}
             {th("sup", <>To support<Info>(Price − top of nearest validated support zone) ÷ zone top × 100. A zone needs ≥ 2 swing-low touches.</Info></>)}
             {th("float_ratio", <>Float<Info>Public float ÷ shares outstanding × 100.</Info></>)}
-            <th>Shariah</th>{th("score", <>Score<Info>Weighted sum of six 0–100 factor scores (options 25, insider 20, analyst 15, technical 20, float 10, liquidity 10).</Info></>)}
+            {th("score", <>Score<Info>Weighted sum of six 0–100 factor scores (options 25, insider 20, analyst 15, technical 20, float 10, liquidity 10).</Info></>)}
             <th>Entry</th><th>Stop</th><th>T1</th><th>T2</th>{th("rr", "R/R")}
           </tr>
         </thead>
@@ -48,7 +48,7 @@ function Top5({ rows }: { rows: Rec[] }) {
           {sorted.map((r) => (
             <tr key={r.id}>
               <td className="num">{r.rank}</td>
-              <td><Link className="font-semibold text-accent hover:underline" href={`/stock/${r.ticker}`}>{r.ticker}</Link></td>
+              <td><Ticker symbol={r.ticker} status={r.shariah} /></td>
               <td className="max-w-48 truncate text-muted">{r.company}</td>
               <td className="num">{usd(r.price_at_rec)}</td>
               <td className={`num ${tone(r.day_change_pct)}`}>{pct(r.day_change_pct, 2, true)}</td>
@@ -61,7 +61,6 @@ function Top5({ rows }: { rows: Rec[] }) {
               <td className={`num ${tone(r.upside)}`}>{pct(r.upside, 1, true)}</td>
               <td className="num">{pct(r.sup, 2)}</td>
               <td className="num">{pct(r.float_ratio, 1)}</td>
-              <td><ShariahBadge status={r.shariah} /></td>
               <td className="num font-semibold">{nf(r.score, 1)}</td>
               <td className="num">{usd(r.entry)}</td>
               <td className="num text-bear">{usd(r.stop)}</td>
@@ -113,7 +112,6 @@ export default function DashboardPage() {
     }
   }
   const run = data?.latest_run;
-  const sc = data?.shariah_counts ?? {};
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -154,6 +152,7 @@ export default function DashboardPage() {
       )}
       {!run && data && <Empty>No completed scan yet. Configure provider keys (see SETUP.md) and click “Run scan now”.</Empty>}
 
+      <div className="flex justify-end"><ShariahLegend /></div>
       <Card title="Recommendations" right={run && <span className="text-xs text-muted">Funnel: {run.funnel.stage1_evaluated ?? 0} under $100 → {run.funnel.stage1_options_pass ?? 0} options pass → {run.funnel.eligible ?? 0} fully eligible</span>}>
         <Top5 rows={data?.top ?? []} />
       </Card>
@@ -163,7 +162,7 @@ export default function DashboardPage() {
           {data?.unusual_options.length ? (
             <div className="overflow-x-auto"><table className="text-sm"><thead><tr><th>Ticker</th><th>Volume</th><th>Baseline</th><th>Δ</th><th>Calls</th><th>Puts</th><th>P/C</th><th>IV rank</th><th>Session</th></tr></thead>
               <tbody>{data.unusual_options.map((o) => (
-                <tr key={o.ticker}><td><Link className="text-accent" href={`/stock/${o.ticker}`}>{o.ticker}</Link></td><td className="num">{compact(o.current_volume)}</td>
+                <tr key={o.ticker}><td><Ticker symbol={o.ticker} status={o.shariah_status} /></td><td className="num">{compact(o.current_volume)}</td>
                   <td className="num">{compact(o.baseline_volume)}</td><td className="num text-bull">{pct(o.volume_change_pct, 0, true)}</td>
                   <td className="num">{compact(o.call_volume)}</td><td className="num">{compact(o.put_volume)}</td><td className="num">{nf(o.put_call_ratio, 3)}</td>
                   <td className="num">{nf(o.iv_rank, 1)}</td><td className="text-muted">{o.current_session}</td></tr>))}</tbody></table></div>
@@ -172,41 +171,28 @@ export default function DashboardPage() {
         <Card title="Data freshness & API health"><HealthPanel rows={data?.provider_health ?? []} /></Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card title="Latest insider buying (open-market, Form 4)" className="lg:col-span-2">
+      <div className="grid gap-4">
+        <Card title="Latest insider buying (open-market, Form 4)">
           {data?.insider_buys.length ? (
             <div className="overflow-x-auto"><table className="text-sm"><thead><tr><th>Ticker</th><th>Insider</th><th>Role</th><th>Trade</th><th>Filed</th><th>Shares</th><th>Price</th><th>Value</th></tr></thead>
               <tbody>{data.insider_buys.map((b, i) => (
-                <tr key={i}><td>{b.ticker}</td><td className="max-w-44 truncate" title={b.co_reporters?.length ? `Also reported by: ${b.co_reporters.join(", ")}` : undefined}>
+                <tr key={i}><td><Ticker symbol={b.ticker} status={b.shariah_status} /></td><td className="max-w-44 truncate" title={b.co_reporters?.length ? `Also reported by: ${b.co_reporters.join(", ")}` : undefined}>
                     {b.owner}{b.co_reporters?.length ? <span className="text-muted"> (+{b.co_reporters.length} joint)</span> : null}</td><td className="max-w-36 truncate text-muted">{b.title}</td>
                   <td>{b.transaction_date}</td><td>{b.filing_date}</td><td className="num">{compact(b.shares)}</td><td className="num">{usd(b.price)}</td><td className="num">{compact(b.value)}</td></tr>))}</tbody></table></div>
           ) : <Empty>No open-market insider purchases filed in the last 7 days have been ingested.</Empty>}
         </Card>
-        <Card title="Shariah screen (evaluated stocks)">
-          <div className="grid grid-cols-3 gap-2">
-            <Stat label="Compliant" value={<span className="text-bull">{sc["Compliant"] ?? 0}</span>} />
-            <Stat label="Needs review" value={<span className="text-warn">{sc["Needs Review"] ?? 0}</span>} />
-            <Stat label="Non-compliant" value={<span className="text-bear">{sc["Non-Compliant"] ?? 0}</span>} />
-          </div>
-          <p className="mt-3 text-xs text-muted">Only Compliant stocks can enter the Top 5. Needs Review = missing or stale data.</p>
-        </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card title="Near support">
-          {data?.near_support.length ? data.near_support.map((s) => (
-            <div key={s.ticker} className="flex justify-between border-b border-line py-1.5 text-sm"><Link className="text-accent" href={`/stock/${s.ticker}`}>{s.ticker}</Link>
-              <span className="text-muted">{String(s.classification).replace("_", " ")}</span><span className="num">{pct(s.distance_pct, 2)}</span></div>)) : <Empty>None in the latest scan.</Empty>}
-        </Card>
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Low-float opportunities">
           {data?.low_float.length ? data.low_float.map((s) => (
-            <div key={s.ticker} className="flex justify-between border-b border-line py-1.5 text-sm"><Link className="text-accent" href={`/stock/${s.ticker}`}>{s.ticker}</Link>
+            <div key={s.ticker} className="flex justify-between border-b border-line py-1.5 text-sm"><Ticker symbol={s.ticker} status={s.shariah_status} />
               <span className="text-muted">{s.category}</span><span className="num">{pct(s.float_ratio_pct, 1)}</span></div>)) : <Empty>None in the latest scan.</Empty>}
         </Card>
         <Card title="Watchlist — near-qualified">
           {data?.watchlist.length ? data.watchlist.map((w) => (
             <div key={w.ticker} className="border-b border-line py-1.5 text-sm">
-              <div className="flex justify-between"><Link className="text-accent" href={`/stock/${w.ticker}`}>{w.ticker}</Link><span className="num">{nf(w.score, 1)}</span></div>
+              <div className="flex justify-between"><Ticker symbol={w.ticker} status={w.shariah_status} /><span className="num">{nf(w.score, 1)}</span></div>
               <div className="text-xs text-bear">fails: {w.failures.join(", ")}</div>
             </div>)) : <Empty>No near-qualified stocks.</Empty>}
         </Card>

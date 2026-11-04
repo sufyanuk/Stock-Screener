@@ -1,13 +1,16 @@
 """Eligibility and ranking.
 
 Eligibility (all must hold for the main Top 5):
-  * Mandatory, non-configurable: Shariah status == Compliant; price < $100 (sourced, not missing).
+  * Mandatory, non-configurable: price < $100 (sourced, not missing).
   * Every criterion marked ``hard`` must PASS. MISSING never passes.
+
+Shariah status is **not** an eligibility condition. It is computed for display only: the UI
+highlights compliant tickers in green and non-compliant ones in red.
 
 Overall score (0–100) = Σ weight_i × subscore_i / 100 over the six factors.
 
-Watchlist: Shariah-compliant (or Needs Review) stocks under $100 that fail between 1 and
-``watchlist_max_failures`` hard criteria, ranked by score, each with its failures listed.
+Watchlist: stocks under $100 that fail between 1 and ``watchlist_max_failures`` hard criteria,
+ranked by score, each with its failures listed.
 """
 from __future__ import annotations
 
@@ -26,7 +29,7 @@ class Candidate:
     company: str
     price: float | None
     day_change_pct: float | None
-    shariah_status: str
+    shariah_status: str  # display only (highlight colour)
     criteria: dict[str, CriterionResult]
     extra: dict = field(default_factory=dict)
 
@@ -39,8 +42,6 @@ class Candidate:
         self.score = round(sum(getattr(w, FACTOR_WEIGHT_KEY[k]) * c.score / 100 for k, c in self.criteria.items()
                                if k in FACTOR_WEIGHT_KEY), 2)
         f = []
-        if self.shariah_status != "Compliant":
-            f.append(f"shariah: {self.shariah_status}")
         if self.price is None:
             f.append("price: missing")
         elif not self.price < cfg.max_price:
@@ -58,11 +59,6 @@ def rank(cands: list[Candidate], cfg: ScreeningConfig) -> tuple[list[Candidate],
         c.compute(cfg)
     order = lambda c: (-c.score, c.ticker)  # deterministic tie-break
     top = sorted([c for c in cands if c.eligible], key=order)[: cfg.top_n]
-    watch = []
-    for c in cands:
-        if c.eligible or c.shariah_status == "Non-Compliant" or c.price is None or not c.price < cfg.max_price:
-            continue
-        hard_fail = [x for x in c.failures if not x.startswith("shariah")]
-        if 1 <= len(c.failures) <= cfg.watchlist_max_failures or (not hard_fail and c.shariah_status == "Needs Review"):
-            watch.append(c)
+    watch = [c for c in cands if not c.eligible and c.price is not None and c.price < cfg.max_price
+             and 1 <= len(c.failures) <= cfg.watchlist_max_failures]
     return top, sorted(watch, key=order)[:25]

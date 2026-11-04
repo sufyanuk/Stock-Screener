@@ -5,9 +5,12 @@ This page summarises them.
 
 ## Eligibility vs ranking
 
+**Shariah status does not filter or rank.** Each evaluated stock is still screened (AAOIFI by default) and
+its ticker is shown in **green** when compliant and **red** when non-compliant; tickers without a result
+(missing or stale data) keep the normal colour.
+
 | Type | Rule | Configurable? |
 |---|---|---|
-| Mandatory | Shariah status = **Compliant** under the selected methodology | No |
 | Mandatory | Sourced price **< $100** (missing price fails) | No (can only be lowered) |
 | Hard filter (default) | Options: volume change **≥ 300%**, IV rank **> 20**, P/C **< 0.20** | Thresholds and hard/soft. Any relaxation is recorded on the scan and shown as a banner. |
 | Hard filter (default) | Insider open-market purchases **> 1%** of shares outstanding | Same |

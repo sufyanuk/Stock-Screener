@@ -194,7 +194,7 @@ class BusinessReviewRow(Base):
 class ScanRun(Base):
     __tablename__ = "scan_runs"
     id: Mapped[int] = mapped_column(primary_key=True)
-    kind: Mapped[str] = mapped_column(String(20))  # premarket | open | intraday | close | manual | backtest
+    kind: Mapped[str] = mapped_column(String(20))  # premarket | open | intraday | close | manual
     session_date: Mapped[date] = mapped_column(Date, index=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

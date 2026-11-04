@@ -17,12 +17,11 @@ from sqlalchemy.orm import Session
 
 from app import market_calendar as mc
 from app.auth import SESSION_COOKIE, admin_user, create_token, current_user, hash_password, verify_password
-from app.backtest.engine import BacktestParams, PointInTimeDataSource, run_backtest
 from app.config import ScreeningConfig, get_settings
 from app.db import SessionLocal, get_db
 from app.models import (AppSettings, BusinessReviewRow, DailyBar, InsiderTransaction, JournalDividend, JournalFill,
                         OptionsImportBatch, OptionsImportRow, ProviderHealth, Recommendation, RecommendationRevision,
-                        ScanResult, ScanRun, Security, User)
+                        ScanResult, ScanRun, Security, ShariahScreen, User)
 from app.screening.shariah import METHODOLOGIES, purification
 from app.services.engine import ScanEngine, load_config
 from app.tools.expectancy import ExpectancyInput, calculate_expectancy, scenario_grid
@@ -66,7 +65,7 @@ async def database_unavailable(_request, exc):
         status_code=503)
 
 DISCLAIMER = ("Research tool only — not investment advice. Screening results depend on third-party data that may be "
-              "delayed or incomplete. Shariah screening is an analytical aid, not a fatwa.")
+              "delayed or incomplete. Shariah highlighting (green / red) is an analytical aid, not a fatwa.")
 
 
 def make_datasource():  # overridden in tests
@@ -173,33 +172,36 @@ def _result_dict(r: ScanResult) -> dict:
 
 
 # ------------------------------------------------------------------ dashboard
+def shariah_statuses(db: Session, tickers: set[str]) -> dict[str, str]:
+    """Latest Shariah status per ticker — used only to colour tickers (green / red), never to filter."""
+    if not tickers:
+        return {}
+    rows = db.execute(select(ShariahScreen.ticker, ShariahScreen.status).where(ShariahScreen.ticker.in_(tickers))
+                      .order_by(ShariahScreen.id)).all()
+    return {t: st for t, st in rows}  # later rows overwrite earlier ones
+
+
 @app.get("/api/dashboard")
 def dashboard(db: Session = Depends(get_db), _: User = Depends(current_user)):
     run = _latest_run(db)
     now = datetime.now(timezone.utc)
     out: dict = {"disclaimer": DISCLAIMER, "market_phase": mc.market_phase(now), "now": now.isoformat(),
-                 "latest_run": _run_dict(run), "top": [], "watchlist": [], "unusual_options": [], "near_support": [],
-                 "low_float": [], "shariah_counts": {}, "insider_buys": []}
+                 "latest_run": _run_dict(run), "top": [], "watchlist": [], "unusual_options": [], "low_float": [],
+                 "insider_buys": []}
     if run:
         recs = db.scalars(select(Recommendation).where(Recommendation.run_id == run.id).order_by(Recommendation.rank)).all()
         out["top"] = [_effective(db, r) for r in recs]
         results = db.scalars(select(ScanResult).where(ScanResult.run_id == run.id)).all()
         out["watchlist"] = [_result_dict(r) for r in results if (r.extra or {}).get("watchlist")]
         opt = [r for r in results if r.criteria.get("options", {}).get("outcome") == "pass"]
-        out["unusual_options"] = [{"ticker": r.ticker, "company": r.company, **{k: r.criteria["options"]["metrics"].get(k) for k in (
+        out["unusual_options"] = [{"ticker": r.ticker, "company": r.company, "shariah_status": r.shariah_status,
+                                   **{k: r.criteria["options"]["metrics"].get(k) for k in (
             "current_volume", "baseline_volume", "volume_change_pct", "iv_rank", "put_call_ratio", "call_volume", "put_volume",
             "current_session")}} for r in sorted(opt, key=lambda r: -(r.criteria["options"]["metrics"].get("volume_change_pct") or 0))[:20]]
-        out["near_support"] = [{"ticker": r.ticker, "price": r.price, "classification": r.criteria.get("technical", {}).get("metrics", {}).get("classification"),
-                                "distance_pct": r.criteria.get("technical", {}).get("metrics", {}).get("support_distance_pct")}
-                               for r in results if r.criteria.get("technical", {}).get("metrics", {}).get("classification")
-                               in ("strong_support", "near_support", "approaching_support")][:20]
-        out["low_float"] = [{"ticker": r.ticker, "float_ratio_pct": r.criteria["float"]["metrics"].get("float_ratio_pct"),
+        out["low_float"] = [{"ticker": r.ticker, "shariah_status": r.shariah_status,
+                             "float_ratio_pct": r.criteria["float"]["metrics"].get("float_ratio_pct"),
                              "category": r.criteria["float"]["metrics"].get("category")}
                             for r in results if r.criteria.get("float", {}).get("metrics", {}).get("category") in ("Very Low Float", "Low Float")][:20]
-        counts: dict = {}
-        for r in results:
-            counts[r.shariah_status] = counts.get(r.shariah_status, 0) + 1
-        out["shariah_counts"] = counts
     since = date.today() - timedelta(days=7)
     buys = db.scalars(select(InsiderTransaction).where(InsiderTransaction.code == "P", InsiderTransaction.acquired_disposed == "A",
                                                        InsiderTransaction.is_derivative.is_(False),
@@ -219,6 +221,9 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(current_user)):
                      "transaction_date": b.transaction_date.isoformat(), "filing_date": b.filing_date.isoformat(),
                      "shares": b.shares, "price": b.price, "value": (b.price or 0) * b.shares}
     out["insider_buys"] = list(seen.values())[:25]
+    status = shariah_statuses(db, {b["ticker"] for b in out["insider_buys"]})
+    for b in out["insider_buys"]:
+        b["shariah_status"] = status.get(b["ticker"])
     out["provider_health"] = health_rows(db)
     out["options_source"] = _options_source(db)
     return out
@@ -292,7 +297,8 @@ def rec_history(days: int = 90, db: Session = Depends(get_db), _: User = Depends
                                        "target1", "target2", "revisions")} |
                    {"last_price": last.close if last else None, "last_session": last.session.isoformat() if last else None,
                     "return_pct": (last.close / r.price_at_rec - 1) * 100 if last and r.price_at_rec else None,
-                    "hit_stop": hit_stop, "hit_target1": hit_t1})
+                    "hit_stop": hit_stop, "hit_target1": hit_t1,
+                    "shariah_status": ((e.get("extra") or {}).get("shariah") or {}).get("status")})
     return out
 
 
@@ -667,15 +673,6 @@ def journal_summary(db: Session = Depends(get_db), u: User = Depends(current_use
     s["mark_dates"] = mark_dates
     s["mark_source"] = "last stored daily close (EOD)"
     return s
-
-
-# ------------------------------------------------------------------ backtest
-@app.post("/api/backtest")
-async def backtest(p: BacktestParams, db: Session = Depends(get_db), _: User = Depends(current_user)):
-    if (p.end - p.start).days > 400:
-        raise HTTPException(422, "maximum backtest window is 400 days per request")
-    eng = ScanEngine(db, PointInTimeDataSource(make_datasource()))
-    return await run_backtest(eng, p)
 
 
 @app.get("/api/methodology")
