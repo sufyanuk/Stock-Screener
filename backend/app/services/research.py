@@ -43,7 +43,7 @@ async def refresh_earnings(db: Session, ds, force: bool = False, horizon_days: i
     several = sum(1 for a in ("fmp", "finnhub", "av") if getattr(ds, a, None) is not None) > 1
     if several and stored and "+" not in stored:
         force = True  # calendar was stored from a single source: rebuild it from all of them once
-    if several and last and _now() - last > timedelta(hours=1):
+    if several and last and _now() - last > timedelta(minutes=15):
         soon = db.scalar(select(func.count()).select_from(EarningsEvent).where(
             EarningsEvent.report_date >= today_ny(), EarningsEvent.report_date <= today_ny() + timedelta(days=2)))
         if (soon or 0) < 10:
