@@ -62,7 +62,13 @@ class DataSource(Protocol):
 
 
 class LiveDataSource:
-    """SEC EDGAR (insiders, fundamentals, SIC) + ORATS (options) + Massive (prices/chains) + FMP (analyst/float)."""
+    """Provider routing (first choice → fallbacks):
+      stock prices        Alpaca → Finnhub → FMP → Massive
+      historical prices   Tiingo → Alpha Vantage → Alpaca → Massive → FMP
+      analyst ratings     Finnhub (counts; FMP price targets added when available) → FMP → Alpha Vantage
+      fundamentals        FMP (P/E, market cap, float) → Finnhub metrics; SEC XBRL for Shariah ratios
+      insider buying      SEC EDGAR Form 4
+      options             CSV import (or ORATS)"""
 
     def __init__(self):
         from app.providers.market import Fmp, Massive, Orats
@@ -73,9 +79,13 @@ class LiveDataSource:
         self.orats = self._try(Orats)
         self.massive = self._try(Massive)
         self.fmp = self._try(Fmp)
+        from app.providers.extra import Alpaca, Finnhub, Tiingo
         from app.providers.market import AlphaVantage
 
         self.av = self._try(AlphaVantage)
+        self.alpaca = self._try(Alpaca)
+        self.finnhub = self._try(Finnhub)
+        self.tiingo = self._try(Tiingo)
 
     def _try(self, cls):
         try:
@@ -89,7 +99,25 @@ class LiveDataSource:
                 "orats": "configured" if self.orats else "not configured",
                 "massive": "configured" if self.massive else "not configured",
                 "fmp": "configured" if self.fmp else "not configured",
-                "alphavantage": "configured" if self.av else "not configured (optional)"}
+                "alphavantage": "configured" if self.av else "not configured (optional)",
+                "alpaca": "configured" if self.alpaca else "not configured",
+                "finnhub": "configured" if self.finnhub else "not configured",
+                "tiingo": "configured" if self.tiingo else "not configured"}
+
+    async def _first(self, what: str, attempts):
+        """Run (provider, coroutine-factory) pairs in order; return the first success."""
+        errs = []
+        for prov, make in attempts:
+            if prov is None:
+                continue
+            try:
+                return await make(prov)
+            except ProviderError as e:
+                errs.append(str(e))
+                self.errors.append(str(e))
+        if errs:
+            raise ProviderError("fallbacks", f"{what}: " + " | ".join(errs[-3:]))
+        raise NotConfigured("prices", f"no provider configured for {what}")
 
     def _need(self, p, name):
         if p is None:
@@ -116,17 +144,176 @@ class LiveDataSource:
         return c, spot, m.prov("/v3/snapshot/options", None)
 
     async def bars(self, ticker, start, end):
-        """Massive first; FMP end-of-day history as fallback."""
+        """Daily OHLCV history: Tiingo → Alpha Vantage → Alpaca → Massive → FMP."""
         from app.providers.market import fmp_daily_bars
 
-        if self.massive:
-            df = await self.massive.daily_bars(ticker, start, end)
-            ts = df.index[-1].to_pydatetime() if len(df) else None
-            return df, self.massive.prov("/v2/aggs/ticker/range/1/day", ts)
-        f = self._need(self.fmp, "fmp")
-        df = (await fmp_daily_bars(f, ticker, start, end)).drop(columns=["adj_close"], errors="ignore")
-        ts = df.index[-1].to_pydatetime() if len(df) else None
-        return df, f.prov("/historical-price-eod/full", ts)
+        def ts(df):
+            return df.index[-1].to_pydatetime() if len(df) else None
+
+        async def tiingo(p):
+            df = await p.daily_bars(ticker, start, end)
+            return df, p.prov("/tiingo/daily/prices", ts(df))
+
+        async def av(p):
+            df = await p.daily_bars(ticker, start, end)
+            return df, Provenance(p.name, Freshness.EOD, datetime.now(timezone.utc), ts(df), endpoint="TIME_SERIES_DAILY")
+
+        async def alpaca(p):
+            df = await p.daily_bars(ticker, start, end)
+            return df, p.prov("/v2/stocks/bars", ts(df))
+
+        async def massive(p):
+            df = await p.daily_bars(ticker, start, end)
+            return df, p.prov("/v2/aggs/ticker/range/1/day", ts(df))
+
+        async def fmp(p):
+            df = (await fmp_daily_bars(p, ticker, start, end)).drop(columns=["adj_close"], errors="ignore")
+            return df, p.prov("/historical-price-eod/full", ts(df))
+
+        return await self._first("historical prices", [(self.tiingo, tiingo), (self.av, av), (self.alpaca, alpaca),
+                                                       (self.massive, massive), (self.fmp, fmp)])
+
+    async def quote(self, ticker):
+        """Latest price / bid / ask: Alpaca → Finnhub → Massive."""
+        async def alpaca(p):
+            q = await p.snapshot(ticker)
+            return q, p.prov("/v2/stocks/snapshot", q.get("market_ts"))
+
+        async def finnhub(p):
+            q = await p.quote(ticker)
+            return q, p.prov("/quote", q.get("market_ts"))
+
+        async def massive(p):
+            q = await p.snapshot(ticker)
+            return q, p.prov("/v2/snapshot/.../tickers", q.get("market_ts"))
+
+        return await self._first("stock price", [(self.alpaca, alpaca), (self.finnhub, finnhub), (self.massive, massive)])
+
+    async def insider_filings(self, day: date, skip: set[str] | None = None, limit: int | None = None
+                              ) -> tuple[list[InsiderTxn], Provenance, set[str], int]:
+        """Returns (transactions, provenance, accessions processed, filings left unfetched)."""
+        ...
+    async def fundamentals(self, ticker: str, cik: str, as_of: date, market_cap: float | None,
+                           avg_24: float | None, avg_36: float | None) -> tuple[Fundamentals, float | None, Provenance]: ...
+    async def analyst(self, ticker: str) -> tuple[AnalystData, Provenance]: ...
+    async def float_info(self, ticker: str) -> tuple[dict, Provenance]: ...
+    async def news(self, ticker: str) -> tuple[list[dict], Provenance]: ...
+    async def company_quote(self, ticker: str) -> tuple[dict, Provenance]: ...
+    async def earnings_calendar(self, start: date, end: date) -> tuple[list[dict], Provenance]: ...
+    async def market_closes(self, day: date) -> tuple[dict[str, float], Provenance]: ...
+
+
+class LiveDataSource:
+    """Provider routing (first choice → fallbacks):
+      stock prices        Alpaca → Finnhub → FMP → Massive
+      historical prices   Tiingo → Alpha Vantage → Alpaca → Massive → FMP
+      analyst ratings     Finnhub (counts; FMP price targets added when available) → FMP → Alpha Vantage
+      fundamentals        FMP (P/E, market cap, float) → Finnhub metrics; SEC XBRL for Shariah ratios
+      insider buying      SEC EDGAR Form 4
+      options             CSV import (or ORATS)"""
+
+    def __init__(self):
+        from app.providers.market import Fmp, Massive, Orats
+        from app.providers.sec_edgar import SecEdgar
+
+        self.errors: list[str] = []
+        self.sec = self._try(SecEdgar)
+        self.orats = self._try(Orats)
+        self.massive = self._try(Massive)
+        self.fmp = self._try(Fmp)
+        from app.providers.extra import Alpaca, Finnhub, Tiingo
+        from app.providers.market import AlphaVantage
+
+        self.av = self._try(AlphaVantage)
+        self.alpaca = self._try(Alpaca)
+        self.finnhub = self._try(Finnhub)
+        self.tiingo = self._try(Tiingo)
+
+    def _try(self, cls):
+        try:
+            return cls()
+        except NotConfigured as e:
+            self.errors.append(str(e))
+            return None
+
+    def describe(self) -> dict[str, str]:
+        return {"sec_edgar": "configured" if self.sec else "not configured",
+                "orats": "configured" if self.orats else "not configured",
+                "massive": "configured" if self.massive else "not configured",
+                "fmp": "configured" if self.fmp else "not configured",
+                "alphavantage": "configured" if self.av else "not configured (optional)",
+                "alpaca": "configured" if self.alpaca else "not configured",
+                "finnhub": "configured" if self.finnhub else "not configured",
+                "tiingo": "configured" if self.tiingo else "not configured"}
+
+    async def _first(self, what: str, attempts):
+        """Run (provider, coroutine-factory) pairs in order; return the first success."""
+        errs = []
+        for prov, make in attempts:
+            if prov is None:
+                continue
+            try:
+                return await make(prov)
+            except ProviderError as e:
+                errs.append(str(e))
+                self.errors.append(str(e))
+        if errs:
+            raise ProviderError("fallbacks", f"{what}: " + " | ".join(errs[-3:]))
+        raise NotConfigured("prices", f"no provider configured for {what}")
+
+    def _need(self, p, name):
+        if p is None:
+            raise NotConfigured(name, f"{name} is not configured")
+        return p
+
+    async def universe(self):
+        return await self._need(self.sec, "sec_edgar").universe()
+
+    async def options_day(self, day: date):
+        o = self._need(self.orats, "orats")
+        cores = {r["ticker"]: r for r in await o.hist_cores_for_date(day)}
+        summ = {r["ticker"]: r for r in await o.hist_summaries_for_date(day)}
+        rows = []
+        for t, c in cores.items():
+            s = summ.get(t, {})
+            rows.append(OptionsDayRow(t, day, c.get("call_volume"), c.get("put_volume"), s.get("iv30"), None,
+                                      c.get("price") or s.get("price"), c.get("call_oi"), c.get("put_oi")))
+        return rows, o.prov("/hist/cores+/hist/summaries", pd.Timestamp(day).to_pydatetime())
+
+    async def option_contracts(self, ticker: str):
+        m = self._need(self.massive, "massive")
+        c, spot = await m.option_chain(ticker)
+        return c, spot, m.prov("/v3/snapshot/options", None)
+
+    async def bars(self, ticker, start, end):
+        """Daily OHLCV history: Tiingo → Alpha Vantage → Alpaca → Massive → FMP."""
+        from app.providers.market import fmp_daily_bars
+
+        def ts(df):
+            return df.index[-1].to_pydatetime() if len(df) else None
+
+        async def tiingo(p):
+            df = await p.daily_bars(ticker, start, end)
+            return df, p.prov("/tiingo/daily/prices", ts(df))
+
+        async def av(p):
+            df = await p.daily_bars(ticker, start, end)
+            return df, Provenance(p.name, Freshness.EOD, datetime.now(timezone.utc), ts(df), endpoint="TIME_SERIES_DAILY")
+
+        async def alpaca(p):
+            df = await p.daily_bars(ticker, start, end)
+            return df, p.prov("/v2/stocks/bars", ts(df))
+
+        async def massive(p):
+            df = await p.daily_bars(ticker, start, end)
+            return df, p.prov("/v2/aggs/ticker/range/1/day", ts(df))
+
+        async def fmp(p):
+            df = (await fmp_daily_bars(p, ticker, start, end)).drop(columns=["adj_close"], errors="ignore")
+            return df, p.prov("/historical-price-eod/full", ts(df))
+
+        return await self._first("historical prices", [(self.tiingo, tiingo), (self.av, av), (self.alpaca, alpaca),
+                                                       (self.massive, massive), (self.fmp, fmp)])
 
     async def quote(self, ticker):
         m = self._need(self.massive, "massive")
@@ -162,22 +349,34 @@ class LiveDataSource:
         return f, so, sec.prov("/api/xbrl/companyfacts", None)
 
     async def analyst(self, ticker):
-        if self.fmp:
-            try:
-                f = self.fmp
-                return AnalystData(await f.grades_consensus(ticker), await f.price_target_consensus(ticker),
-                                   await f.grades(ticker)), f.prov("/grades-consensus,/price-target-consensus,/grades")
-            except ProviderError as e:
-                if not self.av:
-                    raise
-                self.errors.append(str(e))
-        av = self._need(self.av, "fmp or alphavantage")
-        o = await av.analyst_counts(ticker)
-        if not o:
-            raise ProviderError("alphavantage", f"no overview for {ticker}")
-        t = o["target"]
-        return AnalystData(o["counts"], {"avg": t, "high": None, "low": None, "median": None} if t else None), \
-            av.prov("OVERVIEW")
+        """Analyst ratings: Finnhub recommendation counts (+ FMP price targets if configured) → FMP → Alpha Vantage."""
+        async def finnhub(p):
+            counts = await p.recommendation(ticker)
+            if not counts:
+                raise ProviderError("finnhub", f"no recommendations for {ticker}")
+            targets, actions = None, []
+            if self.fmp:
+                try:
+                    targets = await self.fmp.price_target_consensus(ticker)
+                    actions = await self.fmp.grades(ticker)
+                except ProviderError as e:
+                    self.errors.append(str(e))
+            period = counts.pop("period")
+            return AnalystData(counts, targets, actions), p.prov(f"/stock/recommendation ({period})", freshness=Freshness.EOD)
+
+        async def fmp(f):
+            return AnalystData(await f.grades_consensus(ticker), await f.price_target_consensus(ticker),
+                               await f.grades(ticker)), f.prov("/grades-consensus,/price-target-consensus,/grades")
+
+        async def av(p):
+            o = await p.analyst_counts(ticker)
+            if not o:
+                raise ProviderError("alphavantage", f"no overview for {ticker}")
+            t = o["target"]
+            return AnalystData(o["counts"], {"avg": t, "high": None, "low": None, "median": None} if t else None), \
+                p.prov("OVERVIEW")
+
+        return await self._first("analyst ratings", [(self.finnhub, finnhub), (self.fmp, fmp), (self.av, av)])
 
     async def float_info(self, ticker):
         f = self._need(self.fmp, "fmp")
@@ -201,16 +400,53 @@ class LiveDataSource:
         return await fmp_news(f, ticker), f.prov("/news/stock")
 
     async def company_quote(self, ticker):
-        """Price, day change, P/E and market cap (FMP; Massive snapshot for price if FMP is absent)."""
+        """Price (Alpaca → Finnhub → FMP → Massive) merged with fundamentals (FMP → Finnhub)."""
         from app.providers.market import fmp_quote
 
-        if self.fmp:
-            q = await fmp_quote(self.fmp, ticker)
-            return q, self.fmp.prov("/quote + /ratios-ttm")
-        m = self._need(self.massive, "massive")
-        q = await m.snapshot(ticker)
-        return {"price": q.get("price"), "day_change_pct": q.get("day_change_pct"), "pe": None}, \
-            m.prov("/v2/snapshot", q.get("market_ts"))
+        out: dict = {}
+        sources: list[str] = []
+        if self.fmp:  # fundamentals: name, P/E, market cap, 52-week range, next earnings
+            try:
+                out = await fmp_quote(self.fmp, ticker)
+                sources.append("fmp")
+            except ProviderError as e:
+                self.errors.append(str(e))
+        if self.finnhub and (out.get("pe") is None or out.get("market_cap") is None or not out.get("name")):
+            try:
+                m, pr = await self.finnhub.metrics(ticker), await self.finnhub.profile(ticker)
+                cap = pr.get("marketCapitalization")
+                out.setdefault("name", None)
+                out["name"] = out.get("name") or pr.get("name")
+                out["pe"] = out.get("pe") if out.get("pe") is not None else (m.get("peTTM") or m.get("peBasicExclExtraTTM"))
+                out["market_cap"] = out.get("market_cap") or (cap * 1e6 if cap else None)
+                out["year_high"] = out.get("year_high") or m.get("52WeekHigh")
+                out["year_low"] = out.get("year_low") or m.get("52WeekLow")
+                sources.append("finnhub")
+            except ProviderError as e:
+                self.errors.append(str(e))
+        price_src = None
+        for p, fn in ((self.alpaca, "snapshot"), (self.finnhub, "quote")):
+            if p is None:
+                continue
+            try:
+                q = await getattr(p, fn)(ticker)
+                if q.get("price"):
+                    out.update({"price": q["price"], "day_change_pct": q.get("day_change_pct")})
+                    price_src = p.name
+                    break
+            except ProviderError as e:
+                self.errors.append(str(e))
+        if price_src is None and not out.get("price") and self.massive:
+            q = await self.massive.snapshot(ticker)
+            out.update({"price": q.get("price"), "day_change_pct": q.get("day_change_pct")})
+            price_src = "massive"
+        elif price_src is None and out.get("price"):
+            price_src = "fmp"
+        if not out:
+            raise NotConfigured("prices", "no price or fundamentals provider configured")
+        label = f"price: {price_src or '—'} · fundamentals: {', '.join(sources) or '—'}"
+        return out, Provenance(price_src or (sources[0] if sources else "none"), Freshness.DELAYED,
+                               datetime.now(timezone.utc), None, endpoint=label)
 
     async def earnings_calendar(self, start, end):
         """FMP earnings calendar; Alpha Vantage's free EARNINGS_CALENDAR as fallback."""

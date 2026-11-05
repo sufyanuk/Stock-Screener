@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { ReactNode, useState } from "react";
 import { StockPane } from "@/components/stock-pane";
 import { TickerSearch } from "@/components/ticker-search";
+import { useApi } from "@/lib/api";
 import { PaneProvider, usePane } from "@/lib/pane-context";
 
 const NAV = [
@@ -45,9 +46,29 @@ export function Shell({ children }: { children: ReactNode }) {
       <footer className="mx-auto max-w-[1900px] px-4 pb-8 text-xs text-muted">
         Research tool only — not investment advice. Data may be delayed or incomplete; every value shows its source and timestamp.
         Shariah highlighting (green / red) is an analytical aid, not a fatwa.
+        <ProviderStatus />
       </footer>
     </div>
     </PaneProvider>
+  );
+}
+
+const PROVIDERS: [string, string][] = [["alpaca", "Alpaca"], ["finnhub", "Finnhub"], ["tiingo", "Tiingo"], ["alphavantage", "Alpha Vantage"],
+  ["fmp", "FMP"], ["sec_edgar", "SEC EDGAR"], ["massive", "Massive"]];
+
+/** Which data APIs have keys set on the server. */
+function ProviderStatus() {
+  const { data } = useApi<{ providers_configured: Record<string, string> }>("/health");
+  if (!data) return null;
+  const p = data.providers_configured;
+  return (
+    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+      <span>Data APIs:</span>
+      {PROVIDERS.filter(([k]) => k in p).map(([k, label]) => {
+        const ok = p[k] === "configured";
+        return <span key={k} className={ok ? "text-bull" : "text-muted"} title={p[k]}>{ok ? "●" : "○"} {label}</span>;
+      })}
+    </div>
   );
 }
 

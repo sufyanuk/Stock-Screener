@@ -13,7 +13,7 @@ from datetime import date, datetime, timezone
 import pandas as pd
 
 from app.config import get_settings
-from app.providers.http import HttpProvider, NotConfigured
+from app.providers.http import HttpProvider, NotConfigured, ProviderError
 from app.screening.analyst import RatingAction
 from app.screening.options import ContractActivity, DailyOptionsVolume
 from app.screening.types import Freshness, Provenance
@@ -269,7 +269,7 @@ async def fmp_daily_bars(f: "Fmp", symbol: str, start: date, end: date) -> pd.Da
 
 # ===================================================================== Alpha Vantage (earnings calendar)
 class AlphaVantage:
-    """Only the free EARNINGS_CALENDAR endpoint is used (one request returns ~3 months of US earnings)."""
+    """Earnings calendar, daily history (fallback) and analyst counts from OVERVIEW (fallback)."""
 
     name = "alphavantage"
 
@@ -290,6 +290,21 @@ class AlphaVantage:
 
             raise ProviderError(self.name, f"unexpected response: {txt[:120]!r}")
         return parse_av_earnings(txt)
+
+    async def daily_bars(self, ticker: str, start: date, end: date):
+        """TIME_SERIES_DAILY: "full" history when the plan allows it, otherwise the last 100 sessions."""
+        from app.providers.extra import parse_av_daily
+
+        size = "full" if (end - start).days > 140 else "compact"
+        try:
+            df = parse_av_daily(await self.http.get_json("/query", {"function": "TIME_SERIES_DAILY", "symbol": ticker,
+                                                                   "outputsize": size, "apikey": self.key}))
+        except ProviderError:
+            if size == "compact":
+                raise
+            df = parse_av_daily(await self.http.get_json("/query", {"function": "TIME_SERIES_DAILY", "symbol": ticker,
+                                                                   "outputsize": "compact", "apikey": self.key}))
+        return df[(df.index >= pd.Timestamp(start)) & (df.index <= pd.Timestamp(end))]
 
     async def analyst_counts(self, ticker: str) -> dict | None:
         """Analyst rating counts and target from COMPANY_OVERVIEW (fallback when FMP is unavailable)."""

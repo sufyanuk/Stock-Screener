@@ -855,14 +855,26 @@ async def custom_watchlist(live: bool = False, db: Session = Depends(get_db), u:
                 quotes[s] = q | {"source": prov.provider}
             except Exception:  # noqa: BLE001 - a failing quote never breaks the list
                 pass
+            bars, src = [], None
             try:
                 df, prov = await asyncio.wait_for(ds.bars(s, end - timedelta(days=30), end), 10)
-                if len(df):
-                    api_bars[s] = ([{"date": ts.date().isoformat(), "open": float(r.open), "high": float(r.high),
-                                     "low": float(r.low), "close": float(r.close), "volume": float(r.volume)}
-                                    for ts, r in df.tail(15).iterrows()], prov.provider)
+                bars = [{"date": ts.date().isoformat(), "open": float(r.open), "high": float(r.high), "low": float(r.low),
+                         "close": float(r.close), "volume": float(r.volume)} for ts, r in df.tail(15).iterrows()]
+                src = prov.provider
             except Exception:  # noqa: BLE001
                 pass
+            try:  # today's bar from the live price feed (Alpaca / Finnhub) when history ends earlier
+                q, qp = await asyncio.wait_for(ds.quote(s), 10)
+                ts = q.get("market_ts")
+                day = ts.astimezone(mc.NY).date().isoformat() if ts else None
+                if q.get("price") and q.get("open") and day and (not bars or day > bars[-1]["date"]):
+                    bars.append({"date": day, "open": q["open"], "high": q.get("high"), "low": q.get("low"),
+                                 "close": q["price"], "volume": q.get("volume")})
+                    src = f"{src} + {qp.provider} (today)" if src else qp.provider
+            except Exception:  # noqa: BLE001
+                pass
+            if bars:
+                api_bars[s] = (bars[-15:], src)
 
         await asyncio.gather(*(one(s) for s in syms[:60]))
     rows = []

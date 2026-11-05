@@ -61,4 +61,9 @@ filings; and a data-provenance table. **Size this trade** opens the position cal
 expectancy (R-multiples, profit factor, break-even win rate, Monte-Carlo risk of ruin and drawdown,
 scenario grid).
 
+**Data APIs** — the footer shows which data APIs are connected (● = key set). Stock prices come from
+Alpaca (Finnhub fallback), price history from Tiingo (Alpha Vantage fallback), insider buying from SEC
+EDGAR, analyst ratings from Finnhub, and fundamentals (P/E, market cap, float) from FMP. Keys are set in
+Vercel → Settings → Environment Variables (see docs/SETUP.md).
+
 Disclaimer: research tool only, not investment advice. Shariah screening is not a fatwa.

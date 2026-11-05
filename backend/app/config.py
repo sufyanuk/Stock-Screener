@@ -35,7 +35,12 @@ class Settings(BaseSettings):
     massive_api_key: str = ""  # Massive.com (formerly Polygon.io); Polygon keys keep working
     massive_base_url: str = "https://api.massive.com"
     fmp_api_key: str = ""
-    alphavantage_api_key: str = ""  # optional: free earnings calendar fallback
+    alphavantage_api_key: str = ""  # historical prices (fallback), earnings calendar, analyst fallback
+    alpaca_api_key_id: str = ""  # stock prices (first choice)
+    alpaca_api_secret_key: str = ""
+    alpaca_data_feed: str = "iex"  # "iex" (free plan) or "sip" (paid)
+    finnhub_api_key: str = ""  # analyst ratings (first choice), stock prices (fallback)
+    tiingo_api_key: str = ""  # historical prices (first choice)
 
     smtp_host: str = ""
     smtp_port: int = 587

@@ -9,7 +9,20 @@
 | `MASSIVE_API_KEY` | massive.com (Polygon.io keys work) | Stocks + Options (Starter or higher) |
 | `FMP_API_KEY` | financialmodelingprep.com | Starter — analysts, P/E, float, earnings calendar, news & price history (stock panel and earnings screen) |
 | Seasonality data | none — import your historical OHLCV CSV on the Seasonality tab | — |
-| `ALPHAVANTAGE_API_KEY` | alphavantage.co (free key) | Optional — earnings calendar and analyst Strong Buy counts if FMP is not set (free tier: 25 requests/day) |
+| `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY` | alpaca.markets → API keys (paper account is fine) | **Stock prices (first choice)**; `ALPACA_DATA_FEED=iex` on the free plan, `sip` on a paid plan |
+| `FINNHUB_API_KEY` | finnhub.io (free key) | **Analyst ratings (first choice)**; stock-price fallback; P/E / market cap fallback |
+| `TIINGO_API_KEY` | tiingo.com (free key) | **Historical prices (first choice)** — charts, scan technicals, watchlist OHLCV |
+| `ALPHAVANTAGE_API_KEY` | alphavantage.co (free key) | Historical-price fallback, earnings calendar, analyst fallback (free tier: 25 requests/day) |
+
+Provider order (first that is configured and answers wins):
+
+| Data | Order |
+|------|-------|
+| Stock prices | Alpaca → Finnhub → FMP → Massive |
+| Historical prices | Tiingo → Alpha Vantage → Alpaca → Massive → FMP |
+| Insider buying | SEC EDGAR (Form 4) |
+| Analyst ratings | Finnhub (counts; FMP price targets added if set) → FMP → Alpha Vantage |
+| Fundamentals | FMP (P/E, market cap, float) → Finnhub; SEC XBRL for Shariah ratios |
 | `SMTP_*`, `TELEGRAM_BOT_TOKEN` | optional | — |
 
 Without a key, the affected criteria show as **missing** and nothing qualifies. This is intentional.
