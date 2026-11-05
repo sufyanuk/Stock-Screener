@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     http_cache_ttl_seconds: int = 300
 
     # Serverless (Vercel) settings
-    database_url_unpooled: str = ""  # set by the Neon integration; preferred (session-level features)
+    database_url_unpooled: str = ""  # set by the Neon integration; used for migrations only
     cron_secret: str = ""  # Vercel Cron sends "Authorization: Bearer <CRON_SECRET>"
     backfill_sessions_per_run: int = 0  # 0 = unlimited; cap per invocation so a scan fits maxDuration
     insider_filings_per_run: int = 0  # 0 = unlimited; new Form 4 filings fetched per scan
@@ -68,12 +68,22 @@ class Settings(BaseSettings):
 
     @property
     def sqlalchemy_url(self) -> str:
-        """Normalise provider URLs (``postgres://`` / ``postgresql://``) to the psycopg 3 driver."""
-        url = self.database_url_unpooled or self.database_url
-        for prefix in ("postgres://", "postgresql://"):
-            if url.startswith(prefix):
-                return "postgresql+psycopg://" + url[len(prefix):]
-        return url
+        """URL for normal requests: the pooled endpoint (Neon's PgBouncer) when available, so bursts of
+        serverless requests share a few server connections instead of opening many direct ones.
+        Normalised (``postgres://`` / ``postgresql://``) to the psycopg 3 driver."""
+        return _psycopg(self.database_url or self.database_url_unpooled)
+
+    @property
+    def sqlalchemy_url_direct(self) -> str:
+        """URL for migrations: the direct endpoint (advisory locks need a session-level connection)."""
+        return _psycopg(self.database_url_unpooled or self.database_url)
+
+
+def _psycopg(url: str) -> str:
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
 
 
 @lru_cache

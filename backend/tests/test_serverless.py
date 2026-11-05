@@ -36,7 +36,10 @@ def test_database_url_normalisation():
     s = Settings(database_url="postgres://u:p@h/db?sslmode=require")
     assert s.sqlalchemy_url == "postgresql+psycopg://u:p@h/db?sslmode=require"
     s = Settings(database_url="postgresql://pooled/db", database_url_unpooled="postgresql://direct/db")
-    assert s.sqlalchemy_url == "postgresql+psycopg://direct/db"
+    # requests use the pooled endpoint; migrations use the direct one
+    assert s.sqlalchemy_url == "postgresql+psycopg://pooled/db"
+    assert s.sqlalchemy_url_direct == "postgresql+psycopg://direct/db"
+    assert Settings(database_url="postgresql://only/db").sqlalchemy_url_direct == "postgresql+psycopg://only/db"
     assert Settings(database_url="sqlite:///x.db").sqlalchemy_url == "sqlite:///x.db"
 
 

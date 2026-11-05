@@ -11,20 +11,55 @@ _engine = None
 _Session: sessionmaker | None = None
 
 
+def _retrying_creator(url: str):
+    """psycopg connect with a few short retries: a database waking up, or a burst of serverless cold
+    starts briefly throttled by the provider ("too many connection attempts"), should not fail a request."""
+    import time
+
+    import psycopg
+
+    conninfo = url.replace("postgresql+psycopg://", "postgresql://", 1)
+
+    def connect():
+        delay = 0.4
+        for attempt in range(5):
+            try:
+                return psycopg.connect(conninfo, prepare_threshold=None, connect_timeout=10)
+            except psycopg.OperationalError:
+                if attempt == 4:
+                    raise
+                time.sleep(delay)
+                delay *= 2
+    return connect
+
+
+def _make(url: str, pooled: bool = True):
+    if url.startswith("sqlite"):
+        return create_engine(url, connect_args={"check_same_thread": False})
+    if not pooled:
+        from sqlalchemy.pool import NullPool
+
+        return create_engine("postgresql+psycopg://", creator=_retrying_creator(url), poolclass=NullPool)
+    # Small pool for serverless instances; prepare_threshold=None keeps psycopg compatible with
+    # transaction-mode poolers (Neon's pooled endpoint).
+    return create_engine("postgresql+psycopg://", creator=_retrying_creator(url), pool_pre_ping=True,
+                         pool_size=3, max_overflow=2, pool_recycle=300)
+
+
 def engine():
     global _engine, _Session
     if _engine is None:
-        url = get_settings().sqlalchemy_url
-        if url.startswith("sqlite"):
-            kw: dict = {"connect_args": {"check_same_thread": False}}
-        else:
-            # Small pool for serverless instances; prepare_threshold=None keeps psycopg compatible with
-            # transaction-mode poolers (e.g. Neon's pooled endpoint).
-            kw = {"pool_pre_ping": True, "pool_size": 3, "max_overflow": 2, "pool_recycle": 300,
-                  "connect_args": {"prepare_threshold": None}}
-        _engine = create_engine(url, **kw)
+        _engine = _make(get_settings().sqlalchemy_url)
         _Session = sessionmaker(_engine, expire_on_commit=False)
     return _engine
+
+
+def direct_engine():
+    """Unpooled engine for migrations (session-level advisory locks)."""
+    s = get_settings()
+    if s.sqlalchemy_url_direct == s.sqlalchemy_url:
+        return engine()
+    return _make(s.sqlalchemy_url_direct, pooled=False)
 
 
 def SessionLocal() -> Session:
