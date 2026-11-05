@@ -123,16 +123,15 @@ class FakeDataSource:
         return [{"symbol": s, "name": f"{s} Inc", "report_date": (start + td(days=d)).isoformat(),
                  "fiscal_date_ending": None, "eps_estimate": e, "time_of_day": t} for s, d, e, t in rows], prov("fmp")
 
-    async def monthly_closes(self, ticker, start, end):
-        """GOOD gains 10% every November; BANK loses 5% every November; other months flat."""
-        out, px = [], 100.0
-        y, m = start.year, start.month
-        while (y, m) <= (end.year, end.month):
-            if m == 11:
-                px *= 1.10 if ticker == "GOOD" else 0.95
-            out.append((date(y, m, 1), px))
-            y, m = (y + 1, 1) if m == 12 else (y, m + 1)
-        return out, prov("massive")
+    market_calls = 0
+
+    async def market_closes(self, day):
+        """Whole-market closes for one session. GOOD gains 10% every November, BANK loses 5% every
+        November, FLAT never moves; plus symbols that must be filtered out (warrant / long name)."""
+        FakeDataSource.market_calls += 1
+        novembers = sum(1 for y in range(2010, day.year + 1) for m in [11] if (y, m) <= (day.year, day.month))
+        return {"GOOD": 100 * 1.10 ** novembers, "BANK": 100 * 0.95 ** novembers, "FLAT": 50.0,
+                "PENNY": 0.5, "ABC.W": 1.0, "TOOLONG": 10.0}, prov("massive")
 
 
 @pytest.fixture

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import statistics
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 
@@ -15,16 +14,14 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app import market_calendar as mc
-from app.models import (AnalystSnapshot, DailyBar, EarningsEvent, InsiderTransaction, MonthlyClose,
-                        OptionsImportBatch, OptionsImportRow, ScanResult, ShariahScreen)
+from app.models import (AnalystSnapshot, DailyBar, EarningsEvent, InsiderTransaction, OptionsImportBatch,
+                        OptionsImportRow, ShariahScreen)
 from app.providers.http import ProviderError
 from app.screening import insider as ins
 
 log = logging.getLogger(__name__)
 EARNINGS_REFRESH_HOURS = 12
 ANALYST_TTL_HOURS = 24
-MONTHLY_TTL_DAYS = 25
-MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 
 def _now() -> datetime:
@@ -148,115 +145,6 @@ def shariah_map(db: Session, symbols: set[str]) -> dict[str, str]:
     rows = db.execute(select(ShariahScreen.ticker, ShariahScreen.status).where(ShariahScreen.ticker.in_(symbols))
                       .order_by(ShariahScreen.id)).all()
     return {t: s for t, s in rows}
-
-
-# ------------------------------------------------------------------ seasonality
-async def refresh_monthly(db: Session, ds, symbols: list[str], years: int = 10, limit: int = 40) -> dict:
-    """Fetch month-end closes for symbols whose data is missing or older than MONTHLY_TTL_DAYS."""
-    last = dict(db.execute(select(MonthlyClose.symbol, func.max(MonthlyClose.retrieved_at))
-                           .where(MonthlyClose.symbol.in_(symbols)).group_by(MonthlyClose.symbol)).all()) if symbols else {}
-    cutoff = _now() - timedelta(days=MONTHLY_TTL_DAYS)
-    todo = [s for s in symbols if s not in last or _aware(last[s]) < cutoff]
-    batch = todo[:limit]
-    end = today_ny()
-    start = date(end.year - years, 1, 1)
-    fetched, errors = 0, []
-    for s in batch:
-        try:
-            rows, prov = await ds.monthly_closes(s, start, end)
-        except ProviderError as e:
-            errors.append(str(e))
-            if "not configured" in str(e):
-                break
-            continue
-        db.execute(delete(MonthlyClose).where(MonthlyClose.symbol == s))
-        for m, c in rows:
-            db.add(MonthlyClose(symbol=s, month=m, close=c, provider=prov.provider, retrieved_at=_now()))
-        db.commit()
-        fetched += 1
-    return {"fetched": fetched, "remaining": len(todo) - fetched, "errors": errors[:5]}
-
-
-def monthly_returns(closes: list[tuple[date, float]]) -> list[tuple[int, int, float]]:
-    """(year, month, return %) for consecutive months only; the current, unfinished month is excluded."""
-    closes = sorted(closes)
-    cur = today_ny()
-    out = []
-    for (m0, c0), (m1, c1) in zip(closes, closes[1:]):
-        if (m1.year, m1.month) == (cur.year, cur.month):
-            continue
-        consecutive = (m1.year * 12 + m1.month) - (m0.year * 12 + m0.month) == 1
-        if consecutive and c0 > 0:
-            out.append((m1.year, m1.month, (c1 / c0 - 1) * 100))
-    return out
-
-
-def seasonality_stats(closes: list[tuple[date, float]]) -> dict[int, dict]:
-    by: dict[int, list[tuple[int, float]]] = defaultdict(list)
-    for y, m, r in monthly_returns(closes):
-        by[m].append((y, r))
-    out = {}
-    for m in range(1, 13):
-        vals = [r for _, r in by.get(m, [])]
-        if not vals:
-            out[m] = {"years": 0}
-            continue
-        best = max(by[m], key=lambda x: x[1])
-        worst = min(by[m], key=lambda x: x[1])
-        out[m] = {"years": len(vals), "avg": statistics.fmean(vals), "median": statistics.median(vals),
-                  "win_rate": sum(v > 0 for v in vals) / len(vals) * 100, "best": best[1], "best_year": best[0],
-                  "worst": worst[1], "worst_year": worst[0]}
-    return out
-
-
-def seasonality_table(db: Session, symbols: list[str], month: int, min_years: int = 5, rank_by: str = "avg") -> dict:
-    rows = db.scalars(select(MonthlyClose).where(MonthlyClose.symbol.in_(symbols))).all() if symbols else []
-    by: dict[str, list] = defaultdict(list)
-    for r in rows:
-        by[r.symbol].append((r.month, r.close))
-    ranked, too_short = [], []
-    for s, closes in by.items():
-        st = seasonality_stats(closes)
-        m = st[month]
-        entry = {"symbol": s, "month": month, **m,
-                 "heatmap": [round(st[i]["avg"], 2) if st[i].get("years") else None for i in range(1, 13)],
-                 "first_month": min(c[0] for c in closes).isoformat(), "last_month": max(c[0] for c in closes).isoformat()}
-        (ranked if m.get("years", 0) >= min_years else too_short).append(entry)
-    key = (lambda e: (-e["win_rate"], -e["avg"])) if rank_by == "win" else (lambda e: (-e["avg"], -e["win_rate"]))
-    ranked.sort(key=key)
-    for i, e in enumerate(ranked, 1):
-        e["rank"] = i
-    return {"month": month, "month_name": MONTHS[month - 1], "rank_by": rank_by, "min_years": min_years,
-            "ranked": ranked, "insufficient_history": [e["symbol"] for e in too_short],
-            "no_data": sorted(set(symbols) - set(by)),
-            "note": "Average of past returns in this calendar month; past seasonality does not guarantee future returns."}
-
-
-def best_by_month(db: Session, symbols: list[str], min_years: int = 5, top: int = 5) -> list[dict]:
-    rows = db.scalars(select(MonthlyClose).where(MonthlyClose.symbol.in_(symbols))).all() if symbols else []
-    by: dict[str, list] = defaultdict(list)
-    for r in rows:
-        by[r.symbol].append((r.month, r.close))
-    stats = {s: seasonality_stats(c) for s, c in by.items()}
-    out = []
-    for m in range(1, 13):
-        cands = [(s, st[m]) for s, st in stats.items() if st[m].get("years", 0) >= min_years]
-        cands.sort(key=lambda x: (-x[1]["avg"], -x[1]["win_rate"]))
-        out.append({"month": m, "month_name": MONTHS[m - 1],
-                    "top": [{"symbol": s, "avg": round(x["avg"], 2), "win_rate": round(x["win_rate"], 1),
-                             "years": x["years"]} for s, x in cands[:top]]})
-    return out
-
-
-def universe_symbols(db: Session, universe: str, custom: str | None) -> list[str]:
-    if universe == "custom":
-        return sorted({s.strip().upper() for s in (custom or "").replace("\n", ",").split(",") if s.strip()})[:500]
-    if universe == "earnings":
-        return sorted({e.symbol for e in upcoming_earnings(db, 7)})
-    if universe == "scanned":
-        return sorted(set(db.scalars(select(ScanResult.ticker).distinct()).all()))[:500]
-    b = latest_import(db)
-    return sorted({r.symbol for r in b.rows}) if b else []
 
 
 # ------------------------------------------------------------------ stock side-panel

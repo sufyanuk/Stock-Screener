@@ -347,3 +347,33 @@ class MonthlyClose(Base):
     close: Mapped[float] = mapped_column(Float)
     provider: Mapped[str] = mapped_column(String(32))
     retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SeasonalityStat(Base):
+    """Pre-computed per-stock, per-calendar-month return statistics (rebuilt after each price refresh)."""
+
+    __tablename__ = "seasonality_stats"
+    __table_args__ = (Index("ix_seasonality_month_avg", "month", "avg"),)
+    symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
+    month: Mapped[int] = mapped_column(Integer, primary_key=True)  # 1..12
+    years: Mapped[int] = mapped_column(Integer)
+    avg: Mapped[float] = mapped_column(Float)
+    median: Mapped[float] = mapped_column(Float)
+    win_rate: Mapped[float] = mapped_column(Float)
+    best: Mapped[float] = mapped_column(Float)
+    best_year: Mapped[int] = mapped_column(Integer)
+    worst: Mapped[float] = mapped_column(Float)
+    worst_year: Mapped[int] = mapped_column(Integer)
+    last_close: Mapped[float | None] = mapped_column(Float)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class MarketMonth(Base):
+    """A month whose whole-market month-end closes have been loaded (one grouped request)."""
+
+    __tablename__ = "market_months"
+    month: Mapped[date] = mapped_column(Date, primary_key=True)  # first day of the month
+    session: Mapped[date] = mapped_column(Date)  # last trading session used
+    symbols: Mapped[int] = mapped_column(Integer)
+    provider: Mapped[str] = mapped_column(String(32))
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

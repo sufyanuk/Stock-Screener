@@ -313,3 +313,23 @@ async def massive_monthly_closes(m: "Massive", symbol: str, start: date, end: da
         d = datetime.fromtimestamp(r["t"] / 1000, timezone.utc).date()
         out.append((date(d.year, d.month, 1), float(r["c"])))
     return out
+
+
+# ===================================================================== whole-market daily closes
+async def fmp_bulk_closes(f: "Fmp", day: date) -> dict[str, float]:
+    """FMP end-of-day bulk file for one date (all symbols). Uses adjClose when present."""
+    import csv
+    import io
+
+    try:
+        j = await f.http.get_json("/eod-bulk", {"date": day.isoformat(), "apikey": f.key})
+        rows = j if isinstance(j, list) else []
+    except ValueError:  # endpoint can answer with CSV
+        txt = await f.http.get_text(f"/eod-bulk?date={day.isoformat()}&apikey={f.key}")
+        rows = list(csv.DictReader(io.StringIO(txt)))
+    out = {}
+    for r in rows:
+        sym, px = (r.get("symbol") or "").upper(), _f(r.get("adjClose")) or _f(r.get("close"))
+        if sym and px:
+            out[sym] = px
+    return out

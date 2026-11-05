@@ -24,11 +24,13 @@ earnings are due within 7 days.
 unusual options from the latest CSV, and analyst Strong Buy / Buy counts ("Load analyst counts" fetches
 them; they are cached for a day). Filters show only names with insider buying or unusual options.
 
-**Seasonality** — choose a list (latest options CSV, earnings next week, all scanned stocks, or your own
-tickers), click **Update price history**, then pick a month: stocks are ranked by their average return in
-that month across past years (or by % of years positive), with median, best/worst year, years of history
-and a 12-month heatmap. "Top 5 for each month" shows the leaders for every month. Past seasonality does
-not guarantee future returns.
+**Seasonality** — covers all US stocks. Click **Load price history** once: it fetches the month-end
+close of every stock for the last 10 years (one request per month, about 120 in total), then the daily
+closing scan keeps it current. Pick a month to rank stocks by average return in that month (or % of
+years positive), with median, best/worst year, years of data, latest price and a 12-month heatmap.
+Filter by price range, minimum years and ticker prefix. "Top 5 for each month" shows the leaders for
+every month. Price returns only; moves beyond ±200% in a month are ignored as data errors. Past
+seasonality does not guarantee future returns.
 
 **Stock page** — why the stock was or wasn't selected (pass/fail/missing per criterion, in plain
 English); a candlestick chart with SMAs, support/resistance, entry, stop and targets; options
@@ -39,12 +41,6 @@ filings; and a data-provenance table. **Size this trade** opens the position cal
 **Calculators** — position size (long/short, fees, slippage, allocation cap, fractional shares),
 expectancy (R-multiples, profit factor, break-even win rate, Monte-Carlo risk of ruin and drawdown,
 scenario grid), and dividend purification.
-
-**Journal** — record buys and sells (FIFO matching; a sell with no open long opens a short) and
-dividends. Shows realized/unrealized P&L, fees, exposure, win rate, equity and drawdown curves,
-daily-to-yearly breakdowns, and actual vs. recommended levels when you enter a recommendation ID.
-
-**History** — every final daily Top 5 with return since recommendation, stop/target hits and revisions.
 
 **Unusual options CSV (Admin page, top)** — choose the day's export, click **Preview** to check how
 it was read (e.g. +1,639% and IV rank 3.3), then **Import**. The dashboard shows which file is in use and

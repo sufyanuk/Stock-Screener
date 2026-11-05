@@ -124,30 +124,12 @@ function Expectancy() {
   );
 }
 
-function Purification() {
-  const [income, setIncome] = useState("100");
-  const [p, setP] = useState("2.5");
-  const [res, setRes] = useState<any>(null);
-  return (
-    <Card title="Dividend purification">
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Dividend / income received ($)"><input value={income} onChange={(e) => setIncome(e.target.value)} /></Field>
-        <Field label="Non-compliant income ratio (%)" hint="from the stock's Shariah screen"><input value={p} onChange={(e) => setP(e.target.value)} /></Field>
-      </div>
-      <Button className="mt-3" onClick={async () => setRes(await api("/tools/purification", { method: "POST", body: JSON.stringify({ income: Number(income), non_compliant_pct: Number(p) }) }))}>Calculate</Button>
-      {res && <div className="mt-3 grid grid-cols-2 gap-2"><Stat label="Purify (donate)" value={usd(res.purification_amount)} /><Stat label="Retained" value={usd(res.retained)} /></div>}
-      <p className="mt-2 text-xs text-muted">Purification = income × non-compliant income %. Methodologies differ; confirm with a qualified scholar.</p>
-    </Card>
-  );
-}
-
 export default function ToolsPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">Calculators</h1>
       <Position />
       <Expectancy />
-      <Purification />
     </div>
   );
 }

@@ -399,6 +399,10 @@ async def _do_scan(kind: str, by: str) -> dict:
             from app.services.research import refresh_earnings
 
             await refresh_earnings(db, ds)
+            from app.services import seasonality as ss
+
+            if ss.months_loaded(db):  # only top up once the initial history has been loaded
+                await ss.refresh(db, ds, 10, 2)
             prior = set(db.scalars(select(Recommendation.ticker).where(
                 Recommendation.session_date == run.session_date, Recommendation.run_id != run.id)).all())
             new = [r for r in db.scalars(select(Recommendation).where(Recommendation.run_id == run.id)).all()
@@ -760,43 +764,38 @@ async def earnings_load_analysts(days: int = 7, limit: int = 100, db: Session = 
 
 
 class SeasonalityRefresh(BaseModel):
-    universe: str = Field("options", pattern="^(options|earnings|scanned|custom)$")
-    symbols: str | None = None
-    years: int = Field(10, ge=3, le=25)
-    limit: int = Field(40, ge=1, le=120)
+    years: int = Field(10, ge=3, le=20)
+    max_months: int = Field(12, ge=1, le=36)
 
 
 @app.post("/api/seasonality/refresh")
 async def seasonality_refresh(p: SeasonalityRefresh, db: Session = Depends(get_db), _: User = Depends(current_user)):
-    from app.services import research as rs
+    """Load month-end closes for ALL US stocks (one request per month), newest months first."""
+    from app.services import seasonality as ss
 
-    syms = rs.universe_symbols(db, p.universe, p.symbols)
-    if not syms:
-        raise HTTPException(422, "no symbols in this universe (import an options CSV or enter tickers)")
-    return await rs.refresh_monthly(db, make_datasource(), syms, p.years, p.limit) | {"universe_size": len(syms)}
+    return await ss.refresh(db, make_datasource(), p.years, p.max_months) | {"coverage": ss.coverage(db)}
 
 
 @app.get("/api/seasonality")
-def seasonality(month: int | None = None, universe: str = "options", symbols: str | None = None, min_years: int = 5,
-                rank_by: str = "avg", db: Session = Depends(get_db), _: User = Depends(current_user)):
+def seasonality(month: int | None = None, min_years: int = 5, rank_by: str = "avg", limit: int = 200,
+                min_price: float | None = None, max_price: float | None = None, q: str | None = None,
+                db: Session = Depends(get_db), _: User = Depends(current_user)):
     from app.services import research as rs
+    from app.services import seasonality as ss
 
-    if universe not in ("options", "earnings", "scanned", "custom"):
-        raise HTTPException(422, "unknown universe")
-    month = month or rs.today_ny().month
+    month = rs.today_ny().month if month is None else month
     if not 1 <= month <= 12:
         raise HTTPException(422, "month must be 1-12")
-    syms = rs.universe_symbols(db, universe, symbols)
-    out = rs.seasonality_table(db, syms, month, max(1, min_years), "win" if rank_by == "win" else "avg")
-    sh = rs.shariah_map(db, {e["symbol"] for e in out["ranked"]})
+    min_years, limit = max(1, min_years), min(max(limit, 10), 500)
+    out = ss.ranking(db, month, min_years, "win" if rank_by == "win" else "avg", limit, min_price, max_price, q)
+    best = ss.best_by_month(db, min_years, 5, min_price, max_price)
+    sh = rs.shariah_map(db, {e["symbol"] for e in out["ranked"]} | {t["symbol"] for m in best for t in m["top"]})
     for e in out["ranked"]:
         e["shariah_status"] = sh.get(e["symbol"])
-    best = rs.best_by_month(db, syms, max(1, min_years))
-    sh |= rs.shariah_map(db, {t["symbol"] for m in best for t in m["top"]} - set(sh))
     for m in best:
         for t in m["top"]:
             t["shariah_status"] = sh.get(t["symbol"])
-    return out | {"universe": universe, "universe_size": len(syms), "best_by_month": best}
+    return out | {"best_by_month": best, "coverage": ss.coverage(db)}
 
 
 @app.get("/api/methodology")

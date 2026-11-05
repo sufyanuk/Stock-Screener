@@ -58,7 +58,7 @@ class DataSource(Protocol):
     async def news(self, ticker: str) -> tuple[list[dict], Provenance]: ...
     async def company_quote(self, ticker: str) -> tuple[dict, Provenance]: ...
     async def earnings_calendar(self, start: date, end: date) -> tuple[list[dict], Provenance]: ...
-    async def monthly_closes(self, ticker: str, start: date, end: date) -> tuple[list[tuple[date, float]], Provenance]: ...
+    async def market_closes(self, day: date) -> tuple[dict[str, float], Provenance]: ...
 
 
 class LiveDataSource:
@@ -214,19 +214,17 @@ class LiveDataSource:
         rows = [r for r in await av.earnings_calendar() if start.isoformat() <= r["report_date"] <= end.isoformat()]
         return rows, Provenance(av.name, Freshness.EOD, datetime.now(timezone.utc), None, endpoint="EARNINGS_CALENDAR")
 
-    async def monthly_closes(self, ticker, start, end):
-        """Adjusted month-end closes: Massive monthly bars, else FMP daily history resampled to month end."""
-        from app.providers.market import fmp_daily_bars, massive_monthly_closes
+    async def market_closes(self, day):
+        """Split-adjusted closing price of every US stock for one session (one request).
+        Massive grouped daily bars; FMP bulk end-of-day as fallback."""
+        from app.providers.market import fmp_bulk_closes
 
         if self.massive:
-            return await massive_monthly_closes(self.massive, ticker, start, end), \
-                self.massive.prov("/v2/aggs/ticker/range/1/month", None)
+            rows = await self.massive.grouped_daily(day)
+            return {r["ticker"]: float(r["close"]) for r in rows if r.get("close")}, \
+                self.massive.prov("/v2/aggs/grouped/locale/us/market/stocks", None)
         f = self._need(self.fmp, "fmp")
-        df = await fmp_daily_bars(f, ticker, start, end)
-        if df.empty:
-            return [], f.prov("/historical-price-eod/full")
-        m = df["adj_close"].resample("ME").last().dropna()
-        return [(date(ts.year, ts.month, 1), float(v)) for ts, v in m.items()], f.prov("/historical-price-eod/full")
+        return await fmp_bulk_closes(f, day), f.prov("/eod-bulk")
 
 
 def lookback_start(as_of: date, days: int) -> date:

@@ -12,10 +12,7 @@ const NAV = [
   ["/watchlist", "Watchlist"],
   ["/earnings", "Earnings"],
   ["/seasonality", "Seasonality"],
-  ["/history", "History"],
   ["/tools", "Calculators"],
-  ["/journal", "Journal"],
-  ["/methodology", "Methodology"],
   ["/admin", "Admin"],
 ] as const;
 
