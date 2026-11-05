@@ -7,8 +7,9 @@ import { compact, nf, pct, usd } from "@/lib/format";
 
 type Batch = { id: number; filename: string; session_date: string; rows: number; percent_interpretation: string; imported_by: string; imported_at: string; summary: any };
 
-export function OptionsImport({ isAdmin }: { isAdmin: boolean }) {
+export function OptionsImport({ isAdmin = true, open: openInit = true, onImported }: { isAdmin?: boolean; open?: boolean; onImported?: () => void }) {
   const list = useApi<Batch[]>("/options-imports");
+  const [open, setOpen] = useState(openInit);
   const [file, setFile] = useState<File | null>(null);
   const [sessionDate, setSessionDate] = useState("");
   const [percent, setPercent] = useState("auto");
@@ -27,7 +28,7 @@ export function OptionsImport({ isAdmin }: { isAdmin: boolean }) {
         body: JSON.stringify({ filename: file.name, csv, percent_numbers: percent, session_date: sessionDate || null, dry_run: dryRun }),
       });
       setResult(r);
-      if (!dryRun) list.reload();
+      if (!dryRun) { list.reload(); onImported?.(); }
     } catch (e) {
       setErr((e as Error).message); setResult(null);
     } finally {
@@ -39,11 +40,14 @@ export function OptionsImport({ isAdmin }: { isAdmin: boolean }) {
     if (!confirm("Delete this import? Scans that already used it keep their stored results.")) return;
     await api(`/admin/options-import/${id}`, { method: "DELETE" });
     list.reload();
+    onImported?.();
   }
 
   const s = result?.summary;
   return (
-    <Card title="Unusual options — CSV import" right={<span className="text-xs text-muted">Insider data comes from SEC EDGAR automatically</span>}>
+    <Card title={<button className="flex items-center gap-2" onClick={() => setOpen(!open)}><span className="text-muted">{open ? "▾" : "▸"}</span>Import today&apos;s unusual-options CSV</button>}
+      right={list.data?.[0] && <span className="text-xs text-muted">In use: #{list.data[0].id} · {list.data[0].filename} · session {list.data[0].session_date}</span>}>
+      {!open ? <p className="text-xs text-muted">Click to upload a new file or manage previous imports.</p> : <>
       <p className="mb-3 text-sm text-muted">
         Upload the unusual-options-volume export (Barchart format or your spreadsheet&apos;s UOV columns: Symbol, Name, Latest, Change, %Change,
         IV Rank, Options Vol, 1M Vol %Chg, Put Vol, Call Vol, P/C Vol, Date). Scans use the latest import; an import older than the
@@ -92,6 +96,7 @@ export function OptionsImport({ isAdmin }: { isAdmin: boolean }) {
               <td className="text-xs text-muted">{b.imported_at.slice(0, 16).replace("T", " ")}</td>
               <td>{isAdmin && <Button variant="danger" onClick={() => remove(b.id)}>Delete</Button>}</td></tr>))}</tbody></table>
       ) : <Empty>No imports yet.</Empty>}
+      </>}
     </Card>
   );
 }

@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app import market_calendar as mc
@@ -783,6 +783,124 @@ def seasonality_import_finish(p: SeasonalityImportFinish, db: Session = Depends(
     from app.services import seasonality as ss
 
     return ss.finish_import(db, p.source, p.last_date) | {"coverage": ss.coverage(db)}
+
+
+class SnapshotChunk(BaseModel):
+    items: list[dict] = Field(..., max_length=5000)
+    replace_all: bool = False
+    source: str = Field("csv", max_length=200)
+
+
+@app.post("/api/prices/snapshots")
+def price_snapshots(p: SnapshotChunk, db: Session = Depends(get_db), _: User = Depends(admin_user)):
+    """Recent bars + 52-week/EMA levels per stock, computed in the browser from the OHLCV CSV."""
+    from app.services import bounces as bn
+
+    return bn.import_snapshots(db, p.items, p.replace_all, p.source)
+
+
+@app.get("/api/bounces")
+def bounces(kind: str = "low52", within_days: int | None = None, min_bounce_pct: float = 3.0,
+            max_bounce_pct: float = 20.0, touch_pct: float = 1.0, max_above_pct: float = 5.0,
+            require_rising: bool = True, up_day: bool = True, min_price: float | None = 5.0,
+            max_price: float | None = None, min_avg_volume: float = 200_000, limit: int = 500,
+            db: Session = Depends(get_db), _: User = Depends(current_user)):
+    from app.services import bounces as bn
+    from app.services import research as rs
+
+    if kind not in ("low52", "ema50"):
+        raise HTTPException(422, "kind must be low52 or ema50")
+    wd = within_days if within_days is not None else (10 if kind == "low52" else 3)
+    params = {"within_days": min(max(wd, 1), 15), "min_bounce_pct": min_bounce_pct, "max_bounce_pct": max_bounce_pct,
+              "touch_pct": max(touch_pct, 0.0), "max_above_pct": max_above_pct, "require_rising": require_rising,
+              "up_day": up_day, "min_price": min_price, "max_price": max_price, "min_avg_volume": min_avg_volume,
+              "limit": min(max(limit, 10), 2000)}
+    out = bn.screen(db, kind, params)
+    sh = rs.shariah_map(db, {r["symbol"] for r in out["rows"]})
+    for r in out["rows"]:
+        r["shariah_status"] = sh.get(r["symbol"])
+    return out
+
+
+# ------------------------------------------------------------------ custom watchlist
+class WatchAdd(BaseModel):
+    symbols: str = Field(..., min_length=1, max_length=2000)  # "AAPL, MSFT nvda"
+    note: str | None = Field(None, max_length=500)
+
+
+@app.get("/api/custom-watchlist")
+async def custom_watchlist(live: bool = False, db: Session = Depends(get_db), u: User = Depends(current_user)):
+    from app.models import CustomWatchItem
+    from app.services import bounces as bn
+    from app.services import research as rs
+
+    items = db.scalars(select(CustomWatchItem).where(CustomWatchItem.user_id == u.id)
+                       .order_by(CustomWatchItem.added_at.desc(), CustomWatchItem.id.desc())).all()
+    syms = [i.symbol for i in items]
+    snaps = bn.lookup(db, syms)
+    batch, opts = rs.options_rows(db, syms)
+    insider = rs.insider_summary(db, syms)
+    an = rs.analyst_counts(db, syms)
+    sh = rs.shariah_map(db, set(syms))
+    earn = rs.earnings_markers(db, 30)
+    quotes: dict[str, dict] = {}
+    if live and syms:
+        ds = make_datasource()
+
+        async def one(s):
+            try:
+                q, prov = await asyncio.wait_for(ds.company_quote(s), 10)
+                quotes[s] = q | {"source": prov.provider}
+            except Exception:  # noqa: BLE001 - a failing quote never breaks the list
+                pass
+
+        await asyncio.gather(*(one(s) for s in syms[:60]))
+    rows = []
+    for i in items:
+        s, o, a, q = i.symbol, opts.get(i.symbol), an.get(i.symbol), quotes.get(i.symbol) or {}
+        snap = snaps.get(s) or {}
+        price = q.get("price") or snap.get("price") or (o.price if o else None)
+        rows.append({"symbol": s, "note": i.note, "added_at": i.added_at.isoformat(), "name": q.get("name"),
+                     "price": price, "price_source": q.get("source") if q.get("price") else
+                     (f"CSV {snap['date']}" if snap.get("price") else ("options CSV" if o and o.price else None)),
+                     "day_change_pct": q.get("day_change_pct") if q.get("price") else snap.get("day_change_pct"),
+                     "pe": q.get("pe"), "market_cap": q.get("market_cap"),
+                     "vs_ema50_pct": snap.get("vs_ema50_pct"), "above_low52_pct": snap.get("above_low52_pct"),
+                     "below_high52_pct": snap.get("below_high52_pct"),
+                     "options": None if not o else {"vol_change_1m_pct": o.vol_change_1m_pct, "iv_rank": o.iv_rank,
+                                                    "put_call": o.pc_ratio},
+                     "insider": insider.get(s), "earnings": earn.get(s),
+                     "analysts": None if not a else {"strong_buy": a.strong_buy, "buy": a.buy},
+                     "shariah_status": sh.get(s)})
+    return {"rows": rows, "live": live}
+
+
+@app.post("/api/custom-watchlist")
+def custom_watchlist_add(p: WatchAdd, db: Session = Depends(get_db), u: User = Depends(current_user)):
+    import re
+
+    from app.models import CustomWatchItem
+
+    syms = [t for t in dict.fromkeys(re.split(r"[\s,;]+", p.symbols.upper())) if t]
+    bad = [t for t in syms if not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", t)]
+    if bad:
+        raise HTTPException(422, f"Not a valid ticker: {', '.join(bad[:5])}")
+    have = set(db.scalars(select(CustomWatchItem.symbol).where(CustomWatchItem.user_id == u.id)).all())
+    added = [s for s in syms if s not in have]
+    for s in added:
+        db.add(CustomWatchItem(user_id=u.id, symbol=s, note=p.note or None))
+    db.commit()
+    return {"added": added, "already": [s for s in syms if s in have]}
+
+
+@app.delete("/api/custom-watchlist/{symbol}")
+def custom_watchlist_remove(symbol: str, db: Session = Depends(get_db), u: User = Depends(current_user)):
+    from app.models import CustomWatchItem
+
+    db.execute(delete(CustomWatchItem).where(CustomWatchItem.user_id == u.id,
+                                             CustomWatchItem.symbol == symbol.upper()))
+    db.commit()
+    return {"ok": True}
 
 
 @app.get("/api/seasonality")

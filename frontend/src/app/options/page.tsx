@@ -1,6 +1,7 @@
 "use client";
-import Link from "next/link";
 import { useState } from "react";
+import { CriteriaCard } from "@/components/criteria";
+import { OptionsImport } from "@/components/options-import";
 import { ScanBar } from "@/components/scan-bar";
 import { Badge, Card, Empty, ErrorBox, Ticker, useSort } from "@/components/ui";
 import { useApi } from "@/lib/api";
@@ -16,6 +17,7 @@ type Detail = Batch & { data: Row[]; thresholds: { min_volume_change_pct: number
 
 export default function OptionsPage() {
   const list = useApi<Batch[]>("/options-imports");
+  const fresh = !!list.data?.[0];
   const latest = list.data?.[0];
   const { data, error, reload } = useApi<Detail>(latest ? `/options-imports/${latest.id}` : null);
   const [onlyPass, setOnlyPass] = useState(false);
@@ -27,13 +29,15 @@ export default function OptionsPage() {
     <div className="space-y-4">
       <ScanBar title="Unusual options activity" subtitle={latest ? `CSV import #${latest.id} · ${latest.filename} · session ${latest.session_date}` : undefined} onScanned={reload} />
       <ErrorBox error={error || list.error} />
+      {list.data && <OptionsImport open={!fresh} onImported={() => { list.reload(); reload(); }} />}
+      <CriteriaCard title="Unusual-options criteria" tab="Unusual Options" sections={["options"]} />
       <Card title={data ? `${rows.length} of ${data.data.length} stocks` : "Unusual options"} right={
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by ticker or name" className="w-48" />
           <label className="flex items-center gap-1.5"><input type="checkbox" checked={onlyPass} onChange={(e) => setOnlyPass(e.target.checked)} /> Passes rules only</label>
         </div>}>
         {!latest && !list.loading ? (
-          <Empty>No CSV imported yet. Upload today&apos;s file under <Link className="text-accent underline" href="/admin">Admin → Unusual options CSV import</Link>.</Empty>
+          <Empty>No CSV imported yet — upload today&apos;s file above.</Empty>
         ) : sorted.length ? (
           <div className="overflow-x-auto">
             <table className="text-sm">
@@ -59,7 +63,7 @@ export default function OptionsPage() {
             </table>
           </div>
         ) : <Empty>{data ? "No stocks match the filters." : "Loading…"}</Empty>}
-        {t && <p className="mt-2 text-xs text-muted">“passes” = price below ${t.max_price}, 1M volume change ≥ {t.min_volume_change_pct}%, IV rank &gt; {t.min_iv_rank}, put/call &lt; {t.max_put_call_ratio} (Admin thresholds). Large call volume is not automatically bullish.</p>}
+        {t && <p className="mt-2 text-xs text-muted">“passes” = price below ${t.max_price}, 1M volume change ≥ {t.min_volume_change_pct}%, IV rank &gt; {t.min_iv_rank}, put/call &lt; {t.max_put_call_ratio} (criteria above). Large call volume is not automatically bullish.</p>}
       </Card>
     </div>
   );

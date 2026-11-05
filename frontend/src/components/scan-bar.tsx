@@ -41,18 +41,18 @@ export function ScanBar({ title, subtitle, onScanned }: { title: string; subtitl
       <ErrorBox error={error} />
       {o?.type === "csv" && !o.latest && (
         <div className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm text-warn">
-          No unusual-options CSV imported yet — upload one under <Link className="underline" href="/admin">Admin → Unusual options CSV import</Link>.
+          No unusual-options CSV imported yet — upload one on the <Link className="underline" href="/options">Unusual Options</Link> tab.
         </div>
       )}
       {o?.type === "csv" && o.latest && !o.current && (
         <div className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm text-warn">
           The options CSV is from {o.latest.session_date}, older than the last completed session ({o.last_completed_session}); scans treat it as missing.{" "}
-          <Link className="underline" href="/admin">Import a current file</Link>.
+          <Link className="underline" href="/options">Import a current file</Link>.
         </div>
       )}
       {run && run.relaxed_criteria.length > 0 && (
         <div className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm text-warn">
-          An administrator relaxed these requirements for the last scan: <b>{run.relaxed_criteria.join(", ")}</b>.
+          These criteria were relaxed (looser than the specification) for the last scan: <b>{run.relaxed_criteria.join(", ")}</b>.
         </div>
       )}
       {run && run.errors.length > 0 && (

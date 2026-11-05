@@ -10,6 +10,12 @@
  */
 
 export type MonthEnd = Map<string, Map<string, [string, number]>>; // symbol -> "YYYY-MM" -> [ISO date, close]
+type Bar = [string, number, number, number, number, number]; // date, open, high, low, close, volume
+export type Recent = Map<string, Bar[]>;
+export type Snapshot = {
+  symbol: string; n: number; d: string[]; o: number[]; h: number[]; l: number[]; c: number[]; v: number[]; ema50: (number | null)[] | null;
+  low52: number; low52_date: string; low52_ago: number; high52: number; high52_date: string; avg_vol50: number | null;
+};
 
 export type ParseStats = {
   files: number; lines: number; used: number; skipped: number; symbols: number; months: number;
@@ -67,8 +73,11 @@ function symbolFromFile(name: string) {
   return name.replace(/\.[^.]+$/, "").split(/[_\s]/)[0].toUpperCase();
 }
 
-export async function readOhlcv(files: File[], onProgress: (msg: string) => void): Promise<{ data: MonthEnd; stats: ParseStats }> {
+export async function readOhlcv(files: File[], onProgress: (msg: string) => void): Promise<{ data: MonthEnd; recent: Recent; stats: ParseStats }> {
   const data: MonthEnd = new Map();
+  const recent: Recent = new Map();
+  // keep ~14 months of daily bars for the 52-week-low and 50-EMA screens
+  const cutoff = new Date(Date.now() - 430 * 86_400_000).toISOString().slice(0, 10);
   const st: ParseStats = { files: files.length, lines: 0, used: 0, skipped: 0, symbols: 0, months: 0, firstDate: null,
     lastDate: null, closeColumn: "", symbolSource: "", sample: [] };
   let bytesDone = 0;
@@ -77,7 +86,7 @@ export async function readOhlcv(files: File[], onProgress: (msg: string) => void
   for (const file of files) {
     const reader = file.stream().pipeThrough(new TextDecoderStream()).getReader();
     let rest = "", header: string[] | null = null, sep = ",";
-    let iSym = -1, iDate = -1, iClose = -1, fileSym = "";
+    let iSym = -1, iDate = -1, iClose = -1, iO = -1, iH = -1, iL = -1, iV = -1, iRaw = -1, fileSym = "";
 
     const handle = (line: string) => {
       if (!line.trim()) return;
@@ -87,7 +96,10 @@ export async function readOhlcv(files: File[], onProgress: (msg: string) => void
         iSym = pick(header, SYMBOL_KEYS);
         iDate = pick(header, DATE_KEYS);
         const adj = pick(header, ADJ_KEYS);
-        iClose = adj >= 0 ? adj : pick(header, CLOSE_KEYS);
+        iRaw = pick(header, CLOSE_KEYS);
+        iClose = adj >= 0 ? adj : iRaw;
+        iO = pick(header, ["open", "openprice"]); iH = pick(header, ["high", "highprice"]);
+        iL = pick(header, ["low", "lowprice"]); iV = pick(header, ["volume", "vol"]);
         if (iDate < 0 || iClose < 0)
           throw new Error(`${file.name}: needs a header row with Date and Close columns (found: ${header.join(", ")})`);
         if (iSym < 0) fileSym = symbolFromFile(file.name);
@@ -107,6 +119,15 @@ export async function readOhlcv(files: File[], onProgress: (msg: string) => void
       if (!m) { m = new Map(); data.set(sym, m); }
       const prev = m.get(mk);
       if (!prev || d >= prev[0]) m.set(mk, [d, px]);
+      if (d >= cutoff) {
+        // scale OHLC by the adjustment factor so they line up with the adjusted close
+        const raw = iRaw >= 0 && iRaw !== iClose ? num(c[iRaw] ?? "") : px;
+        const f = raw > 0 ? px / raw : 1;
+        const g = (i: number) => { const x = i >= 0 ? num(c[i] ?? "") : NaN; return x > 0 ? x * f : px; };
+        let r = recent.get(sym);
+        if (!r) { r = []; recent.set(sym, r); }
+        r.push([d, g(iO), g(iH), g(iL), px, iV >= 0 ? num(c[iV] ?? "") || 0 : 0]);
+      }
       if (!st.firstDate || d < st.firstDate) st.firstDate = d;
       if (!st.lastDate || d > st.lastDate) st.lastDate = d;
     };
@@ -129,7 +150,37 @@ export async function readOhlcv(files: File[], onProgress: (msg: string) => void
   for (const m of data.values()) for (const k of m.keys()) months.add(k);
   st.months = months.size;
   st.sample = [...data.keys()].slice(0, 8);
-  return { data, stats: st };
+  return { data, recent, stats: st };
+}
+
+/** Last 15 bars, 50-day EMA, 52-week low/high and 50-day average volume per stock. */
+export function snapshots(recent: Recent): Snapshot[] {
+  const out: Snapshot[] = [];
+  for (const [symbol, raw] of recent) {
+    const byDate = new Map<string, Bar>();
+    for (const b of raw) byDate.set(b[0], b); // de-duplicate dates (last row wins)
+    const bars = [...byDate.values()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    if (bars.length < 15) continue;
+    const y = bars.slice(-252);
+    let lo = 0, hi = 0;
+    y.forEach((b, i) => { if (b[3] <= y[lo][3]) lo = i; if (b[2] >= y[hi][2]) hi = i; });
+    const ema: (number | null)[] = new Array(bars.length).fill(null);
+    if (bars.length >= 50) {
+      let e = bars.slice(0, 50).reduce((a, b) => a + b[4], 0) / 50;
+      ema[49] = e;
+      const k = 2 / 51;
+      for (let i = 50; i < bars.length; i++) { e = bars[i][4] * k + e * (1 - k); ema[i] = e; }
+    }
+    const last = bars.slice(-15);
+    const v50 = bars.slice(-50).map((b) => b[5]).filter((v) => v > 0);
+    out.push({
+      symbol, n: bars.length, d: last.map((b) => b[0]), o: last.map((b) => b[1]), h: last.map((b) => b[2]), l: last.map((b) => b[3]),
+      c: last.map((b) => b[4]), v: last.map((b) => b[5]), ema50: bars.length >= 60 ? ema.slice(-15) : null,
+      low52: y[lo][3], low52_date: y[lo][0], low52_ago: y.length - 1 - lo, high52: y[hi][2], high52_date: y[hi][0],
+      avg_vol50: v50.length >= 20 ? v50.reduce((a, b) => a + b, 0) / v50.length : null,
+    });
+  }
+  return out;
 }
 
 /** Rows [symbol, "YYYY-MM", close] grouped so one symbol is never split across chunks. */

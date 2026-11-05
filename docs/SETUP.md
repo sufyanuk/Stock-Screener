@@ -5,7 +5,7 @@
 | Variable | Where | Minimum plan |
 |---|---|---|
 | `SEC_USER_AGENT` | none — set `"YourApp you@domain.com"` | free |
-| `ORATS_API_KEY` | orats.com → Data API | Only if Admin → Options data source = ORATS (default is CSV import) |
+| `ORATS_API_KEY` | orats.com → Data API | Only if Unusual Options → criteria → Options data source = ORATS (default is CSV import) |
 | `MASSIVE_API_KEY` | massive.com (Polygon.io keys work) | Stocks + Options (Starter or higher) |
 | `FMP_API_KEY` | financialmodelingprep.com | Starter — analysts, P/E, float, earnings calendar, news & price history (stock panel and earnings screen) |
 | Seasonality data | none — import your historical OHLCV CSV on the Seasonality tab | — |
@@ -68,8 +68,8 @@ cd frontend && npm install && BACKEND_URL=http://localhost:8000 npm run dev
 ## 4. Operating notes
 * **Data health** card on the dashboard: `fresh` < 1 h since the last successful call, `stale` < 24 h, otherwise `down`.
 * A scan with provider errors finishes as `partial`. Affected criteria are *missing* (never passed) and the errors are listed on the dashboard.
-* Admin → Settings: every threshold change needs a note and is stored as a new version.
-* Shariah "Needs Review" stocks in review industries need an admin business review.
+* Criteria are edited on the tab they belong to (Unusual Options, Insider Buying, Watchlist); every change is stored as a new version.
+* Shariah "Needs Review" stocks in review industries need a business review (Watchlist tab).
 * To correct a recommendation, use `POST /api/recommendations/{id}/revise` (admin). The original is kept.
 
 ## 5. Deploying on Vercel

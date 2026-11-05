@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { CriteriaCard } from "@/components/criteria";
 import { ScanBar } from "@/components/scan-bar";
 import { Card, Empty, ErrorBox, Ticker, useSort } from "@/components/ui";
 import { useApi } from "@/lib/api";
@@ -21,6 +22,7 @@ export default function InsidersPage() {
     <div className="space-y-4">
       <ScanBar title="Latest insider buying" subtitle={data ? `${data.source}${data.latest_filing_date ? ` · latest filing ${data.latest_filing_date}` : ""}` : undefined} onScanned={reload} />
       <ErrorBox error={error} />
+      <CriteriaCard title="Insider-buying criteria (used for the Top 5)" tab="Insider Buying" sections={["insider"]} />
       <Card title={`${rows.length} open-market purchases`} right={
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by ticker or insider" className="w-48" />

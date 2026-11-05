@@ -11,9 +11,9 @@ const NAV = [
   ["/insiders", "Insider Buying"],
   ["/watchlist", "Watchlist"],
   ["/earnings", "Earnings"],
+  ["/bounces", "Bounces"],
   ["/seasonality", "Seasonality"],
   ["/tools", "Calculators"],
-  ["/admin", "Admin"],
 ] as const;
 
 export function Shell({ children }: { children: ReactNode }) {

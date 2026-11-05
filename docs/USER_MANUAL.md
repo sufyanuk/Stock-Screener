@@ -1,14 +1,31 @@
 # User manual
 
-**Unusual Options** (opens first) — every stock in your latest imported CSV, sorted by 1-month options
-volume change, with price, calls/puts, put/call and IV rank. "passes" marks stocks meeting the options
-rules and price < $100; "Top 5" marks current recommendations. Filter by ticker/name or "Passes rules only".
+**Unusual Options** (opens first) — import the day's unusual-options CSV at the top of this tab
+(choose the file, click **Preview** to check how it was read, e.g. +1,639% and IV rank 3.3, then
+**Import**; import a new file each trading day). Below it, **Unusual-options criteria** sets the
+thresholds (1M volume change, IV rank, put/call, data source). The table lists every stock in the latest
+file, sorted by 1-month options volume change, with price, calls/puts, put/call and IV rank. "passes"
+marks stocks meeting the criteria and price < $100; "Top 5" marks current recommendations.
 
 **Insider Buying** — open-market purchases from SEC Form 4 filings over the last 7 / 30 / 60 / 90 days
-(joint filings of one purchase shown once).
+(joint filings of one purchase shown once). **Insider-buying criteria** sets the % of shares outstanding,
+look-back and basis used for the Top 5.
 
-**Watchlist** — the Top 5 (stocks meeting every rule) and near-qualified stocks that fail one or two rules,
-with the reasons.
+**Watchlist** — two screens:
+- **Top 5 & near-qualified**: stocks meeting every rule, and stocks failing one or two (with reasons).
+  Below them: the ranking criteria (technical support, analysts, float, liquidity, weights, and which are
+  required), the Shariah highlighting method, your own Shariah business reviews, and Top 5 alerts.
+- **My watchlist**: add any tickers (with an optional note). Shows live price, day change, P/E and market
+  cap (from your price provider), distance from the 50 EMA and from the 52-week low/high (from your price
+  CSV), unusual options, insider buys, Strong Buy count and next earnings date. Remove with one click.
+
+**Bounces** — every stock in your price-history CSV that is turning up from:
+- **its 52-week low**: the low was set within the last N sessions (default 10, not today) and the close is
+  3–20% above it;
+- **its 50-day EMA**: the EMA is rising, a daily low came within 1% of it in the last 3 sessions without
+  closing more than 1% below it in the last 10 sessions, and the close is 0–5% above the EMA.
+Both lists can require an up day and filter by price and 50-day average volume; all settings are on the tab.
+Import a current price CSV (the same import as Seasonality, which includes the last 14 months) to refresh.
 
 Every tab shows the last scan, a **Run scan now** button and warnings (missing/old options CSV, data issues).
 Tickers are coloured by Shariah status everywhere: **green** = compliant, **red** = non-compliant,
@@ -25,7 +42,7 @@ unusual options from the latest CSV, and the number of analysts rating the stock
 in total (loaded automatically from FMP, or Alpha Vantage as a fallback, and cached for a day). Filters show only names with insider buying or unusual options.
 
 **Seasonality** — based on your own price-history CSV (daily, weekly or monthly OHLCV). On the
-Seasonality tab choose the file (one file with a Symbol/Ticker column for all stocks, or one file per
+Seasonality or Bounces tab (one import updates both) choose the file (one file with a Symbol/Ticker column for all stocks, or one file per
 stock named by ticker, e.g. AAPL.csv), check the preview (stocks, date range, close column), then
 **Import**. The file is read in your browser and only each stock's month-end close is uploaded, so
 large files are fine. "Replace all existing price history" starts fresh; untick it to add or update
@@ -45,11 +62,5 @@ filings; and a data-provenance table. **Size this trade** opens the position cal
 **Calculators** — position size (long/short, fees, slippage, allocation cap, fractional shares) and
 expectancy (R-multiples, profit factor, break-even win rate, Monte-Carlo risk of ruin and drawdown,
 scenario grid).
-
-**Unusual options CSV (Admin page, top)** — choose the day's export, click **Preview** to check how
-it was read (e.g. +1,639% and IV rank 3.3), then **Import**. The dashboard shows which file is in use and
-warns when it is out of date. Import a new file each trading day before scanning.
-
-**Admin** — thresholds, hard/soft toggles, weights, Shariah methodology, business reviews and notifications.
 
 Disclaimer: research tool only, not investment advice. Shariah screening is not a fatwa.

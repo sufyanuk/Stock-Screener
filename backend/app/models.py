@@ -377,3 +377,28 @@ class MarketMonth(Base):
     symbols: Mapped[int] = mapped_column(Integer)
     provider: Mapped[str] = mapped_column(String(32))
     retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class CustomWatchItem(Base):
+    """A stock the user added to their own watchlist."""
+
+    __tablename__ = "custom_watchlist"
+    __table_args__ = (UniqueConstraint("user_id", "symbol", name="uq_custom_watch_user_symbol"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    symbol: Mapped[str] = mapped_column(String(16))
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PriceSnapshot(Base):
+    """Recent daily bars and derived levels (52-week low/high, 50 EMA) per stock, computed in the browser
+    from the imported OHLCV CSV. Used by the bounce screens and the custom watchlist."""
+
+    __tablename__ = "price_snapshots"
+    symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
+    as_of: Mapped[date] = mapped_column(Date, index=True)
+    close: Mapped[float] = mapped_column(Float)
+    data: Mapped[dict] = mapped_column(Json)
+    source: Mapped[str] = mapped_column(String(64))
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
