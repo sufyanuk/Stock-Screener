@@ -183,12 +183,12 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
       </div>
 
       <Card title="Data sources & timestamps">
-        <table className="text-xs"><thead><tr><th>Dataset</th><th>Provider</th><th>Freshness</th><th>Market time</th><th>Retrieved</th><th>Endpoint</th></tr></thead>
+        <div className="overflow-x-auto"><table className="text-xs"><thead><tr><th>Dataset</th><th>Provider</th><th>Freshness</th><th>Market time</th><th>Retrieved</th><th>Endpoint</th></tr></thead>
           <tbody>{Object.entries(prov).map(([k, v]: [string, any]) => (
             <tr key={k}><td>{k}</td><td>{v.provider}</td><td><Badge tone={v.freshness === "realtime" ? "bull" : v.freshness === "delayed" ? "warn" : "muted"}>{v.freshness}</Badge></td>
               <td>{v.market_ts ?? "—"}</td><td>{v.retrieved_at}</td><td className="text-muted">{v.endpoint}</td></tr>))}
             <tr><td>options</td><td colSpan={5} className="text-muted">{o.source ?? "ORATS daily cores/summaries"} · session {o.current_session ?? "—"} (end-of-day)</td></tr>
-          </tbody></table>
+          </tbody></table></div>
       </Card>
       <p className="text-xs text-muted">{data?.disclaimer}</p>
     </div>

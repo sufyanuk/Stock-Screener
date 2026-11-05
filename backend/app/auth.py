@@ -8,6 +8,7 @@ import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -46,7 +47,11 @@ def owner_user(db: Session) -> User:
         return u
     u = User(email="owner@local", password_hash="!", role="admin")  # "!" can never match a bcrypt hash
     db.add(u)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:  # a concurrent first request created it: use that one
+        db.rollback()
+        u = db.scalars(select(User).where(User.email == "owner@local")).one()
     return u
 
 

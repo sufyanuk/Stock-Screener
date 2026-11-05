@@ -186,3 +186,31 @@ def test_single_user_mode_reuses_existing_admin(db, monkeypatch):
         assert TestClient(main.app).get("/api/me").json()["email"] == "me@example.com"
     finally:
         get_settings.cache_clear()
+
+
+def test_owner_user_survives_concurrent_creation(db):
+    """Two first requests racing to create the single-user owner must not fail."""
+    from app.auth import owner_user
+    from app.db import SessionLocal
+    from app.models import User
+
+    other = SessionLocal()
+    other.add(User(email="owner@local", password_hash="!", role="admin"))
+    other.commit()
+    other.close()
+    import app.auth as auth
+
+    real = auth.select
+    calls = {"n": 0}
+
+    def first_misses(*a, **k):  # the first lookup runs "before" the other request committed
+        calls["n"] += 1
+        q = real(*a, **k)
+        return q.where(False) if calls["n"] == 1 else q
+
+    auth.select = first_misses
+    try:
+        u = owner_user(db)
+    finally:
+        auth.select = real
+    assert u.email == "owner@local" and db.query(User).count() == 1

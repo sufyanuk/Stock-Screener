@@ -16,14 +16,14 @@ function Mini({ title, href, rows, cols, empty, loading }: { title: string; href
   return (
     <Card title={title} right={<Link href={href} className="text-xs text-accent hover:underline">View all →</Link>}>
       {rows === undefined || (loading && !rows.length) ? <Empty>Loading…</Empty> : rows.length ? (
-        <table className="text-sm">
+        <div className="overflow-x-auto"><table className="text-sm">
           <thead><tr><th>Ticker</th>{cols.map((c) => <th key={c.label}>{c.label}</th>)}</tr></thead>
           <tbody>{rows.slice(0, 5).map((r, i) => (
             <tr key={(r.symbol ?? r.ticker) + i}>
               <td><Ticker symbol={r.symbol ?? r.ticker} status={r.shariah_status} /></td>
               {cols.map((c) => <td key={c.label} className="num">{c.cell(r)}</td>)}
             </tr>))}</tbody>
-        </table>
+        </table></div>
       ) : <Empty>{empty}</Empty>}
     </Card>
   );
