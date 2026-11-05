@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, Empty, ErrorBox, Field, Ticker, useSort } from "@/components/ui";
+import { Button, Card, Empty, ErrorBox, Field, SortTable, Ticker, useSort } from "@/components/ui";
 import { api, useApi } from "@/lib/api";
 import { compact, pct, tone, usd } from "@/lib/format";
 
@@ -72,8 +72,8 @@ function CustomWatchlist() {
         <div className="mt-3 overflow-x-auto">
           <table className="text-sm">
             <thead><tr>
-              {th("symbol", "Ticker")}<th>Company</th>{th("date", "Date")}{th("open", "Open")}{th("high", "High")}{th("low", "Low")}
-              {th("close", "Close")}{th("change", "Change")}{th("volume", "Volume")}<th>Note</th><th></th>
+              {th("symbol", "Ticker")}{th("name", "Company")}{th("date", "Date")}{th("open", "Open")}{th("high", "High")}{th("low", "Low")}
+              {th("close", "Close")}{th("change", "Change")}{th("volume", "Volume")}{th("note", "Note")}<th></th>
             </tr></thead>
             <tbody>{sorted.map((r) => (
               <tr key={r.symbol} onClick={() => setSel(r.symbol)} className={`cursor-pointer ${sel === r.symbol ? "bg-panel-2" : ""}`}>
@@ -96,20 +96,18 @@ function CustomWatchlist() {
           <h3 className="mb-1 text-sm font-semibold">{chosen.symbol} — daily open, high, low, close and volume
             <span className="ml-2 text-xs font-normal text-muted">{chosen.bars_source ? `source: ${chosen.bars_source}` : ""}</span></h3>
           {chosen.bars.length ? (
-            <div className="overflow-x-auto">
-              <table className="text-sm">
-                <thead><tr><th>Date</th><th>Open</th><th>High</th><th>Low</th><th>Close</th><th>Change</th><th>Volume</th></tr></thead>
-                <tbody>{[...chosen.bars].reverse().map((b, i, arr) => {
-                  const prev = arr[i + 1];
-                  const ch = prev ? (b.close / prev.close - 1) * 100 : null;
-                  return (
-                    <tr key={b.date}><td>{b.date}</td><td className="num">{usd(b.open)}</td><td className="num">{usd(b.high)}</td>
-                      <td className="num">{usd(b.low)}</td><td className="num font-semibold">{usd(b.close)}</td>
-                      <td className={`num ${tone(ch)}`}>{pct(ch, 2, true)}</td><td className="num">{compact(b.volume)}</td></tr>
-                  );
-                })}</tbody>
-              </table>
-            </div>
+            <SortTable
+              rows={chosen.bars.map((b, i, arr) => ({ ...b, change: i > 0 ? (b.close / arr[i - 1].close - 1) * 100 : null }))}
+              rowKey={(b) => b.date} initial="date" desc
+              cols={[
+                { key: "date", label: "Date", cell: (b) => b.date },
+                { key: "open", label: "Open", cell: (b) => usd(b.open), className: "num" },
+                { key: "high", label: "High", cell: (b) => usd(b.high), className: "num" },
+                { key: "low", label: "Low", cell: (b) => usd(b.low), className: "num" },
+                { key: "close", label: "Close", cell: (b) => usd(b.close), className: "num font-semibold" },
+                { key: "change", label: "Change", cell: (b) => <span className={tone(b.change)}>{pct(b.change, 2, true)}</span>, className: "num" },
+                { key: "volume", label: "Volume", cell: (b) => compact(b.volume), className: "num" },
+              ]} />
           ) : <Empty>No price bars for {chosen.symbol} — set MASSIVE_API_KEY or FMP_API_KEY for live data, or import a price CSV that includes it.</Empty>}
         </div>
       )}

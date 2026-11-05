@@ -1,5 +1,10 @@
 # User manual
 
+**Scans** — the first time the app is opened on a new day it runs a scan automatically (insider buying,
+earnings calendar, analyst and SentiSense ratings, bounce prices, outstanding shares); a banner shows
+progress. **Run scan now** is on the Dashboard and Unusual Options tabs for an extra scan (e.g. after
+importing today's options CSV). Every table column can be sorted by clicking its heading.
+
 **Dashboard** (opens first) — Top 5 (stocks meeting every rule), near-qualified stocks failing one or two
 rules (with reasons), and the top 5 from each tab: unusual options, insider buying (by % of outstanding
 shares), upcoming earnings, seasonality for this month, 52-week-low bounces, 50-EMA bounces and your
@@ -21,6 +26,14 @@ criteria** sets the % of shares outstanding, look-back and basis used for the To
 **Watchlist** — your custom watchlist: add any tickers (with an optional note); each shows its latest
 daily open, high, low, close, change and volume. Pick a stock in "Select stock" (or click its row) for the
 last 15 sessions. Prices come from your price APIs.
+
+**Ratings** — two sub-tabs for the stocks the app follows (your watchlist, the latest options CSV, insider
+purchases of the last 90 days, and earnings this week):
+- **Analyst ratings — Strong Buy**: only stocks with at least one analyst rating Strong Buy (choose a higher
+  minimum), with Buy / Hold / Sell / Strong Sell counts, total analysts and % Strong Buy (Finnhub; cached a day).
+- **SentiSense rating**: A–F letter, 0–100 score, rank, risk points and favourable-analyst share; filter by
+  letter. Loaded with SentiSense's screener (all rated stocks in one request) or per stock if the screener is not
+  on your plan. A research score, not a buy/sell recommendation.
 
 **Bounces** — every US stock, from daily market data (Massive grouped daily bars; FMP bulk as fallback).
 Click **Load price history** once (about 260 requests, one per trading day; resumable); each scan then adds

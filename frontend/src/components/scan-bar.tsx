@@ -6,8 +6,9 @@ import { api, useApi } from "@/lib/api";
 import { ago } from "@/lib/format";
 import type { Dashboard } from "@/lib/types";
 
-/** Page title + last scan, "Run scan now", options-CSV status and scan warnings (shared by the tabs). */
-export function ScanBar({ title, subtitle, onScanned }: { title: string; subtitle?: ReactNode; onScanned?: () => void }) {
+/** Page title + last scan, options-CSV status and scan warnings (shared by the tabs). The "Run scan now"
+ *  button is shown only where asked (Dashboard, Unusual Options); elsewhere the daily auto-scan applies. */
+export function ScanBar({ title, subtitle, onScanned, showButton = false }: { title: string; subtitle?: ReactNode; onScanned?: () => void; showButton?: boolean }) {
   const { data, error, reload } = useApi<Dashboard>("/dashboard", 60_000);
   const [msg, setMsg] = useState<string | null>(null);
   async function scan() {
@@ -35,7 +36,7 @@ export function ScanBar({ title, subtitle, onScanned }: { title: string; subtitl
         </div>
         <div className="flex items-center gap-2">
           {msg && <span className="text-xs text-muted">{msg}</span>}
-          <Button onClick={scan}>Run scan now</Button>
+          {showButton && <Button onClick={scan}>Run scan now</Button>}
         </div>
       </div>
       <ErrorBox error={error} />

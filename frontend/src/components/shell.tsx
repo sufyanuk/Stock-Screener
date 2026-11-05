@@ -1,10 +1,10 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { StockPane } from "@/components/stock-pane";
 import { TickerSearch } from "@/components/ticker-search";
-import { useApi } from "@/lib/api";
+import { api, useApi } from "@/lib/api";
 import { PaneProvider, usePane } from "@/lib/pane-context";
 
 const NAV = [
@@ -13,6 +13,7 @@ const NAV = [
   ["/insiders", "Insider Buying"],
   ["/watchlist", "Watchlist"],
   ["/earnings", "Earnings"],
+  ["/ratings", "Ratings"],
   ["/bounces", "Bounces"],
   ["/seasonality", "Seasonality"],
   ["/tools", "Calculators"],
@@ -43,6 +44,7 @@ export function Shell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </nav>
+      <DailyAutoScan />
       <MainWithPane>{children}</MainWithPane>
       <footer className="mx-auto max-w-[1900px] px-4 pb-8 text-xs text-muted">
         Research tool only — not investment advice. Data may be delayed or incomplete; every value shows its source and timestamp.
@@ -69,6 +71,44 @@ function ProviderStatus() {
         const ok = p[k] === "configured";
         return <span key={k} className={ok ? "text-bull" : "text-muted"} title={p[k]}>{ok ? "●" : "○"} {label}</span>;
       })}
+    </div>
+  );
+}
+
+/** The first time the app is opened on a new day, run a scan automatically (the server skips it if a
+ *  scan already ran today, so several tabs or devices cannot start duplicates). */
+function DailyAutoScan() {
+  const [state, setState] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    try { if (localStorage.getItem("auto-scan-day") === today) return; } catch { /* storage unavailable */ }
+    try { localStorage.setItem("auto-scan-day", today); } catch { /* storage unavailable */ }
+    let cancelled = false;
+    let finished = false;
+    (async () => {
+      try {
+        const r = await api<{ ran: boolean }>("/scan/daily", { method: "POST", body: "{}" });
+        finished = true;
+        if (cancelled) return;
+        if (r.ran) { setState("done"); setMsg("Today's first scan has finished."); } else setState("idle");
+      } catch (e) {
+        finished = true;
+        if (!cancelled) { setState("error"); setMsg(`Daily scan: ${(e as Error).message}`); }
+      }
+    })();
+    // show progress only if the request takes a moment (i.e. a scan is actually running)
+    const t = setTimeout(() => { if (!cancelled && !finished) setState("running"); }, 1500);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, []);
+  if (state === "idle") return null;
+  return (
+    <div className="mx-auto max-w-[1900px] px-4 pt-3">
+      <div className={`flex flex-wrap items-center gap-3 rounded-lg border p-2 text-sm ${state === "error" ? "border-warn/40 bg-warn/10 text-warn" : "border-accent/40 bg-accent/10"}`}>
+        {state === "running" ? <span>Running today&apos;s first scan… (insider buying, earnings, analysts and bounces are refreshed)</span> : <span>{msg}</span>}
+        {state === "done" && <button className="underline" onClick={() => window.location.reload()}>Refresh the page</button>}
+        {state !== "running" && <button className="ml-auto text-muted hover:text-ink" onClick={() => setState("idle")}>Dismiss</button>}
+      </div>
     </div>
   );
 }

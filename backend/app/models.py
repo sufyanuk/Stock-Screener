@@ -422,3 +422,21 @@ class MarketDay(Base):
     symbols: Mapped[int] = mapped_column(Integer)
     provider: Mapped[str] = mapped_column(String(32))
     processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SentiSenseRatingRow(Base):
+    """Cached SentiSense Rating per stock (recomputed by SentiSense once per trading day)."""
+
+    __tablename__ = "sentisense_ratings"
+    symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
+    rated: Mapped[bool] = mapped_column(Boolean, default=False)
+    letter: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    percentile: Mapped[float | None] = mapped_column(Float, nullable=True)
+    penalty_points: Mapped[float | None] = mapped_column(Float, nullable=True)
+    analyst_favorable_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    company: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    as_of: Mapped[date | None] = mapped_column(Date, nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source: Mapped[str] = mapped_column(String(16))  # "screener" | "rating"
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

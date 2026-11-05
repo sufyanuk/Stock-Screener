@@ -115,7 +115,7 @@ export default function BouncesPage() {
               <thead><tr>
                 {th("symbol", "Ticker")}{th("price", "Price")}{th("day_change_pct", "Day")}
                 {kind === "low52"
-                  ? <>{th("low52", "52w low")}<th>Low date</th>{th("above_low52_pct", "Above low")}</>
+                  ? <>{th("low52", "52w low")}{th("low52_date", "Low date")}{th("above_low52_pct", "Above low")}</>
                   : <>{th("ema50", "50 EMA")}{th("low_vs_ema_pct", "Day low vs EMA")}{th("vs_ema50_pct", "Close vs EMA")}</>}
                 {th("volume", "Volume")}{th("vol_ratio", kind === "low52" ? "× 50d avg" : "× 20d avg")}{th("rsi", "RSI 14")}
               </tr></thead>

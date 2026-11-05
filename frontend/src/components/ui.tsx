@@ -164,3 +164,40 @@ export function useSort<T>(rows: T[], initial: keyof T | null = null, desc = tru
   );
   return { sorted, th };
 }
+
+/** A table whose every column sorts when its heading is clicked. ``sort`` gives the value a column
+ *  sorts by (defaults to ``row[key]``); ``cell`` renders it. */
+export type Column<T> = { key: string; label: ReactNode; cell: (r: T) => ReactNode; sort?: (r: T) => number | string | null | undefined; className?: string };
+
+export function SortTable<T>({ rows, cols, rowKey, initial = null, desc = true, className = "text-sm", rowClass, onRowClick, limit }: {
+  rows: T[]; cols: Column<T>[]; rowKey: (r: T, i: number) => string; initial?: string | null; desc?: boolean; className?: string;
+  rowClass?: (r: T) => string; onRowClick?: (r: T) => void; limit?: number;
+}) {
+  const [key, setKey] = useState<string | null>(initial);
+  const [d, setD] = useState(desc);
+  const col = cols.find((c) => c.key === key);
+  const val = (r: T) => (col?.sort ? col.sort(r) : (r as Record<string, unknown>)[key ?? ""] as number | string | null | undefined);
+  const sorted = col
+    ? [...rows].sort((a, b) => {
+        const x = val(a), y = val(b);
+        if (x === y) return 0;
+        if (x === null || x === undefined) return 1;
+        if (y === null || y === undefined) return -1;
+        return (x > y ? 1 : -1) * (d ? -1 : 1);
+      })
+    : rows;
+  return (
+    <div className="overflow-x-auto">
+      <table className={className}>
+        <thead><tr>{cols.map((c) => (
+          <th key={c.key} className="cursor-pointer select-none hover:text-ink" onClick={() => (key === c.key ? setD(!d) : (setKey(c.key), setD(true)))}>
+            {c.label}{key === c.key ? (d ? " ↓" : " ↑") : ""}
+          </th>))}</tr></thead>
+        <tbody>{(limit ? sorted.slice(0, limit) : sorted).map((r, i) => (
+          <tr key={rowKey(r, i)} className={rowClass?.(r)} onClick={onRowClick ? () => onRowClick(r) : undefined}>
+            {cols.map((c) => <td key={c.key} className={c.className}>{c.cell(r)}</td>)}
+          </tr>))}</tbody>
+      </table>
+    </div>
+  );
+}

@@ -50,6 +50,7 @@ export default function EarningsPage() {
 
   const rows = (data?.rows ?? []).filter((r) => (!onlyInsider || r.insider) && (!onlyOptions || r.options))
     .map((r) => ({ ...r, ins_value: r.insider?.value ?? null, opt_chg: r.options?.vol_change_1m_pct ?? null, strong_buy: r.analysts?.strong_buy ?? null,
+      buy: r.analysts?.buy ?? null, iv_rank: r.options?.iv_rank ?? null, put_call: r.options?.put_call ?? null,
       analysts_total: r.analysts ? ["strong_buy", "buy", "hold", "sell", "strong_sell"].reduce((a, k) => a + ((r.analysts as Record<string, number | null>)[k] ?? 0), 0) : null }));
   // Most "Strong Buy" analyst ratings first (companies without counts yet go last, soonest first).
   const { sorted, th } = useSort(rows, "strong_buy" as keyof (typeof rows)[number], true);
@@ -78,9 +79,9 @@ export default function EarningsPage() {
           <div className="overflow-x-auto">
             <table className="text-sm">
               <thead><tr>
-                {th("date", "Date")}<th>Time</th>{th("symbol", "Ticker")}<th>Company</th>{th("eps_estimate", "EPS est.")}
-                {th("ins_value", "Insider buying")}{th("opt_chg", "Unusual options (1M vol Δ)")}<th>IV rank</th><th>P/C</th>
-                {th("strong_buy", "No. of analysts: Strong Buy")}<th>Buy</th>{th("analysts_total", "Total analysts")}
+                {th("date", "Date")}{th("time_of_day", "Time")}{th("symbol", "Ticker")}{th("name", "Company")}{th("eps_estimate", "EPS est.")}
+                {th("ins_value", "Insider buying")}{th("opt_chg", "Unusual options (1M vol Δ)")}{th("iv_rank", "IV rank")}{th("put_call", "P/C")}
+                {th("strong_buy", "No. of analysts: Strong Buy")}{th("buy", "Buy")}{th("analysts_total", "Total analysts")}
               </tr></thead>
               <tbody>{sorted.map((r) => {
                 const n = daysUntil(r.date);

@@ -530,6 +530,13 @@ async def _do_scan(kind: str, by: str) -> dict:
 
             await load_shares(db, ds, [r["ticker"] for r in latest_insider_buys(db, 90, 500)
                                        if r["outstanding_shares"] is None], limit=80, max_seconds=40)
+            from app.services import ratings
+
+            try:  # Ratings tab: SentiSense screener (once a day) and analyst counts for the followed stocks
+                await asyncio.wait_for(ratings.load_sentisense(db, ds), 30)
+                await asyncio.wait_for(ratings.load_analysts(db, ds, 50), 50)
+            except Exception as e:  # noqa: BLE001 - ratings never fail the scan
+                log.warning("ratings refresh skipped: %s", e)
             prior = set(db.scalars(select(Recommendation.ticker).where(
                 Recommendation.session_date == run.session_date, Recommendation.run_id != run.id)).all())
             new = [r for r in db.scalars(select(Recommendation).where(Recommendation.run_id == run.id)).all()
@@ -543,6 +550,23 @@ async def _do_scan(kind: str, by: str) -> dict:
 
 def _serverless() -> bool:
     return bool(os.environ.get("VERCEL"))
+
+
+@app.post("/api/scan/daily")
+async def daily_scan(bg: BackgroundTasks, u: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Run a scan when the app is first opened on a new (New York) day; otherwise do nothing."""
+    today = datetime.now(mc.NY).date()
+    last = db.scalars(select(ScanRun).order_by(ScanRun.started_at.desc()).limit(1)).first()
+    if last and last.started_at:
+        started = last.started_at if last.started_at.tzinfo else last.started_at.replace(tzinfo=timezone.utc)
+        if started.astimezone(mc.NY).date() == today:
+            return {"ran": False, "reason": "already scanned today", "last_run": last.id}
+    if _scan_lock.locked() or _scan_running(db):
+        return {"ran": False, "reason": "a scan is already running"}
+    if _serverless():
+        return {"ran": True, "queued": False, **await _do_scan("manual", f"auto (first open {today.isoformat()})")}
+    bg.add_task(_do_scan, "manual", f"auto (first open {today.isoformat()})")
+    return {"ran": True, "queued": True}
 
 
 @app.post("/api/scan")
@@ -953,6 +977,36 @@ def bounces(kind: str = "low52", max_price: float = 100.0, min_price: float | No
     for r in out["rows"]:
         r["shariah_status"] = sh.get(r["symbol"])
     return out
+
+
+# ------------------------------------------------------------------ ratings tab
+@app.get("/api/ratings/analysts")
+def ratings_analysts(min_strong_buy: int = 1, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    """Stocks with at least ``min_strong_buy`` analysts rating Strong Buy (cached counts)."""
+    from app.services import ratings
+
+    return ratings.analyst_rows(db, max(1, min_strong_buy))
+
+
+@app.post("/api/ratings/analysts/load")
+async def ratings_analysts_load(limit: int = 100, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    from app.services import ratings
+
+    return await ratings.load_analysts(db, make_datasource(), min(max(limit, 1), 200))
+
+
+@app.get("/api/ratings/sentisense")
+def ratings_sentisense(db: Session = Depends(get_db), _: User = Depends(current_user)):
+    from app.services import ratings
+
+    return ratings.sentisense_rows(db)
+
+
+@app.post("/api/ratings/sentisense/load")
+async def ratings_sentisense_load(db: Session = Depends(get_db), _: User = Depends(current_user)):
+    from app.services import ratings
+
+    return await ratings.load_sentisense(db, make_datasource())
 
 
 # ------------------------------------------------------------------ custom watchlist

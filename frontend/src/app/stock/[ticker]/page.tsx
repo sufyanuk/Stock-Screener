@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { use, useMemo } from "react";
 import { PriceChart, type Bar, type Level } from "@/components/charts";
-import { Badge, Card, Empty, ErrorBox, OutcomeBadge, ShariahLegend, Stat, Ticker } from "@/components/ui";
+import { Badge, Card, Empty, ErrorBox, OutcomeBadge, ShariahLegend, SortTable, Stat, Ticker } from "@/components/ui";
 import { useApi } from "@/lib/api";
 import { compact, nf, pct, usd } from "@/lib/format";
 import type { Criterion, ScanRow } from "@/lib/types";
@@ -117,10 +117,17 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
             <Stat label="Calls / Puts" value={`${compact(o.call_volume)} / ${compact(o.put_volume)}`} sub={o.concentration ? `concentrated in ${o.concentration}` : ""} />
           </div>
           {o.largest_contracts?.length ? (
-            <div className="mt-3 overflow-x-auto"><table className="text-xs"><thead><tr><th>Contract</th><th>Exp</th><th>Strike</th><th>Vol</th><th>OI</th><th>Premium</th><th>Money</th><th>Open/close</th></tr></thead>
-              <tbody>{o.largest_contracts.map((x: any) => (
-                <tr key={x.contract}><td>{x.type} {x.is_block && <Badge tone="info">block</Badge>}</td><td>{x.expiration}</td><td className="num">{nf(x.strike)}</td>
-                  <td className="num">{compact(x.volume)}</td><td className="num">{compact(x.open_interest)}</td><td className="num">{compact(x.premium)}</td><td>{x.moneyness}</td><td className="text-muted">{x.open_close}</td></tr>))}</tbody></table></div>
+            <div className="mt-3"><SortTable className="text-xs" rows={o.largest_contracts as any[]} rowKey={(x) => x.contract} initial="premium"
+              cols={[
+                { key: "type", label: "Contract", cell: (x) => <>{x.type} {x.is_block && <Badge tone="info">block</Badge>}</> },
+                { key: "expiration", label: "Exp", cell: (x) => x.expiration },
+                { key: "strike", label: "Strike", cell: (x) => nf(x.strike), className: "num" },
+                { key: "volume", label: "Vol", cell: (x) => compact(x.volume), className: "num" },
+                { key: "open_interest", label: "OI", cell: (x) => compact(x.open_interest), className: "num" },
+                { key: "premium", label: "Premium", cell: (x) => compact(x.premium), className: "num" },
+                { key: "moneyness", label: "Money", cell: (x) => x.moneyness },
+                { key: "open_close", label: "Open/close", cell: (x) => <span className="text-muted">{x.open_close}</span> },
+              ]} /></div>
           ) : <p className="mt-3 text-xs text-muted">No per-contract data (chain snapshot unavailable for this scan).</p>}
           <p className="mt-2 text-xs text-muted">Premium uses each contract&apos;s day VWAP × volume × 100. Large call volume is not automatically bullish.</p>
         </Card>
@@ -133,11 +140,18 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
           </div>
           <p className="mt-2 text-xs text-muted">Shares outstanding {compact(ins.shares_outstanding)} (SEC dei, as of {ins.shares_outstanding_date ?? "—"}). Basis: {ins.basis}.</p>
           {ins.purchases?.length ? (
-            <div className="mt-2 overflow-x-auto"><table className="text-xs"><thead><tr><th>Insider</th><th>Role</th><th>Trade</th><th>Filed</th><th>Shares</th><th>Price</th><th>Value</th><th>% out.</th><th>Before→After</th></tr></thead>
-              <tbody>{ins.purchases.map((p: any) => (
-                <tr key={p.accession + p.owner}><td>{p.owner}{p.joint_report && <span className="text-muted"> (+{p.co_reporters.length} joint)</span>}</td><td className="max-w-32 truncate">{p.designation}</td>
-                  <td>{p.transaction_date}</td><td>{p.filing_date}</td><td className="num">{compact(p.shares)}</td><td className="num">{usd(p.price)}</td>
-                  <td className="num">{compact(p.value)}</td><td className="num">{pct(p.pct_outstanding, 2)}</td><td className="num">{compact(p.owned_before)}→{compact(p.owned_after)}</td></tr>))}</tbody></table></div>
+            <div className="mt-2"><SortTable className="text-xs" rows={ins.purchases as any[]} rowKey={(p) => p.accession + p.owner} initial="transaction_date"
+              cols={[
+                { key: "owner", label: "Insider", cell: (p) => <>{p.owner}{p.joint_report && <span className="text-muted"> (+{p.co_reporters.length} joint)</span>}</> },
+                { key: "designation", label: "Role", cell: (p) => <span className="block max-w-32 truncate">{p.designation}</span> },
+                { key: "transaction_date", label: "Trade", cell: (p) => p.transaction_date },
+                { key: "filing_date", label: "Filed", cell: (p) => p.filing_date },
+                { key: "shares", label: "Shares", cell: (p) => compact(p.shares), className: "num" },
+                { key: "price", label: "Price", cell: (p) => usd(p.price), className: "num" },
+                { key: "value", label: "Value", cell: (p) => compact(p.value), className: "num" },
+                { key: "pct_outstanding", label: "% out.", cell: (p) => pct(p.pct_outstanding, 2), className: "num" },
+                { key: "owned_after", label: "Before→After", cell: (p) => <>{compact(p.owned_before)}→{compact(p.owned_after)}</>, className: "num" },
+              ]} /></div>
           ) : null}
           {ins.excluded_count > 0 && <p className="mt-2 text-xs text-muted">{ins.excluded_count} non-qualifying transactions excluded (grants, option exercises, gifts, tax withholding, sales).</p>}
         </Card>
@@ -183,12 +197,17 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
       </div>
 
       <Card title="Data sources & timestamps">
-        <div className="overflow-x-auto"><table className="text-xs"><thead><tr><th>Dataset</th><th>Provider</th><th>Freshness</th><th>Market time</th><th>Retrieved</th><th>Endpoint</th></tr></thead>
-          <tbody>{Object.entries(prov).map(([k, v]: [string, any]) => (
-            <tr key={k}><td>{k}</td><td>{v.provider}</td><td><Badge tone={v.freshness === "realtime" ? "bull" : v.freshness === "delayed" ? "warn" : "muted"}>{v.freshness}</Badge></td>
-              <td>{v.market_ts ?? "—"}</td><td>{v.retrieved_at}</td><td className="text-muted">{v.endpoint}</td></tr>))}
-            <tr><td>options</td><td colSpan={5} className="text-muted">{o.source ?? "ORATS daily cores/summaries"} · session {o.current_session ?? "—"} (end-of-day)</td></tr>
-          </tbody></table></div>
+        <SortTable className="text-xs" rowKey={(r) => r.k}
+          rows={[...Object.entries(prov).map(([k, v]: [string, any]) => ({ k, ...v })),
+            { k: "options", provider: o.source ?? "ORATS daily cores/summaries", freshness: "eod", market_ts: o.current_session ?? null, retrieved_at: null, endpoint: "end-of-day session" }] as any[]}
+          cols={[
+            { key: "k", label: "Dataset", cell: (v) => v.k },
+            { key: "provider", label: "Provider", cell: (v) => v.provider },
+            { key: "freshness", label: "Freshness", cell: (v) => <Badge tone={v.freshness === "realtime" ? "bull" : v.freshness === "delayed" ? "warn" : "muted"}>{v.freshness}</Badge> },
+            { key: "market_ts", label: "Market time", cell: (v) => v.market_ts ?? "—" },
+            { key: "retrieved_at", label: "Retrieved", cell: (v) => v.retrieved_at ?? "—" },
+            { key: "endpoint", label: "Endpoint", cell: (v) => <span className="text-muted">{v.endpoint}</span> },
+          ]} />
       </Card>
       <p className="text-xs text-muted">{data?.disclaimer}</p>
     </div>

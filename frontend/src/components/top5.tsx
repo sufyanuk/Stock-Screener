@@ -28,7 +28,7 @@ export function Top5({ rows }: { rows: Rec[] }) {
       <table className="text-sm">
         <thead>
           <tr>
-            {th("rank", "#")}{th("ticker", "Ticker")}<th>Company</th>{th("price_at_rec", "Price")}{th("day_change_pct", "Day")}
+            {th("rank", "#")}{th("ticker", "Ticker")}{th("company", "Company")}{th("price_at_rec", "Price")}{th("day_change_pct", "Day")}
             {th("vol_chg", <>Opt vol Δ<Info>Current-session options volume vs. the mean of the 20 sessions ending 21 sessions earlier. (current ÷ baseline − 1) × 100.</Info></>)}
             {th("ivr", <>IV rank<Info>(IV30 now − 52-week low) ÷ (52-week high − low) × 100, using 252 sessions of 30-day ATM implied volatility.</Info></>)}
             {th("pcr", <>P/C<Info>Put volume ÷ call volume for the evaluation session (volume, not open interest).</Info></>)}
@@ -38,7 +38,7 @@ export function Top5({ rows }: { rows: Rec[] }) {
             {th("sup", <>To support<Info>(Price − top of nearest validated support zone) ÷ zone top × 100. A zone needs ≥ 2 swing-low touches.</Info></>)}
             {th("float_ratio", <>Float<Info>Public float ÷ shares outstanding × 100.</Info></>)}
             {th("score", <>Score<Info>Weighted sum of six 0–100 factor scores (options 25, insider 20, analyst 15, technical 20, float 10, liquidity 10).</Info></>)}
-            <th>Entry</th><th>Stop</th><th>T1</th><th>T2</th>{th("rr", "R/R")}
+            {th("entry", "Entry")}{th("stop", "Stop")}{th("target1", "T1")}{th("target2", "T2")}{th("rr", "R/R")}
           </tr>
         </thead>
         <tbody>

@@ -252,6 +252,20 @@ class SentiSense:
             raise
         return parse_sentisense_rating(j)
 
+    async def screener(self, limit: int = 500) -> list[dict]:
+        """Every rated stock in one request: POST /api/v1/screener/execute filtered on the Rating letter,
+        sorted by Rating score (best first). Rows carry ratingLetter / ratingScore / ratingPercentile."""
+        import httpx
+
+        body = {"plan": {"filters": [{"fieldName": "SENTISENSE_RATING", "op": "IN", "values": ["A", "B", "C", "D", "F"]}],
+                         "sort": {"fieldName": "SENTISENSE_RATING", "dir": "DESC"}}, "limit": limit}
+        headers = dict(self.http.headers or {}) | {"Content-Type": "application/json"}
+        async with httpx.AsyncClient(timeout=30, headers=headers) as c:
+            r = await c.post("https://app.sentisense.ai/api/v1/screener/execute", json=body)
+        if r.status_code != 200:
+            raise ProviderError(self.name, f"screener HTTP {r.status_code}: {r.text[:200]}", r.status_code)
+        return parse_sentisense_screener(r.json())
+
     async def insights(self, ticker: str, limit: int = 3) -> list[dict]:
         try:
             j = await self.http.get_json(f"/api/v1/insights/stock/{ticker}", cache_ttl=3600)
@@ -298,4 +312,22 @@ def parse_sentisense_insights(j) -> list[dict]:
         out.append({"type": r.get("insightType"), "category": r.get("category"), "text": str(r["insightText"])[:600],
                     "confidence": _f(r.get("confidence")), "urgency": r.get("urgency"),
                     "generated": datetime.fromtimestamp(ts, timezone.utc).date().isoformat() if isinstance(ts, (int, float)) else None})
+    return out
+
+
+def parse_sentisense_screener(j) -> list[dict]:
+    """Rows of a screener response (list under data/rows/results/items, or a bare list)."""
+    rows = j
+    if isinstance(j, dict):
+        rows = next((j[k] for k in ("data", "rows", "results", "items", "stocks") if isinstance(j.get(k), list)), [])
+    out = []
+    for r in rows if isinstance(rows, list) else []:
+        if not isinstance(r, dict):
+            continue
+        sym = r.get("ticker") or r.get("symbol")
+        letter = r.get("ratingLetter") or r.get("letter")
+        if not sym or not letter:
+            continue
+        out.append({"ticker": str(sym).upper(), "rated": True, "letter": str(letter), "score": _f(r.get("ratingScore")),
+                    "percentile": _f(r.get("ratingPercentile")), "company": r.get("companyName") or r.get("name")})
     return out

@@ -51,8 +51,8 @@ export default function InsidersPage() {
           <div className="overflow-x-auto">
             <table className="text-sm">
               <thead><tr>
-                {th("ticker", "Ticker")}{th("owner", "Insider")}<th>Role</th>{th("transaction_date", "Trade")}{th("filing_date", "Filed")}
-                {th("shares", "Shares")}{th("outstanding_shares", "Outstanding shares")}{th("pct_outstanding", "% of outstanding")}{th("price", "Price")}{th("value", "Value")}{th("owned_after", "Owned after")}<th>Filing</th>
+                {th("ticker", "Ticker")}{th("owner", "Insider")}{th("title", "Role")}{th("transaction_date", "Trade")}{th("filing_date", "Filed")}
+                {th("shares", "Shares")}{th("outstanding_shares", "Outstanding shares")}{th("pct_outstanding", "% of outstanding")}{th("price", "Price")}{th("value", "Value")}{th("owned_after", "Owned after")}{th("accession", "Filing")}
               </tr></thead>
               <tbody>{sorted.map((b) => (
                 <tr key={b.accession + b.owner + b.transaction_date}>

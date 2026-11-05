@@ -4,26 +4,21 @@ import Link from "next/link";
 import { ReactNode } from "react";
 import { ScanBar } from "@/components/scan-bar";
 import { Top5 } from "@/components/top5";
-import { Card, Empty, ErrorBox, Ticker } from "@/components/ui";
+import { Card, Empty, ErrorBox, SortTable, Ticker } from "@/components/ui";
 import { useApi } from "@/lib/api";
 import { compact, nf, pct, tone, usd } from "@/lib/format";
 import type { Dashboard } from "@/lib/types";
 
-type Col = { label: string; cell: (r: any) => ReactNode };
+type Col = { label: string; cell: (r: any) => ReactNode; sort?: (r: any) => number | string | null | undefined };
 
 /** "Top 5" card summarising one tab, with a link to the full list. */
 function Mini({ title, href, rows, cols, empty, loading }: { title: string; href: string; rows: any[] | undefined; cols: Col[]; empty: string; loading?: boolean }) {
   return (
     <Card title={title} right={<Link href={href} className="text-xs text-accent hover:underline">View all →</Link>}>
       {rows === undefined || (loading && !rows.length) ? <Empty>Loading…</Empty> : rows.length ? (
-        <div className="overflow-x-auto"><table className="text-sm">
-          <thead><tr><th>Ticker</th>{cols.map((c) => <th key={c.label}>{c.label}</th>)}</tr></thead>
-          <tbody>{rows.slice(0, 5).map((r, i) => (
-            <tr key={(r.symbol ?? r.ticker) + i}>
-              <td><Ticker symbol={r.symbol ?? r.ticker} status={r.shariah_status} /></td>
-              {cols.map((c) => <td key={c.label} className="num">{c.cell(r)}</td>)}
-            </tr>))}</tbody>
-        </table></div>
+        <SortTable rows={rows} limit={5} rowKey={(r, i) => (r.symbol ?? r.ticker) + i}
+          cols={[{ key: "ticker", label: "Ticker", sort: (r) => r.symbol ?? r.ticker, cell: (r) => <Ticker symbol={r.symbol ?? r.ticker} status={r.shariah_status} /> },
+            ...cols.map((c) => ({ key: c.label, label: c.label, cell: c.cell, sort: c.sort, className: "num" }))]} />
       ) : <Empty>{empty}</Empty>}
     </Card>
   );
@@ -50,7 +45,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <ScanBar title="Dashboard" onScanned={() => { dash.reload(); ins.reload(); low.reload(); ema.reload(); }} />
+        <ScanBar showButton title="Dashboard" onScanned={() => { dash.reload(); ins.reload(); low.reload(); ema.reload(); }} />
       </div>
       <ErrorBox error={dash.error} />
 
@@ -59,48 +54,43 @@ export default function DashboardPage() {
       </Card>
       <Card title="Near-qualified — fails one or two rules">
         {dash.data?.watchlist.length ? (
-          <div className="overflow-x-auto">
-            <table className="text-sm">
-              <thead><tr><th>Ticker</th><th>Company</th><th>Price</th><th>Score</th><th>Fails</th></tr></thead>
-              <tbody>{dash.data.watchlist.map((w) => (
-                <tr key={w.ticker}>
-                  <td><Ticker symbol={w.ticker} status={w.shariah_status} /></td>
-                  <td className="max-w-56 truncate text-muted">{w.company}</td>
-                  <td className="num">{usd(w.price)}</td>
-                  <td className="num">{nf(w.score, 1)}</td>
-                  <td className="text-xs text-bear">{w.failures.join(", ")}</td>
-                </tr>))}</tbody>
-            </table>
-          </div>
+          <SortTable rows={dash.data.watchlist} rowKey={(w) => w.ticker} initial="score"
+            cols={[
+              { key: "ticker", label: "Ticker", cell: (w) => <Ticker symbol={w.ticker} status={w.shariah_status} /> },
+              { key: "company", label: "Company", cell: (w) => <span className="block max-w-56 truncate text-muted">{w.company}</span> },
+              { key: "price", label: "Price", cell: (w) => usd(w.price), className: "num" },
+              { key: "score", label: "Score", cell: (w) => nf(w.score, 1), className: "num" },
+              { key: "fails", label: "Fails", sort: (w) => w.failures.length, cell: (w) => <span className="text-xs text-bear">{w.failures.join(", ")}</span> },
+            ]} />
         ) : <Empty>No near-qualified stocks in the last scan.</Empty>}
       </Card>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Mini title="Unusual options — top 5" href="/options" rows={optRows} empty="No options CSV imported yet."
-          cols={[{ label: "Price", cell: (r) => usd(r.price) }, { label: "1M vol Δ", cell: (r) => <span className={tone(r.vol_change_1m_pct)}>{pct(r.vol_change_1m_pct, 0, true)}</span> },
-            { label: "IV rank", cell: (r) => nf(r.iv_rank, 0) }, { label: "P/C", cell: (r) => nf(r.pc_ratio, 2) }]} />
+          cols={[{ label: "Price", cell: (r) => usd(r.price), sort: (r) => r.price }, { label: "1M vol Δ", sort: (r) => r.vol_change_1m_pct, cell: (r) => <span className={tone(r.vol_change_1m_pct)}>{pct(r.vol_change_1m_pct, 0, true)}</span> },
+            { label: "IV rank", cell: (r) => nf(r.iv_rank, 0), sort: (r) => r.iv_rank }, { label: "P/C", cell: (r) => nf(r.pc_ratio, 2), sort: (r) => r.pc_ratio }]} />
         <Mini title="Insider buying — top 5 by % of outstanding" href="/insiders" rows={insRows} empty="No insider purchases above 1% of outstanding shares."
-          cols={[{ label: "Insider", cell: (r) => <span className="block max-w-36 truncate text-left text-muted">{r.owner}</span> },
-            { label: "% outstanding", cell: (r) => <span className="text-bull">{nf(r.pct_outstanding, 2)}%</span> },
-            { label: "Value", cell: (r) => `$${compact(r.value)}` }, { label: "Filed", cell: (r) => <span className="text-xs">{r.filing_date}</span> }]} />
+          cols={[{ label: "Insider", sort: (r) => r.owner, cell: (r) => <span className="block max-w-36 truncate text-left text-muted">{r.owner}</span> },
+            { label: "% outstanding", sort: (r) => r.pct_outstanding, cell: (r) => <span className="text-bull">{nf(r.pct_outstanding, 2)}%</span> },
+            { label: "Value", cell: (r) => `$${compact(r.value)}`, sort: (r) => r.value }, { label: "Filed", sort: (r) => r.filing_date, cell: (r) => <span className="text-xs">{r.filing_date}</span> }]} />
         <Mini title="Upcoming earnings — top 5 by Strong Buy" href="/earnings" rows={earnRows} empty="No earnings in the next 7 days."
-          cols={[{ label: "Date", cell: (r) => <span className="text-xs">{r.date}</span> },
-            { label: "Insider buying", cell: (r) => r.insider ? <span className="text-bull">${compact(r.insider.value)}</span> : "—" },
-            { label: "Options 1M Δ", cell: (r) => r.options ? pct(r.options.vol_change_1m_pct, 0, true) : "—" },
-            { label: "Strong Buy", cell: (r) => r.analysts?.strong_buy ?? "—" }]} />
+          cols={[{ label: "Date", cell: (r) => <span className="text-xs">{r.date}</span>, sort: (r) => r.date },
+            { label: "Insider buying", sort: (r) => r.insider?.value, cell: (r) => r.insider ? <span className="text-bull">${compact(r.insider.value)}</span> : "—" },
+            { label: "Options 1M Δ", sort: (r) => r.options?.vol_change_1m_pct, cell: (r) => r.options ? pct(r.options.vol_change_1m_pct, 0, true) : "—" },
+            { label: "Strong Buy", sort: (r) => r.analysts?.strong_buy, cell: (r) => r.analysts?.strong_buy ?? "—" }]} />
         <Mini title={`Seasonality — best in ${seas.data?.month_name ?? ""}`} href="/seasonality" rows={seas.data?.ranked} empty="Import a price-history CSV on the Seasonality tab."
-          cols={[{ label: "Price", cell: (r) => usd(r.last_close) }, { label: "Avg return", cell: (r) => <span className={tone(r.avg)}>{pct(r.avg, 2, true)}</span> },
-            { label: "% years up", cell: (r) => `${nf(r.win_rate, 0)}%` }, { label: "Years", cell: (r) => r.years }]} />
+          cols={[{ label: "Price", cell: (r) => usd(r.last_close), sort: (r) => r.last_close }, { label: "Avg return", sort: (r) => r.avg, cell: (r) => <span className={tone(r.avg)}>{pct(r.avg, 2, true)}</span> },
+            { label: "% years up", cell: (r) => `${nf(r.win_rate, 0)}%`, sort: (r) => r.win_rate }, { label: "Years", cell: (r) => r.years, sort: (r) => r.years }]} />
         <Mini title="Bouncing from 52-week low — top 5" href="/bounces" rows={low.data?.rows} empty="No 52-week-low bounces (or price history not loaded on the Bounces tab)."
-          cols={[{ label: "Price", cell: (r) => usd(r.price) }, { label: "Above low", cell: (r) => <span className="text-bull">{pct(r.above_low52_pct, 1, true)}</span> },
-            { label: "Volume ×", cell: (r) => `${nf(r.vol_ratio, 1)}×` }, { label: "RSI", cell: (r) => nf(r.rsi, 0) }]} />
+          cols={[{ label: "Price", cell: (r) => usd(r.price), sort: (r) => r.price }, { label: "Above low", sort: (r) => r.above_low52_pct, cell: (r) => <span className="text-bull">{pct(r.above_low52_pct, 1, true)}</span> },
+            { label: "Volume ×", cell: (r) => `${nf(r.vol_ratio, 1)}×`, sort: (r) => r.vol_ratio }, { label: "RSI", cell: (r) => nf(r.rsi, 0), sort: (r) => r.rsi }]} />
         <Mini title="Bouncing from 50 EMA — top 5" href="/bounces" rows={ema.data?.rows} empty="No 50-EMA bounces (or price history not loaded on the Bounces tab)."
-          cols={[{ label: "Price", cell: (r) => usd(r.price) }, { label: "Close vs EMA", cell: (r) => <span className="text-bull">{pct(r.vs_ema50_pct, 2, true)}</span> },
-            { label: "Volume ×", cell: (r) => `${nf(r.vol_ratio, 1)}×` }, { label: "RSI", cell: (r) => nf(r.rsi, 0) }]} />
+          cols={[{ label: "Price", cell: (r) => usd(r.price), sort: (r) => r.price }, { label: "Close vs EMA", sort: (r) => r.vs_ema50_pct, cell: (r) => <span className="text-bull">{pct(r.vs_ema50_pct, 2, true)}</span> },
+            { label: "Volume ×", cell: (r) => `${nf(r.vol_ratio, 1)}×`, sort: (r) => r.vol_ratio }, { label: "RSI", cell: (r) => nf(r.rsi, 0), sort: (r) => r.rsi }]} />
         <Mini title="My watchlist — first 5" href="/watchlist" rows={watch.data?.rows} empty="Your watchlist is empty."
-          cols={[{ label: "Close", cell: (r) => usd(r.bars?.at(-1)?.close ?? r.price) },
-            { label: "Change", cell: (r) => <span className={tone(r.day_change_pct)}>{pct(r.day_change_pct, 2, true)}</span> },
-            { label: "Volume", cell: (r) => compact(r.bars?.at(-1)?.volume) }]} />
+          cols={[{ label: "Close", cell: (r) => usd(r.bars?.at(-1)?.close ?? r.price), sort: (r) => r.bars?.at(-1)?.close ?? r.price },
+            { label: "Change", sort: (r) => r.day_change_pct, cell: (r) => <span className={tone(r.day_change_pct)}>{pct(r.day_change_pct, 2, true)}</span> },
+            { label: "Volume", cell: (r) => compact(r.bars?.at(-1)?.volume), sort: (r) => r.bars?.at(-1)?.volume }]} />
       </div>
     </div>
   );

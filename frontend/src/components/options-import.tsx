@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState } from "react";
-import { Badge, Button, Card, Empty, ErrorBox, Field, Ticker } from "@/components/ui";
+import { Badge, Button, Card, Empty, ErrorBox, Field, SortTable, Ticker } from "@/components/ui";
 import { api, useApi } from "@/lib/api";
 import { compact, nf, pct, usd } from "@/lib/format";
 
@@ -77,11 +77,17 @@ export function OptionsImport({ isAdmin = true, open: openInit = true, onImporte
                 {s.skipped_count > 0 && <span className="text-warn">{s.skipped_count} skipped</span>}
               </div>
               {s.warnings?.length > 0 && <ul className="list-disc pl-5 text-xs text-warn">{s.warnings.map((w: string) => <li key={w}>{w}</li>)}</ul>}
-              <div className="overflow-x-auto"><table className="text-xs"><thead><tr><th>Symbol</th><th>Price</th><th>Options vol</th><th>1M vol Δ</th><th>IV rank</th><th>Calls</th><th>Puts</th><th>P/C</th></tr></thead>
-                <tbody>{result.preview.map((r: any) => (
-                  <tr key={r.symbol}><td><Ticker symbol={r.symbol} /></td><td className="num">{usd(r.price)}</td><td className="num">{compact(r.options_volume)}</td>
-                    <td className="num">{pct(r.vol_change_1m_pct, 0, true)}</td><td className="num">{nf(r.iv_rank, 1)}</td>
-                    <td className="num">{compact(r.call_volume)}</td><td className="num">{compact(r.put_volume)}</td><td className="num">{nf(r.pc_ratio, 3)}</td></tr>))}</tbody></table></div>
+              <SortTable className="text-xs" rows={result.preview as any[]} rowKey={(r) => r.symbol}
+                cols={[
+                  { key: "symbol", label: "Symbol", cell: (r) => <Ticker symbol={r.symbol} /> },
+                  { key: "price", label: "Price", cell: (r) => usd(r.price), className: "num" },
+                  { key: "options_volume", label: "Options vol", cell: (r) => compact(r.options_volume), className: "num" },
+                  { key: "vol_change_1m_pct", label: "1M vol Δ", cell: (r) => pct(r.vol_change_1m_pct, 0, true), className: "num" },
+                  { key: "iv_rank", label: "IV rank", cell: (r) => nf(r.iv_rank, 1), className: "num" },
+                  { key: "call_volume", label: "Calls", cell: (r) => compact(r.call_volume), className: "num" },
+                  { key: "put_volume", label: "Puts", cell: (r) => compact(r.put_volume), className: "num" },
+                  { key: "pc_ratio", label: "P/C", cell: (r) => nf(r.pc_ratio, 3), className: "num" },
+                ]} />
               <p className="text-xs text-muted">Check that the 1M change and IV rank look right (e.g. +1,639% and 3.3, not +16% and 0.03) before importing.</p>
             </div>
           )}
@@ -89,12 +95,17 @@ export function OptionsImport({ isAdmin = true, open: openInit = true, onImporte
       ) : <p className="text-sm text-warn">Only an administrator can import files.</p>}
       <h3 className="mb-1 mt-5 text-sm font-semibold">Recent imports</h3>
       {list.data?.length ? (
-        <table className="text-sm"><thead><tr><th>#</th><th>File</th><th>Session</th><th>Rows</th><th>% read as</th><th>By</th><th>Imported</th><th></th></tr></thead>
-          <tbody>{list.data.map((b, i) => (
-            <tr key={b.id}><td>{b.id}{i === 0 && <> <Badge tone="info">latest</Badge></>}</td><td className="max-w-48 truncate">{b.filename}</td><td>{b.session_date}</td>
-              <td className="num">{b.rows}</td><td className="text-xs text-muted">{b.percent_interpretation}</td><td className="text-xs">{b.imported_by}</td>
-              <td className="text-xs text-muted">{b.imported_at.slice(0, 16).replace("T", " ")}</td>
-              <td>{isAdmin && <Button variant="danger" onClick={() => remove(b.id)}>Delete</Button>}</td></tr>))}</tbody></table>
+        <SortTable rows={list.data} rowKey={(b) => String(b.id)} initial="id"
+          cols={[
+            { key: "id", label: "#", cell: (b) => <>{b.id}{b.id === list.data![0].id && <> <Badge tone="info">latest</Badge></>}</> },
+            { key: "filename", label: "File", cell: (b) => <span className="block max-w-48 truncate">{b.filename}</span> },
+            { key: "session_date", label: "Session", cell: (b) => b.session_date },
+            { key: "rows", label: "Rows", cell: (b) => b.rows, className: "num" },
+            { key: "percent_interpretation", label: "% read as", cell: (b) => <span className="text-xs text-muted">{b.percent_interpretation}</span> },
+            { key: "imported_by", label: "By", cell: (b) => <span className="text-xs">{b.imported_by}</span> },
+            { key: "imported_at", label: "Imported", cell: (b) => <span className="text-xs text-muted">{b.imported_at.slice(0, 16).replace("T", " ")}</span> },
+            { key: "actions", label: "", sort: () => null, cell: (b) => isAdmin && <Button variant="danger" onClick={() => remove(b.id)}>Delete</Button> },
+          ]} />
       ) : <Empty>No imports yet.</Empty>}
       </>}
     </Card>

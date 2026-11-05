@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Card, Empty, ErrorBox, Field, ShariahLegend, Ticker } from "@/components/ui";
+import { Card, Empty, ErrorBox, Field, ShariahLegend, SortTable, Ticker } from "@/components/ui";
 import { useApi } from "@/lib/api";
 import { nf, pct, tone, usd } from "@/lib/format";
 import { PriceImport } from "@/components/price-import";
@@ -68,27 +68,22 @@ export default function SeasonalityPage() {
 
       <Card title={data ? `Best stocks in ${data.month_name} — top ${data.ranked.length} of ${data.total_matching.toLocaleString()}` : "Ranking"}>
         {data?.ranked.length ? (
-          <div className="overflow-x-auto">
-            <table className="text-sm">
-              <thead><tr><th>#</th><th>Ticker</th><th>Price</th><th>Avg return</th><th>Median</th><th>% years up</th><th>Years</th><th>Best</th><th>Worst</th>
-                <th>Avg return by month (Jan → Dec)</th></tr></thead>
-              <tbody>{data.ranked.map((e) => (
-                <tr key={e.symbol}>
-                  <td className="num">{e.rank}</td>
-                  <td><Ticker symbol={e.symbol} status={e.shariah_status} /></td>
-                  <td className="num">{usd(e.last_close)}</td>
-                  <td className={`num font-semibold ${tone(e.avg)}`}>{pct(e.avg, 2, true)}</td>
-                  <td className={`num ${tone(e.median)}`}>{pct(e.median, 2, true)}</td>
-                  <td className="num">{nf(e.win_rate, 0)}%</td>
-                  <td className="num">{e.years}</td>
-                  <td className={`num ${tone(e.best)}`}>{pct(e.best, 1, true)} <span className="text-xs text-muted">{e.best_year}</span></td>
-                  <td className={`num ${tone(e.worst)}`}>{pct(e.worst, 1, true)} <span className="text-xs text-muted">{e.worst_year}</span></td>
-                  <td><div className="flex gap-0.5">{e.heatmap.map((v, i) => (
-                    <span key={i} title={`${MONTHS[i]}: ${v === null ? "no data" : pct(v, 2, true)}`}
-                      className={`grid h-5 w-7 place-items-center rounded text-[9px] ${heat(v)} ${i + 1 === month ? "ring-1 ring-accent" : ""}`}>{MONTHS[i][0]}</span>))}</div></td>
-                </tr>))}</tbody>
-            </table>
-          </div>
+          <SortTable rows={data.ranked} rowKey={(e) => e.symbol} initial="rank" desc={false}
+            cols={[
+              { key: "rank", label: "#", cell: (e) => e.rank, className: "num" },
+              { key: "symbol", label: "Ticker", cell: (e) => <Ticker symbol={e.symbol} status={e.shariah_status} /> },
+              { key: "last_close", label: "Price", cell: (e) => usd(e.last_close), className: "num" },
+              { key: "avg", label: "Avg return", cell: (e) => <span className={`font-semibold ${tone(e.avg)}`}>{pct(e.avg, 2, true)}</span>, className: "num" },
+              { key: "median", label: "Median", cell: (e) => <span className={tone(e.median)}>{pct(e.median, 2, true)}</span>, className: "num" },
+              { key: "win_rate", label: "% years up", cell: (e) => `${nf(e.win_rate, 0)}%`, className: "num" },
+              { key: "years", label: "Years", cell: (e) => e.years, className: "num" },
+              { key: "best", label: "Best", cell: (e) => <><span className={tone(e.best)}>{pct(e.best, 1, true)}</span> <span className="text-xs text-muted">{e.best_year}</span></>, className: "num" },
+              { key: "worst", label: "Worst", cell: (e) => <><span className={tone(e.worst)}>{pct(e.worst, 1, true)}</span> <span className="text-xs text-muted">{e.worst_year}</span></>, className: "num" },
+              { key: "heat", label: "Avg return by month (Jan → Dec)", sort: (e) => e.heatmap[month - 1], cell: (e) => (
+                <div className="flex gap-0.5">{e.heatmap.map((v, i) => (
+                  <span key={i} title={`${MONTHS[i]}: ${v === null ? "no data" : pct(v, 2, true)}`}
+                    className={`grid h-5 w-7 place-items-center rounded text-[9px] ${heat(v)} ${i + 1 === month ? "ring-1 ring-accent" : ""}`}>{MONTHS[i][0]}</span>))}</div>) },
+            ]} />
         ) : <Empty>{cov?.months ? "No stocks match these filters." : "No price history yet — import your historical OHLCV CSV above."}</Empty>}
         <p className="mt-2 text-xs text-muted">{data?.note} Monthly moves beyond ±200% are treated as data errors and ignored.</p>
       </Card>
