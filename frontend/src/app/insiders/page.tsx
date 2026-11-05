@@ -50,7 +50,7 @@ export default function InsidersPage() {
                 </tr>))}</tbody>
             </table>
           </div>
-        ) : <Empty>{data ? `No open-market purchases filed in the last ${days} days have been ingested. Insider data comes from SEC EDGAR — check that SEC_USER_AGENT is set and run a scan.` : "Loading…"}</Empty>}
+        ) : <Empty>{data ? `No open-market purchases filed in the last ${days} days have been ingested. Insider data comes from the OpenInsider screener (SEC EDGAR as fallback) — click “Run scan now” to load it.` : "Loading…"}</Empty>}
         <p className="mt-2 text-xs text-muted">Only genuine open-market purchases (Form 4 code P). Grants, option exercises, gifts and sales are excluded; joint filings of one purchase are shown once.</p>
       </Card>
     </div>

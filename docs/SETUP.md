@@ -21,7 +21,7 @@ Provider order (first that is configured and answers wins):
 |------|-------|
 | Stock prices | Alpaca → Finnhub → FMP → Massive |
 | Historical prices | Tiingo → Alpha Vantage → Alpaca → Massive → FMP |
-| Insider buying | SEC EDGAR (Form 4) |
+| Insider buying | OpenInsider screener (no key; `INSIDER_SOURCE=openinsider`, default) → SEC EDGAR Form 4 if OpenInsider fails (`INSIDER_SOURCE=sec` to use EDGAR only) |
 | Analyst ratings | Finnhub (counts; FMP price targets added if set) → FMP → Alpha Vantage |
 | Fundamentals | FMP (P/E, market cap, float) → Finnhub; SEC XBRL for Shariah ratios |
 | `SMTP_*`, `TELEGRAM_BOT_TOKEN` | optional | — |

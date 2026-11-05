@@ -14,7 +14,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app import market_calendar as mc
@@ -105,6 +105,10 @@ class ScanEngine:
     async def ingest_insiders(self, days: list[date]) -> None:
         """Incremental: filings already processed are skipped, and at most ``INSIDER_FILINGS_PER_RUN``
         new filings are fetched per run (0 = unlimited) so serverless invocations stay within limits."""
+        if getattr(self.ds, "openinsider", None) is not None:
+            if await self._ingest_openinsider():
+                return
+            self.errors.append("OpenInsider unavailable; falling back to SEC EDGAR")
         budget = get_settings().insider_filings_per_run or None
         for d in days:
             done = set(self.db.scalars(select(ProcessedFiling.accession).where(ProcessedFiling.filed == d)).all())
@@ -131,6 +135,34 @@ class ScanEngine:
                     "acquired_disposed", "shares", "price", "shares_owned_after", "direct_indirect", "security_title",
                     "is_amendment", "is_derivative", "footnotes")}))
             self.db.commit()
+
+    async def _ingest_openinsider(self) -> bool:
+        """One screener request covers every purchase filed in the window: 90 days on the first run
+        (so the Insider Buying tab is full), then the last 7 days on each scan."""
+        recent = self.db.scalar(select(func.count()).select_from(InsiderTransaction).where(
+            InsiderTransaction.filing_date >= date.today() - timedelta(days=14)))
+        res = await self._call("openinsider", self.ds.insider_recent(7 if recent else 90))
+        if not res:
+            return False
+        txns, _ = res
+        if not txns:
+            return True
+        lo = min(t.filing_date for t in txns)
+        existing = set(self.db.execute(select(InsiderTransaction.accession, InsiderTransaction.txn_index,
+                                              InsiderTransaction.owner_cik)
+                                       .where(InsiderTransaction.filing_date >= lo)).all())
+        for t in txns:
+            k = (t.accession, t.txn_index, t.owner_cik)
+            if k in existing:
+                continue
+            existing.add(k)
+            self.db.add(InsiderTransaction(**{c: getattr(t, c) for c in (
+                "accession", "txn_index", "owner_cik", "issuer_cik", "ticker", "owner_name", "officer_title",
+                "is_director", "is_officer", "is_ten_pct_owner", "transaction_date", "filing_date", "code",
+                "acquired_disposed", "shares", "price", "shares_owned_after", "direct_indirect", "security_title",
+                "is_amendment", "is_derivative", "footnotes")}))
+        self.db.commit()
+        return True
 
     async def load_bars(self, ticker: str, as_of: date) -> pd.DataFrame | None:
         start = as_of - timedelta(days=int(self.cfg.technical.history_days * 1.5))

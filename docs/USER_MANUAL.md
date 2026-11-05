@@ -7,7 +7,7 @@ thresholds (1M volume change, IV rank, put/call, data source). The table lists e
 file, sorted by 1-month options volume change, with price, calls/puts, put/call and IV rank. "passes"
 marks stocks meeting the criteria and price < $100; "Top 5" marks current recommendations.
 
-**Insider Buying** — open-market purchases from SEC Form 4 filings over the last 7 / 30 / 60 / 90 days
+**Insider Buying** — open-market purchases (SEC Form 4, read from the OpenInsider screener; SEC EDGAR is the fallback) over the last 7 / 30 / 60 / 90 days
 (joint filings of one purchase shown once). **Insider-buying criteria** sets the % of shares outstanding,
 look-back and basis used for the Top 5.
 
@@ -62,8 +62,8 @@ expectancy (R-multiples, profit factor, break-even win rate, Monte-Carlo risk of
 scenario grid).
 
 **Data APIs** — the footer shows which data APIs are connected (● = key set). Stock prices come from
-Alpaca (Finnhub fallback), price history from Tiingo (Alpha Vantage fallback), insider buying from SEC
-EDGAR, analyst ratings from Finnhub, and fundamentals (P/E, market cap, float) from FMP. With a SentiSense key, the stock panel also shows the
+Alpaca (Finnhub fallback), price history from Tiingo (Alpha Vantage fallback), insider buying from OpenInsider
+(SEC EDGAR fallback), analyst ratings from Finnhub, and fundamentals (P/E, market cap, float) from FMP. With a SentiSense key, the stock panel also shows the
 SentiSense Rating (A–F letter, 0–100 score and rank, risk adjustments; a research score, not a buy/sell call)
 and its top AI-generated insights. Keys are set in
 Vercel → Settings → Environment Variables (see docs/SETUP.md).

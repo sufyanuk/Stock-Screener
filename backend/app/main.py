@@ -215,7 +215,8 @@ def insiders(days: int = 30, db: Session = Depends(get_db), _: User = Depends(cu
     rows = latest_insider_buys(db, days, 500)
     last = db.scalar(select(func.max(InsiderTransaction.filing_date)))
     return {"days": days, "rows": rows, "latest_filing_date": last.isoformat() if last else None,
-            "source": "SEC EDGAR Form 4 (open-market purchases, code P)"}
+            "source": ("OpenInsider screener (SEC Form 4 open-market purchases, code P)"
+                       if get_settings().insider_source == "openinsider" else "SEC EDGAR Form 4 (open-market purchases, code P)")}
 
 
 @app.get("/api/dashboard")

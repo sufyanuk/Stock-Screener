@@ -30,6 +30,7 @@ class Settings(BaseSettings):
 
     # SEC requires a descriptive User-Agent with contact details: https://www.sec.gov/os/accessing-edgar-data
     sec_user_agent: str = ""
+    insider_source: str = "openinsider"  # "openinsider" (screener, no key) or "sec" (EDGAR Form 4 index)
 
     orats_api_key: str = ""
     massive_api_key: str = ""  # Massive.com (formerly Polygon.io); Polygon keys keep working

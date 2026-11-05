@@ -87,6 +87,10 @@ class LiveDataSource:
         self.finnhub = self._try(Finnhub)
         self.tiingo = self._try(Tiingo)
         self.sentisense = self._try(SentiSense)
+        from app.config import get_settings
+        from app.providers.openinsider import OpenInsider
+
+        self.openinsider = OpenInsider() if get_settings().insider_source == "openinsider" else None
 
     def _try(self, cls):
         try:
@@ -104,7 +108,13 @@ class LiveDataSource:
                 "alpaca": "configured" if self.alpaca else "not configured",
                 "finnhub": "configured" if self.finnhub else "not configured",
                 "tiingo": "configured" if self.tiingo else "not configured",
-                "sentisense": "configured" if self.sentisense else "not configured (optional)"}
+                "sentisense": "configured" if self.sentisense else "not configured (optional)",
+                "openinsider": "configured" if self.openinsider else "not used (INSIDER_SOURCE=sec)"}
+
+    async def insider_recent(self, filed_days: int):
+        """Open-market purchases filed in the last ``filed_days`` days from the OpenInsider screener."""
+        p = self._need(self.openinsider, "openinsider")
+        return await p.purchases(filed_days), p.prov()
 
     async def sentisense_info(self, ticker):
         """SentiSense Rating + top insights (stock panel only, to stay within the free quota)."""
