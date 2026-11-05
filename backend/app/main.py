@@ -385,7 +385,15 @@ STALE_RUN_MINUTES = 20  # a "running" scan older than this is treated as crashed
 
 def _scan_running(db: Session) -> bool:
     """Checked in the database so it also works across serverless instances."""
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=STALE_RUN_MINUTES)
+    # Vercel stops a function after 300 s, so a run "running" for over 6 minutes there has died
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=6 if _serverless() else STALE_RUN_MINUTES)
+    # runs cut off by the serverless time limit never finish: mark them failed so they don't look active
+    stale = db.scalars(select(ScanRun).where(ScanRun.status == "running", ScanRun.started_at < cutoff)).all()
+    for r in stale:
+        r.status, r.finished_at = "failed", datetime.now(timezone.utc)
+        r.errors = (r.errors or []) + ["scan did not finish (time limit reached); later scans continue from where it stopped"]
+    if stale:
+        db.commit()
     return db.scalars(select(ScanRun.id).where(ScanRun.status == "running", ScanRun.started_at >= cutoff)
                       .limit(1)).first() is not None
 

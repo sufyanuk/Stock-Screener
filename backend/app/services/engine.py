@@ -14,7 +14,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, insert, select
 from sqlalchemy.orm import Session
 
 from app import market_calendar as mc
@@ -74,10 +74,27 @@ class ScanEngine:
         rows = await self._call("sec_edgar", self.ds.universe())
         if not rows:
             return 0
-        for r in rows:
-            self.db.merge(Security(ticker=r["ticker"], cik=r["cik"], name=r["name"], exchange=r["exchange"]))
+        # Bulk upsert: one query to read what exists, batched inserts/updates (thousands of single-row
+        # merges take minutes against a remote database and overrun the serverless time limit).
+        latest = {r["ticker"][:16]: r for r in rows if r.get("ticker")}
+        have = {t: (c, n, e) for t, c, n, e in self.db.execute(
+            select(Security.ticker, Security.cik, Security.name, Security.exchange)).all()}
+        now = datetime.now(timezone.utc)
+        new = [{"ticker": t, "cik": r["cik"], "name": (r["name"] or "")[:255], "exchange": r["exchange"],
+                "active": True, "updated_at": now} for t, r in latest.items() if t not in have]
+        changed = [{"t": t, "cik": r["cik"], "name": (r["name"] or "")[:255], "exchange": r["exchange"], "now": now}
+                   for t, r in latest.items() if t in have and have[t] != (r["cik"], (r["name"] or "")[:255], r["exchange"])]
+        for i in range(0, len(new), 2000):
+            self.db.execute(insert(Security), new[i:i + 2000])
+        if changed:
+            from sqlalchemy import bindparam, update
+
+            stmt = (update(Security).where(Security.ticker == bindparam("t"))
+                    .values(cik=bindparam("cik"), name=bindparam("name"), exchange=bindparam("exchange"),
+                            updated_at=bindparam("now")))
+            self.db.connection().execute(stmt, changed)
         self.db.commit()
-        return len(rows)
+        return len(latest)
 
     async def ingest_options(self, sessions: list[date]) -> None:
         """Fetch missing sessions newest-first. ``BACKFILL_SESSIONS_PER_RUN`` caps how many are fetched
@@ -393,11 +410,12 @@ class ScanEngine:
         self.db.commit()
         try:
             if ingest:
+                # insider purchases first: they feed the Insider Buying tab even if a later step is slow
+                await self.ingest_insiders([as_of - timedelta(days=i) for i in range(0, 4)])
                 if not self.db.scalars(select(Security).limit(1)).first():
                     await self.refresh_universe()
                 if cfg.options.source == "orats":
                     await self.ingest_options(mc.previous_sessions(as_of, HISTORY_SESSIONS if not self._has_history() else 3))
-                await self.ingest_insiders([as_of - timedelta(days=i) for i in range(0, 4)])
 
             cands, top, watch, funnel = await self.screen(as_of, live)
             run.funnel = funnel
