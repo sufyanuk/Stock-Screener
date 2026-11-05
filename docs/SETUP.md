@@ -68,8 +68,7 @@ cd frontend && npm install && BACKEND_URL=http://localhost:8000 npm run dev
 ## 4. Operating notes
 * **Data health** card on the dashboard: `fresh` < 1 h since the last successful call, `stale` < 24 h, otherwise `down`.
 * A scan with provider errors finishes as `partial`. Affected criteria are *missing* (never passed) and the errors are listed on the dashboard.
-* Criteria are edited on the tab they belong to (Unusual Options, Insider Buying, Watchlist); every change is stored as a new version.
-* Shariah "Needs Review" stocks in review industries need a business review (Watchlist tab).
+* Options and insider criteria are edited on their tabs; every change is stored as a new version. Ranking and Shariah settings use the built-in defaults.
 * To correct a recommendation, use `POST /api/recommendations/{id}/revise` (admin). The original is kept.
 
 ## 5. Deploying on Vercel

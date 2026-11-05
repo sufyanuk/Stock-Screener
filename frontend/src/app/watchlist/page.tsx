@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useState } from "react";
-import { CriteriaCard, NotificationPrefs, ShariahReviews } from "@/components/criteria";
 import { ScanBar } from "@/components/scan-bar";
 import { Top5 } from "@/components/top5";
 import { Badge, Button, Card, Empty, ErrorBox, Field, Ticker, useSort } from "@/components/ui";
@@ -64,10 +63,6 @@ function Screened() {
           </div>
         ) : <Empty>No near-qualified stocks in the last scan.</Empty>}
       </Card>
-      <CriteriaCard title="Top 5 ranking criteria (technical, analysts, float, liquidity, weights)" tab="Watchlist" sections={["ranking"]} />
-      <CriteriaCard title="Shariah highlighting method" tab="Watchlist" sections={["shariah"]} />
-      <ShariahReviews />
-      <Card title="Top 5 alerts"><NotificationPrefs /></Card>
     </>
   );
 }

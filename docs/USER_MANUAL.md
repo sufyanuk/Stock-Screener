@@ -13,8 +13,6 @@ look-back and basis used for the Top 5.
 
 **Watchlist** — two screens:
 - **Top 5 & near-qualified**: stocks meeting every rule, and stocks failing one or two (with reasons).
-  Below them: the ranking criteria (technical support, analysts, float, liquidity, weights, and which are
-  required), the Shariah highlighting method, your own Shariah business reviews, and Top 5 alerts.
 - **My watchlist**: add any tickers (with an optional note). Shows live price, day change, P/E and market
   cap (from your price provider), distance from the 50 EMA and from the 52-week low/high (from your price
   CSV), unusual options, insider buys, Strong Buy count and next earnings date. Remove with one click.
