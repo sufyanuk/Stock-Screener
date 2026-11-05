@@ -11,6 +11,8 @@ import pytest
 
 os.environ.setdefault("JWT_SECRET", "test-secret-that-is-at-least-32-bytes-long")
 os.environ.setdefault("SEC_USER_AGENT", "StockIntel tests test@example.com")
+# Most API tests exercise the multi-user login; single-user mode has its own tests.
+os.environ.setdefault("SINGLE_USER_MODE", "false")
 
 from app import market_calendar as mc  # noqa: E402
 from app.providers.http import ProviderError  # noqa: E402

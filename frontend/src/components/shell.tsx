@@ -1,9 +1,8 @@
 "use client";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { ReactNode, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { ReactNode, useState } from "react";
 import { StockPane } from "@/components/stock-pane";
-import { api, logout } from "@/lib/api";
 import { PaneProvider, usePane } from "@/lib/pane-context";
 
 const NAV = [
@@ -19,16 +18,8 @@ const NAV = [
 
 export function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
-  const router = useRouter();
-  const [ready, setReady] = useState(false);
   const [menu, setMenu] = useState(false);
-  useEffect(() => {
-    if (path === "/login" || ready) return;
-    // The session cookie is httpOnly, so ask the backend whether we are signed in.
-    api("/me").then(() => setReady(true), () => router.replace("/login"));
-  }, [path, router, ready]);
-  if (path === "/login") return <>{children}</>;
-  if (!ready) return null;
+  // Personal app: no sign-in. Access is restricted by Vercel Authentication on the deployment.
   return (
     <div className="min-h-screen">
       <nav className="sticky top-0 z-20 border-b border-line bg-bg/90 backdrop-blur">
@@ -45,10 +36,6 @@ export function Shell({ children }: { children: ReactNode }) {
                 {label}
               </Link>
             ))}
-            <button className="rounded-md px-2.5 py-1.5 text-left text-sm text-muted hover:text-ink md:ml-2"
-              onClick={async () => { await logout(); setReady(false); router.replace("/login"); }}>
-              Sign out
-            </button>
           </div>
         </div>
       </nav>

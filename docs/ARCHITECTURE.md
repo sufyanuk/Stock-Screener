@@ -111,7 +111,10 @@ Hosting (1 small VM, 2 vCPU / 4 GB, managed backups) adds ≈ $20–60/month.
 * Pydantic validation on every input. Config validation rejects price > $100, Top-N > 5, and weights that don't sum to 100.
 * Keys are only in backend env vars and are redacted from error messages.
 * Security headers on the web app; containers run as non-root.
-* Browser sessions use an **httpOnly, SameSite=Lax** cookie (`Secure` in production), so page scripts
+* **Single-user mode (default):** no app login; every request acts as the owner, and access control is
+  the hosting layer (Vercel Authentication). Writes still require the `X-Requested-With` header so other
+  websites cannot trigger them. With `SINGLE_USER_MODE=false` the multi-user login below applies.
+* Browser sessions (multi-user mode) use an **httpOnly, SameSite=Lax** cookie (`Secure` in production), so page scripts
   cannot read the token. Cookie-authenticated writes must send `X-Requested-With: stockintel`
   (CSRF guard). API clients can still use `Authorization: Bearer`.
 

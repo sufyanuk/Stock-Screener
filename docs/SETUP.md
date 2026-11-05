@@ -27,6 +27,10 @@ cp .env.example .env   # then fill in the values
 docker compose up -d --build
 ```
 
+No account is needed: the app runs in **single-user mode** (`SINGLE_USER_MODE=true`, the default) and
+every request acts as the owner. Keep the deployment private (Vercel Authentication, a VPN, or an
+authenticating reverse proxy). To use logins instead, set `SINGLE_USER_MODE=false` and create an admin:
+
 ```bash
 docker compose exec api python -m app.cli create-admin you@example.com
 ```
@@ -82,6 +86,11 @@ cd frontend && npm install && BACKEND_URL=http://localhost:8000 npm run dev
 Environment variables (project → Settings → Environment Variables): `APP_ENV=production`, `JWT_SECRET`,
 `CRON_SECRET`, `AUTO_MIGRATE=1`, `BACKFILL_SESSIONS_PER_RUN=60`, `INSIDER_FILINGS_PER_RUN=400`, `SEC_USER_AGENT`, plus the provider keys
 and optional SMTP/Telegram values from `.env.example`.
+
+**Access:** there is no app login (single-user mode). The project's **Vercel Authentication** (Settings →
+Deployment Protection) is what keeps the site private: only members of your Vercel team can open it. Leave
+it enabled. If you add a custom domain, choose a protection setting that covers it, because the default
+"all except custom domains" would leave a custom domain public.
 
 The first options backfill (~260 sessions) is spread over several scans (60 sessions each) so that each
 invocation finishes within the function time limit (300 s on Hobby); Form 4 filings are fetched

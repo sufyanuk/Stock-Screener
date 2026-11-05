@@ -146,3 +146,43 @@ def test_startup_migrations_on_postgres(monkeypatch):
     upgrade_head()
     upgrade_head()  # idempotent
     assert "recommendations" in inspect(dbmod.engine()).get_table_names()
+
+
+def test_single_user_mode_needs_no_login(db, monkeypatch):
+    import app.main as main
+    from app.config import get_settings
+    from app.models import JournalFill, User
+    from tests.conftest import FakeDataSource
+
+    monkeypatch.setattr(main, "make_datasource", lambda: FakeDataSource())
+    monkeypatch.setenv("SINGLE_USER_MODE", "true")
+    get_settings.cache_clear()
+    try:
+        c = TestClient(main.app)
+        me = c.get("/api/me").json()  # no token, no cookie
+        assert me["role"] == "admin" and me["email"] == "owner@local"
+        assert c.get("/api/dashboard").status_code == 200
+        body = {"ticker": "X", "side": "buy", "quantity": 1, "price": 1, "trade_date": "2026-10-01"}
+        assert c.post("/api/journal/fills", json=body).status_code == 403  # cross-site write blocked
+        assert c.post("/api/journal/fills", json=body, headers={"X-Requested-With": "stockintel"}).status_code == 200
+        assert c.put("/api/admin/settings", json={"config": {}, "note": "ok here"},
+                     headers={"X-Requested-With": "stockintel"}).status_code == 200  # owner is admin
+        assert db.query(User).count() == 1 and db.query(JournalFill).count() == 1
+    finally:
+        get_settings.cache_clear()
+
+
+def test_single_user_mode_reuses_existing_admin(db, monkeypatch):
+    import app.main as main
+    from app.auth import hash_password
+    from app.config import get_settings
+    from app.models import User
+
+    db.add(User(email="me@example.com", password_hash=hash_password("correct horse battery"), role="admin"))
+    db.commit()
+    monkeypatch.setenv("SINGLE_USER_MODE", "true")
+    get_settings.cache_clear()
+    try:
+        assert TestClient(main.app).get("/api/me").json()["email"] == "me@example.com"
+    finally:
+        get_settings.cache_clear()

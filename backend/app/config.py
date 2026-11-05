@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     jwt_secret: str = "change-me"
     jwt_ttl_minutes: int = 60 * 12
+    # Personal use: no login/register; every request acts as the owner (admin). Set to false for multi-user.
+    single_user_mode: bool = True
     cors_origins: str = "http://localhost:3000"
 
     # SEC requires a descriptive User-Agent with contact details: https://www.sec.gov/os/accessing-edgar-data

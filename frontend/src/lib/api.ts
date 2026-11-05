@@ -1,8 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 
-// Authentication uses an httpOnly session cookie set by the backend, so no token is ever stored
-// where page scripts can read it. Writes carry a custom header the backend requires (CSRF guard).
+// Personal single-user app: no login. Writes carry a custom header the backend requires (CSRF guard).
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -15,10 +14,6 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
   headers.set("Content-Type", "application/json");
   headers.set("X-Requested-With", "stockintel");
   const r = await fetch(`/api${path}`, { ...init, headers, cache: "no-store", credentials: "same-origin" });
-  if (r.status === 401 && typeof window !== "undefined" && !path.startsWith("/auth") && path !== "/me") {
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full reload clears state after session expiry
-    window.location.assign("/login");
-  }
   if (!r.ok) {
     let msg = r.statusText;
     try {
@@ -33,14 +28,6 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
     throw new ApiError(r.status, msg);
   }
   return r.json() as Promise<T>;
-}
-
-export async function logout() {
-  try {
-    await api("/auth/logout", { method: "POST" });
-  } catch {
-    /* already logged out */
-  }
 }
 
 export function useApi<T>(path: string | null, refreshMs?: number) {

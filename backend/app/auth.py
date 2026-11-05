@@ -7,6 +7,7 @@ import bcrypt
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -37,8 +38,26 @@ def create_token(user: User) -> str:
                        "exp": now + timedelta(minutes=s.jwt_ttl_minutes)}, s.jwt_secret, algorithm="HS256")
 
 
+def owner_user(db: Session) -> User:
+    """The single owner in single-user mode: the first admin if one registered earlier (so existing
+    journal data stays attached), otherwise a local owner account created on first use."""
+    u = db.scalars(select(User).where(User.role == "admin").order_by(User.id).limit(1)).first()
+    if u:
+        return u
+    u = User(email="owner@local", password_hash="!", role="admin")  # "!" can never match a bcrypt hash
+    db.add(u)
+    db.commit()
+    return u
+
+
 def current_user(request: Request, cred: HTTPAuthorizationCredentials | None = Depends(bearer),
                  db: Session = Depends(get_db)) -> User:
+    if get_settings().single_user_mode:
+        # Personal deployment: no app login. Access control is Vercel Authentication on the deployment.
+        # Writes still need the custom header so other websites cannot trigger them cross-site.
+        if request.method not in SAFE_METHODS and not cred and request.headers.get(CSRF_HEADER) != CSRF_VALUE:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "missing CSRF header")
+        return owner_user(db)
     token = cred.credentials if cred else request.cookies.get(SESSION_COOKIE)
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "not authenticated")
