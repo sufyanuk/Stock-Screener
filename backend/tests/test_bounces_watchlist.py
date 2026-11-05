@@ -68,6 +68,9 @@ def test_custom_watchlist(client, db):  # noqa: F811
     assert set(rows) == {"EMAB", "GOOD", "XYZ.B"}
     assert rows["GOOD"]["price"] == 20.3 and rows["GOOD"]["pe"] == 18.4  # live quote (fake provider)
     assert rows["EMAB"]["vs_ema50_pct"] is not None and rows["EMAB"]["note"] == "test"
+    assert rows["GOOD"]["bars_source"] == "fake-bars" and set(rows["GOOD"]["bars"][-1]) == {"date", "open", "high", "low", "close", "volume"}
+    off = {x["symbol"]: x for x in client.get("/api/custom-watchlist", headers=h).json()["rows"]}
+    assert off["EMAB"]["bars_source"] == "price CSV" and off["EMAB"]["bars"][-1]["close"] == 20.7 and off["GOOD"]["bars"] == []
     client.delete("/api/custom-watchlist/xyz.b", headers=h)
     assert len(client.get("/api/custom-watchlist", headers=h).json()["rows"]) == 2
     # another user does not see it

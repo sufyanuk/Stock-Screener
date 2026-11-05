@@ -11,11 +11,11 @@ marks stocks meeting the criteria and price < $100; "Top 5" marks current recomm
 (joint filings of one purchase shown once). **Insider-buying criteria** sets the % of shares outstanding,
 look-back and basis used for the Top 5.
 
-**Watchlist** — two screens:
-- **Top 5 & near-qualified**: stocks meeting every rule, and stocks failing one or two (with reasons).
-- **My watchlist**: add any tickers (with an optional note). Shows live price, day change, P/E and market
-  cap (from your price provider), distance from the 50 EMA and from the 52-week low/high (from your price
-  CSV), unusual options, insider buys, Strong Buy count and next earnings date. Remove with one click.
+**Watchlist** — the Top 5 (stocks meeting every rule), near-qualified stocks failing one or two rules
+(with reasons), and a **Custom watchlist** card: add any tickers (with an optional note) and each shows
+its latest daily open, high, low, close, change and volume. Pick a stock in "Select stock" (or click its
+row) to see the last 15 sessions. Prices come from your price API (Massive / FMP) when set, otherwise from
+the imported price CSV.
 
 **Bounces** — every stock in your price-history CSV that is turning up from:
 - **its 52-week low**: the low was set within the last N sessions (default 10, not today) and the close is

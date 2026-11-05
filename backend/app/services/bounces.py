@@ -166,6 +166,8 @@ def lookup(db: Session, symbols: list[str]) -> dict[str, dict]:
         e = (d.get("ema50") or [None])[-1]
         b["ema50"] = e
         b["vs_ema50_pct"] = (d["c"][-1] / e - 1) * 100 if e else None
+        b["bars"] = [{"date": d["d"][i], "open": d["o"][i], "high": d["h"][i], "low": d["l"][i], "close": d["c"][i],
+                      "volume": d["v"][i]} for i in range(len(d["d"]))]
         b["above_low52_pct"] = (d["c"][-1] / d["low52"] - 1) * 100 if d.get("low52") else None
         out[s.symbol] = b
     return out

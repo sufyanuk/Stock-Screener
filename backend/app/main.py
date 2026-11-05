@@ -844,8 +844,10 @@ async def custom_watchlist(live: bool = False, db: Session = Depends(get_db), u:
     sh = rs.shariah_map(db, set(syms))
     earn = rs.earnings_markers(db, 30)
     quotes: dict[str, dict] = {}
+    api_bars: dict[str, tuple[list[dict], str]] = {}
     if live and syms:
         ds = make_datasource()
+        end = rs.today_ny()
 
         async def one(s):
             try:
@@ -853,12 +855,21 @@ async def custom_watchlist(live: bool = False, db: Session = Depends(get_db), u:
                 quotes[s] = q | {"source": prov.provider}
             except Exception:  # noqa: BLE001 - a failing quote never breaks the list
                 pass
+            try:
+                df, prov = await asyncio.wait_for(ds.bars(s, end - timedelta(days=30), end), 10)
+                if len(df):
+                    api_bars[s] = ([{"date": ts.date().isoformat(), "open": float(r.open), "high": float(r.high),
+                                     "low": float(r.low), "close": float(r.close), "volume": float(r.volume)}
+                                    for ts, r in df.tail(15).iterrows()], prov.provider)
+            except Exception:  # noqa: BLE001
+                pass
 
         await asyncio.gather(*(one(s) for s in syms[:60]))
     rows = []
     for i in items:
         s, o, a, q = i.symbol, opts.get(i.symbol), an.get(i.symbol), quotes.get(i.symbol) or {}
         snap = snaps.get(s) or {}
+        bars, bars_src = api_bars.get(s) or (snap.get("bars") or [], "price CSV" if snap.get("bars") else None)
         price = q.get("price") or snap.get("price") or (o.price if o else None)
         rows.append({"symbol": s, "note": i.note, "added_at": i.added_at.isoformat(), "name": q.get("name"),
                      "price": price, "price_source": q.get("source") if q.get("price") else
@@ -871,7 +882,7 @@ async def custom_watchlist(live: bool = False, db: Session = Depends(get_db), u:
                                                     "put_call": o.pc_ratio},
                      "insider": insider.get(s), "earnings": earn.get(s),
                      "analysts": None if not a else {"strong_buy": a.strong_buy, "buy": a.buy},
-                     "shariah_status": sh.get(s)})
+                     "shariah_status": sh.get(s), "bars": bars, "bars_source": bars_src})
     return {"rows": rows, "live": live}
 
 
