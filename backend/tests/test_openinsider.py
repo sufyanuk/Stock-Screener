@@ -61,7 +61,7 @@ def test_requests_first_100_results(monkeypatch):
         urls.append(url)
         return HTML
 
-    monkeypatch.setattr(p.http, "get_text", fake_get_text)
+    monkeypatch.setattr(p, "_fetch", fake_get_text)
     rows = asyncio.run(p.purchases())
     assert len(urls) == 1 and "cnt=100&page=1" in urls[0] and "fd=730" in urls[0] and "xp=1" in urls[0]
     assert len(rows) == 2

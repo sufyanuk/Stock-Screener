@@ -209,6 +209,22 @@ def latest_insider_buys(db: Session, days: int, limit: int) -> list[dict]:
     return rows
 
 
+@app.get("/api/insiders/source-check")
+async def insiders_source_check(_: User = Depends(current_user)):
+    """Fetch and parse the OpenInsider screener without storing anything (diagnostics)."""
+    from app.providers.openinsider import OpenInsider
+
+    p = OpenInsider()
+    try:
+        txns = await p.purchases()
+        return {"ok": True, "purchases": len(txns), "fetch": p.last,
+                "sample": [{"ticker": t.ticker, "insider": t.owner_name, "title": t.officer_title,
+                            "trade_date": t.transaction_date.isoformat(), "filing_date": t.filing_date.isoformat(),
+                            "shares": t.shares, "price": t.price, "accession": t.accession} for t in txns[:3]]}
+    except Exception as e:  # noqa: BLE001 - diagnostics endpoint reports any failure
+        return {"ok": False, "error": str(e), "fetch": p.last}
+
+
 @app.get("/api/insiders")
 def insiders(days: int = 30, db: Session = Depends(get_db), _: User = Depends(current_user)):
     days = days if days in (7, 30, 60, 90) else 30

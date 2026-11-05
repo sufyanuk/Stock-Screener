@@ -14,7 +14,7 @@ import re
 from datetime import date, datetime, timezone
 from html.parser import HTMLParser
 
-from app.providers.http import HttpProvider, ProviderError
+from app.providers.http import ProviderError
 from app.screening.insider import InsiderTxn
 from app.screening.types import Freshness, Provenance
 
@@ -144,28 +144,71 @@ def to_txn(r: dict) -> InsiderTxn | None:
         footnotes="OpenInsider" + (f" flags {r['x']}" if r["x"] else ""))
 
 
+SCREENER_QUERY = ("/screener?s=&o=&pl=&ph=&ll=&lh=&fd={fd}&fdr=&td=0&tdr=&fdlyl=&fdlyh=&daysago=&xp=1"
+                  "&vl=&vh=&ocl=&och=&sic1=-1&sicl=100&sich=9999&grp=0&nfl=&nfh=&nil=&nih=&nol=&noh=&v2l=&v2h="
+                  "&oc2l=&oc2h=&sortcol=0&cnt={cnt}&page={page}")
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                         "Chrome/124.0 Safari/537.36",
+           "Accept": "text/html,application/xhtml+xml", "Accept-Language": "en-US,en;q=0.9"}
+_CACHE: dict[str, tuple[float, str]] = {}
+
+
 class OpenInsider:
-    """No API key; requests are paced (1 per 2 s) and cached for 30 minutes."""
+    """No API key. One request per scan, strict time limits (a slow site must not stall the scan),
+    http first then https, results cached for 30 minutes."""
 
     name = "openinsider"
-    base = "http://openinsider.com"
+    hosts = ("http://openinsider.com", "https://openinsider.com")
 
-    def __init__(self):
-        self.http = HttpProvider(self.name, self.base, requests_per_second=0.5, cache_ttl=1800, timeout=40,
-                                 headers={"User-Agent": "Mozilla/5.0 (compatible; StockScreener personal research)"})
+    def __init__(self, total_timeout: float = 45.0):
+        self.total_timeout = total_timeout
+        self.last: dict = {}
 
     def prov(self, endpoint: str = "/screener") -> Provenance:
         return Provenance(self.name, Freshness.EOD, datetime.now(timezone.utc), None, endpoint=endpoint)
+
+    async def _fetch(self, path: str) -> str:
+        import asyncio
+        import time
+
+        import httpx
+
+        hit = _CACHE.get(path)
+        if hit and time.time() - hit[0] < 1800:
+            return hit[1]
+        errors = []
+        start = time.time()
+
+        async def attempt(host):
+            async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=8.0), follow_redirects=True,
+                                         headers=HEADERS) as c:
+                return await c.get(host + path)
+
+        for host in self.hosts:
+            left = self.total_timeout - (time.time() - start)
+            if left <= 2:
+                break
+            try:
+                r = await asyncio.wait_for(attempt(host), left)
+            except (httpx.HTTPError, asyncio.TimeoutError) as e:
+                errors.append(f"{host}: {type(e).__name__} {e}".strip())
+                continue
+            self.last = {"url": host + path, "status": r.status_code, "bytes": len(r.content),
+                         "seconds": round(time.time() - start, 1)}
+            if r.status_code == 200 and "<table" in r.text:
+                _CACHE[path] = (time.time(), r.text)
+                return r.text
+            errors.append(f"{host}: HTTP {r.status_code} ({len(r.content)} bytes)")
+        self.last = self.last | {"errors": errors, "seconds": round(time.time() - start, 1)}
+        raise ProviderError(self.name, "; ".join(errors) or "no response")
 
     async def purchases(self, filed_days: int = 730, per_page: int = 100, max_pages: int = 1) -> list[InsiderTxn]:
         """The latest open-market purchases (newest filing first). Default: the first 100 results of the
         screener (fd=730, cnt=100, page 1), i.e. one request per scan."""
         out: list[InsiderTxn] = []
         for page in range(1, max_pages + 1):
-            url = (f"/screener?s=&o=&pl=&ph=&ll=&lh=&fd={filed_days}&fdr=&td=0&tdr=&fdlyl=&fdlyh=&daysago=&xp=1"
-                   f"&vl=&vh=&ocl=&och=&sic1=-1&sicl=100&sich=9999&grp=0&nfl=&nfh=&nil=&nih=&nol=&noh=&v2l=&v2h="
-                   f"&oc2l=&oc2h=&sortcol=0&cnt={per_page}&page={page}")
-            rows = parse_screener(await self.http.get_text(url))
+            rows = parse_screener(await self._fetch(SCREENER_QUERY.format(fd=filed_days, cnt=per_page, page=page)))
+            self.last["rows"] = len(rows)
             out += [t for r in rows if (t := to_txn(r))]
             if len(rows) < per_page:
                 break
