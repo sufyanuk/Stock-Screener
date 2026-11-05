@@ -13,7 +13,7 @@ type Row = {
 type Resp = { days: number; rows: Row[]; latest_filing_date: string | null; source: string };
 
 export default function InsidersPage() {
-  const [days, setDays] = useState(30);
+  const days = 90; // everything ingested (the scan keeps the last 90 days)
   const { data, error, reload } = useApi<Resp>(`/insiders?days=${days}`);
   const [q, setQ] = useState("");
   const rows = (data?.rows ?? []).filter((r) => !q || r.ticker.includes(q.toUpperCase()) || r.owner.toLowerCase().includes(q.toLowerCase()));
@@ -23,11 +23,9 @@ export default function InsidersPage() {
       <ScanBar title="Latest insider buying" subtitle={data ? `${data.source}${data.latest_filing_date ? ` · latest filing ${data.latest_filing_date}` : ""}` : undefined} onScanned={reload} />
       <ErrorBox error={error} />
       <CriteriaCard title="Insider-buying criteria (used for the Top 5)" tab="Insider Buying" sections={["insider"]} />
-      <Card title={`${rows.length} open-market purchases`} right={
+      <Card title={`${rows.length} open-market purchases · last ${days} days`} right={
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by ticker or insider" className="w-48" />
-          <div className="flex gap-1">{[7, 30, 60, 90].map((d) => (
-            <button key={d} onClick={() => setDays(d)} className={`rounded-md px-2.5 py-1 ${days === d ? "bg-accent text-bg" : "border border-line text-muted hover:text-ink"}`}>{d}d</button>))}</div>
         </div>}>
         {sorted.length ? (
           <div className="overflow-x-auto">
