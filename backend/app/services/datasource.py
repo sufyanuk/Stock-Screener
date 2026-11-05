@@ -355,6 +355,45 @@ class LiveDataSource:
         rows = [r for r in await av.earnings_calendar() if start.isoformat() <= r["report_date"] <= end.isoformat()]
         return rows, Provenance(av.name, Freshness.EOD, datetime.now(timezone.utc), None, endpoint="EARNINGS_CALENDAR")
 
+    async def shares_outstanding(self, ticker):
+        """Shares outstanding: FMP shares-float → Finnhub profile → Alpha Vantage OVERVIEW."""
+        async def fmp(f):
+            r = await f.shares_float(ticker) or {}
+            n = r.get("outstanding_shares")
+            if not n:
+                raise ProviderError("fmp", f"no shares outstanding for {ticker}")
+            return float(n), "fmp"
+
+        async def finnhub(p):
+            n = (await p.profile(ticker)).get("shareOutstanding")  # millions
+            if not n:
+                raise ProviderError("finnhub", f"no shares outstanding for {ticker}")
+            return float(n) * 1e6, "finnhub"
+
+        async def av(p):
+            j = await p.http.get_json("/query", {"function": "OVERVIEW", "symbol": ticker, "apikey": p.key})
+            n = j.get("SharesOutstanding") if isinstance(j, dict) else None
+            try:
+                return float(n), "alphavantage"
+            except (TypeError, ValueError):
+                raise ProviderError("alphavantage", f"no shares outstanding for {ticker}") from None
+
+        return await self._first("shares outstanding", [(self.fmp, fmp), (self.finnhub, finnhub), (self.av, av)])
+
+    async def market_bars(self, day):
+        """Daily OHLCV of every US stock for one session (one request): Massive grouped daily → FMP bulk."""
+        from app.providers.market import fmp_bulk_bars
+
+        async def massive(p):
+            rows = await p.grouped_daily(day)
+            return {r["ticker"]: (r["open"], r["high"], r["low"], r["close"], r["volume"] or 0.0)
+                    for r in rows if r.get("close")}, p.prov("/v2/aggs/grouped/locale/us/market/stocks", None)
+
+        async def fmp(f):
+            return await fmp_bulk_bars(f, day), f.prov("/eod-bulk")
+
+        return await self._first("whole-market daily bars", [(self.massive, massive), (self.fmp, fmp)])
+
     async def market_closes(self, day):
         """Split-adjusted closing price of every US stock for one session (one request).
         Massive grouped daily bars; FMP bulk end-of-day as fallback."""

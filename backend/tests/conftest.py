@@ -107,6 +107,11 @@ class FakeDataSource:
         return AnalystData({"strong_buy": 3, "buy": 5, "hold": 2, "sell": 0, "strong_sell": 0},
                            {"avg": 26.0, "high": 30.0, "low": 21.0, "median": 26.0}, []), prov("fmp")
 
+    async def shares_outstanding(self, ticker):
+        if ticker == "BANK":
+            raise ProviderError("fmp", "no shares outstanding for BANK", 404)
+        return {"GOOD": 100_000_000.0, "PCR": 400_000_000.0}.get(ticker, 50_000_000.0), "fmp"
+
     async def float_info(self, ticker):
         return {"float_shares": 15_000_000, "outstanding_shares": 100_000_000}, prov("fmp")
 

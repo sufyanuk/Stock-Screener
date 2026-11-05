@@ -1,46 +1,38 @@
 # User manual
 
-**Unusual Options** (opens first) — import the day's unusual-options CSV at the top of this tab
+**Dashboard** (opens first) — Top 5 (stocks meeting every rule), near-qualified stocks failing one or two
+rules (with reasons), and the top 5 from each tab: unusual options, insider buying (by % of outstanding
+shares), upcoming earnings, seasonality for this month, 52-week-low bounces, 50-EMA bounces and your
+watchlist. "View all →" opens the full tab.
+
+**Unusual Options** — import the day's unusual-options CSV at the top of this tab
 (choose the file, click **Preview** to check how it was read, e.g. +1,639% and IV rank 3.3, then
 **Import**; import a new file each trading day). Below it, **Unusual-options criteria** sets the
 thresholds (1M volume change, IV rank, put/call, data source). The table lists every stock in the latest
 file, sorted by 1-month options volume change, with price, calls/puts, put/call and IV rank. "passes"
 marks stocks meeting the criteria and price < $100; "Top 5" marks current recommendations.
 
-**Insider Buying** — open-market purchases (SEC Form 4, read from the OpenInsider screener; SEC EDGAR is the fallback) over the last 7 / 30 / 60 / 90 days
-(joint filings of one purchase shown once). **Insider-buying criteria** sets the % of shares outstanding,
-look-back and basis used for the Top 5.
+**Insider Buying** — open-market purchases (SEC Form 4) filed in the last 90 days, shown only where the
+shares bought are more than 1% of the company's shares outstanding. Columns include Outstanding shares
+and % of outstanding (shares bought ÷ shares outstanding). Share counts come from FMP (Finnhub /
+Alpha Vantage as fallback) and are looked up automatically, cached for 30 days. **Insider-buying
+criteria** sets the % of shares outstanding, look-back and basis used for the Top 5.
 
-**Watchlist** — the Top 5 (stocks meeting every rule), near-qualified stocks failing one or two rules
-(with reasons), and a **Custom watchlist** card: add any tickers (with an optional note) and each shows
-its latest daily open, high, low, close, change and volume. Pick a stock in "Select stock" (or click its
-row) to see the last 15 sessions. Prices come from your price API (Massive / FMP) when set, otherwise from
-the imported price CSV.
+**Watchlist** — your custom watchlist: add any tickers (with an optional note); each shows its latest
+daily open, high, low, close, change and volume. Pick a stock in "Select stock" (or click its row) for the
+last 15 sessions. Prices come from your price APIs.
 
-**Bounces** — every stock in your price-history CSV that is turning up from:
-- **its 52-week low**: the low was set within the last N sessions (default 10, not today) and the close is
-  3–20% above it;
-- **its 50-day EMA**: the EMA is rising, a daily low came within 1% of it in the last 3 sessions without
-  closing more than 1% below it in the last 10 sessions, and the close is 0–5% above the EMA.
-Both lists can require an up day and filter by price and 50-day average volume; all settings are on the tab.
-Import a current price CSV (the same import as Seasonality, which includes the last 14 months) to refresh.
-
-Every tab shows the last scan, a **Run scan now** button and warnings (missing/old options CSV, data issues).
-Tickers are coloured by Shariah status everywhere: **green** = compliant, **red** = non-compliant,
-blue = not yet screened. Shariah status does not affect which stocks qualify.
-
-**Stock panel (right side)** — click any ticker on any screen to open it: price and day change, P/E,
-float ratio, market cap, next earnings date, analyst ratings (how many recommend Buy / Strong Buy) with
-the price target, a one-year chart, unusual-options and insider-buying context, and recent news.
-Ctrl/Cmd-click a ticker (or "Full analysis →") for the full page. An amber **E** next to a ticker means
-earnings are due within 7 days.
-
-**Earnings** — companies reporting in the next 7 days with insider buying (open-market, last 90 days),
-unusual options from the latest CSV, and the number of analysts rating the stock Strong Buy, Buy and
-in total (loaded automatically from FMP, or Alpha Vantage as a fallback, and cached for a day). Filters show only names with insider buying or unusual options.
+**Bounces** — every US stock, from daily market data (Massive grouped daily bars; FMP bulk as fallback).
+Click **Load price history** once (about 260 requests, one per trading day; resumable); each scan then adds
+the newest day. **Rebuild** reloads the year (use it after a stock split).
+- **Bouncing from 52-week low**: price below $100; close within 5% of the 52-week low and at least 2% above
+  it; volume more than 1.5× the 50-day average volume; optional RSI(14) 30–50.
+- **Bouncing from 50 EMA**: price below $100; the day's low came within 1% of the 50-day EMA; the close is
+  above the EMA; volume at least 1.5× the 20-day average; optional RSI(14) 40–60.
+All thresholds can be changed on the tab. Latest completed session only.
 
 **Seasonality** — based on your own price-history CSV (daily, weekly or monthly OHLCV). On the
-Seasonality or Bounces tab (one import updates both) choose the file (one file with a Symbol/Ticker column for all stocks, or one file per
+Seasonality tab choose the file (one file with a Symbol/Ticker column for all stocks, or one file per
 stock named by ticker, e.g. AAPL.csv), check the preview (stocks, date range, close column), then
 **Import**. The file is read in your browser and only each stock's month-end close is uploaded, so
 large files are fine. "Replace all existing price history" starts fresh; untick it to add or update
@@ -57,7 +49,7 @@ detail and largest contracts; insider purchases with joint-filing de-duplication
 consensus and changes; float and liquidity; news; SEC
 filings; and a data-provenance table. **Size this trade** opens the position calculator pre-filled.
 
-**Calculators** — position size (long/short, fees, slippage, allocation cap, fractional shares) and
+**Calculators** — position size (account balance, risk %, entry, stop; optional fractional shares — a stop above the entry is a short) and
 expectancy (R-multiples, profit factor, break-even win rate, Monte-Carlo risk of ruin and drawdown,
 scenario grid).
 

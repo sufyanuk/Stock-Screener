@@ -8,6 +8,7 @@ import { useApi } from "@/lib/api";
 import { PaneProvider, usePane } from "@/lib/pane-context";
 
 const NAV = [
+  ["/dashboard", "Dashboard"],
   ["/options", "Unusual Options"],
   ["/insiders", "Insider Buying"],
   ["/watchlist", "Watchlist"],
@@ -26,7 +27,7 @@ export function Shell({ children }: { children: ReactNode }) {
     <div className="min-h-screen">
       <nav className="sticky top-0 z-20 border-b border-line bg-bg/90 backdrop-blur">
         <div className="mx-auto flex max-w-[1900px] items-center gap-4 px-4 py-2.5">
-          <Link href="/options" className="flex items-center gap-2 font-semibold">
+          <Link href="/dashboard" className="flex items-center gap-2 font-semibold">
             <span className="grid h-7 w-7 place-items-center rounded-md bg-accent/20 text-accent">SI</span>
             <span>Stock Intel</span>
           </Link>

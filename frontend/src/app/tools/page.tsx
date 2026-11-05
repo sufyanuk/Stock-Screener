@@ -11,11 +11,7 @@ function num(v: string) {
 }
 
 function Position() {
-  const [f, setF] = useState({
-    account_balance: "25000", risk_pct: "1", entry: "", stop: "", target1: "", target2: "",
-    max_allocation_pct: "20", available_capital: "", commission_per_trade: "0", commission_per_share: "0", slippage_per_share: "0.01",
-    direction: "long", fractional: false,
-  });
+  const [f, setF] = useState({ account_balance: "25000", risk_pct: "1", entry: "", stop: "", fractional: false });
   const [res, setRes] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
@@ -23,16 +19,17 @@ function Position() {
     const q = new URLSearchParams(window.location.search);
     if (!q.get("entry")) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time prefill from the URL
-    setF((x) => ({ ...x, entry: q.get("entry") ?? "", stop: q.get("stop") ?? "", target1: q.get("t1") ?? "", target2: q.get("t2") ?? "" }));
+    setF((x) => ({ ...x, entry: q.get("entry") ?? "", stop: q.get("stop") ?? "" }));
   }, []);
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setF({ ...f, [k]: e.target.type === "checkbox" ? (e.target as HTMLInputElement).checked : e.target.value });
   async function calc() {
     setErr(null);
     try {
-      const body: any = { ...f };
-      for (const k of Object.keys(body)) if (typeof body[k] === "string" && k !== "direction") body[k] = num(body[k]);
-      for (const k of ["target1", "target2", "available_capital"]) if (body[k] === null) delete body[k];
+      const body: any = { account_balance: num(f.account_balance), risk_pct: num(f.risk_pct), entry: num(f.entry),
+        stop: num(f.stop), fractional: f.fractional };
+      // a stop above the entry means a short position
+      body.direction = body.stop !== null && body.entry !== null && body.stop > body.entry ? "short" : "long";
       setRes(await api("/tools/position", { method: "POST", body: JSON.stringify(body) }));
     } catch (e) {
       setErr((e as Error).message);
@@ -44,33 +41,22 @@ function Position() {
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Field label="Account balance ($)"><input value={f.account_balance} onChange={set("account_balance")} inputMode="decimal" /></Field>
         <Field label="Risk per trade (%)"><input value={f.risk_pct} onChange={set("risk_pct")} inputMode="decimal" /></Field>
-        <Field label="Direction"><select value={f.direction} onChange={set("direction")}><option value="long">Long</option><option value="short">Short</option></select></Field>
-        <Field label="Max allocation (% of account)"><input value={f.max_allocation_pct} onChange={set("max_allocation_pct")} /></Field>
-        <Field label="Entry ($)"><input value={f.entry} onChange={set("entry")} /></Field>
-        <Field label="Stop-loss ($)"><input value={f.stop} onChange={set("stop")} /></Field>
-        <Field label="Target 1 ($)"><input value={f.target1} onChange={set("target1")} /></Field>
-        <Field label="Target 2 ($)"><input value={f.target2} onChange={set("target2")} /></Field>
-        <Field label="Available capital ($)" hint="blank = account balance"><input value={f.available_capital} onChange={set("available_capital")} /></Field>
-        <Field label="Commission per trade ($)"><input value={f.commission_per_trade} onChange={set("commission_per_trade")} /></Field>
-        <Field label="Commission per share ($)"><input value={f.commission_per_share} onChange={set("commission_per_share")} /></Field>
-        <Field label="Slippage per share ($)"><input value={f.slippage_per_share} onChange={set("slippage_per_share")} /></Field>
+        <Field label="Entry ($)"><input value={f.entry} onChange={set("entry")} inputMode="decimal" /></Field>
+        <Field label="Stop-loss ($)"><input value={f.stop} onChange={set("stop")} inputMode="decimal" /></Field>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.fractional} onChange={set("fractional")} /> Fractional shares</label>
       </div>
       <Button className="mt-3" onClick={calc}>Calculate</Button>
       <div className="mt-3"><ErrorBox error={err} /></div>
       {res && (
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
-          <Stat label="Shares" value={nf(res.shares, f.fractional ? 4 : 0)} sub={`limited by ${res.limited_by}`} />
+          <Stat label="Shares" value={nf(res.shares, f.fractional ? 4 : 0)} />
           <Stat label="Investment" value={usd(res.investment)} sub={`capital req. ${usd(res.capital_required)}`} />
           <Stat label="Max loss" value={<span className="text-bear">{usd(res.max_loss)}</span>} sub={`risk budget ${usd(res.risk_amount)}`} />
           <Stat label="% of account" value={pct(res.pct_of_account, 2)} sub={`cash left ${usd(res.remaining_cash)}`} />
-          <Stat label="Profit @ T1" value={<span className="text-bull">{usd(res.profit_target1)}</span>} sub={res.rr_target1 ? `${res.rr_target1}R` : ""} />
-          <Stat label="Profit @ T2" value={<span className="text-bull">{usd(res.profit_target2)}</span>} sub={res.rr_target2 ? `${res.rr_target2}R` : ""} />
-          <Stat label="Risk per share" value={usd(res.risk_per_share, 4)} sub="incl. slippage & per-share fees" />
-          <Stat label="Effective fills" value={`${usd(res.effective_entry)} / ${usd(res.effective_stop)}`} sub="entry / stop" />
+          <Stat label="Risk per share" value={usd(res.risk_per_share, 4)} sub="entry − stop" />
         </div>
       )}
-      <p className="mt-3 text-xs text-muted">Risk amount = balance × risk %. Risk/share = |entry − stop| + slippage both ways + per-share commission both ways. Shares = min(risk-based, allocation-based).</p>
+      <p className="mt-3 text-xs text-muted">Risk amount = balance × risk %. Risk per share = |entry − stop|. Shares = risk amount ÷ risk per share (capped at what the account can buy). A stop above the entry is treated as a short.</p>
     </Card>
   );
 }

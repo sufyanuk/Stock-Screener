@@ -328,7 +328,7 @@ class ScanEngine:
             rows = batch.rows if batch else []
             stale = self.import_stale_reason(batch, as_of) if live else None
             if batch is None:
-                self.errors.append("no unusual-options CSV imported yet: upload one under Admin → Options CSV import")
+                self.errors.append("no unusual-options CSV imported yet: import one on the Unusual Options tab")
             elif stale:
                 self.errors.append(stale)
             label = f"CSV import #{batch.id} ({batch.filename})" if batch else ""

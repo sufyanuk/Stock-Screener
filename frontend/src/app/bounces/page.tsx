@@ -1,65 +1,86 @@
 "use client";
 import { useState } from "react";
-import { PriceImport } from "@/components/price-import";
-import { Card, Empty, ErrorBox, Field, ShariahLegend, Ticker, useSort } from "@/components/ui";
-import { useApi } from "@/lib/api";
-import { compact, pct, tone, usd } from "@/lib/format";
+import { Button, Card, Empty, ErrorBox, Field, ShariahLegend, Ticker, useSort } from "@/components/ui";
+import { api, useApi } from "@/lib/api";
+import { compact, nf, pct, tone, usd } from "@/lib/format";
 
 type Kind = "low52" | "ema50";
 type Row = {
-  symbol: string; date: string; price: number; day_change_pct: number | null; avg_vol50: number | null; low52: number | null; low52_date: string | null;
-  high52: number | null; below_high52_pct: number | null; stale: boolean; shariah_status: string | null;
-  bounce_pct?: number; sessions_since_low?: number; ema50?: number; above_ema_pct?: number; sessions_since_touch?: number; ema_change_10d_pct?: number;
+  symbol: string; date: string; price: number; day_change_pct: number | null; volume: number; vol_ratio: number | null;
+  avg_vol50: number | null; avg_vol20: number | null; low52: number | null; low52_date: string | null; above_low52_pct: number | null;
+  ema50: number | null; vs_ema50_pct: number | null; low_vs_ema_pct: number | null; rsi: number | null; shariah_status: string | null;
 };
-type Resp = { rows: Row[]; total: number; data: { symbols: number; as_of: string | null; age_days: number | null; source: string | null; imported_at: string | null } };
+type Status = { sessions: number; first: string | null; as_of: string | null; remaining: number; symbols: number; provider: string | null; age_days: number | null };
+type Resp = { rows: Row[]; total: number; data: Status };
 
 const num = (v: string) => v.replace(/[^0-9.]/g, "");
 
 export default function BouncesPage() {
   const [kind, setKind] = useState<Kind>("low52");
-  const [minPrice, setMinPrice] = useState("5");
   const [maxPrice, setMaxPrice] = useState("100");
-  const [minVol, setMinVol] = useState("200000");
-  const [upDay, setUpDay] = useState(true);
-  const [lowDays, setLowDays] = useState("10");
-  const [minBounce, setMinBounce] = useState("3");
-  const [maxBounce, setMaxBounce] = useState("20");
-  const [emaDays, setEmaDays] = useState("3");
+  const [nearLow, setNearLow] = useState("5");
+  const [recover, setRecover] = useState("2");
   const [touch, setTouch] = useState("1");
-  const [maxAbove, setMaxAbove] = useState("5");
-  const [rising, setRising] = useState(true);
+  const [volMult, setVolMult] = useState("1.5");
+  const [useRsi, setUseRsi] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
-  const qs = new URLSearchParams({ kind, up_day: String(upDay), min_avg_volume: minVol || "0" });
-  qs.set("min_price", minPrice || "0");
-  if (maxPrice) qs.set("max_price", maxPrice);
-  if (kind === "low52") {
-    qs.set("within_days", lowDays || "10"); qs.set("min_bounce_pct", minBounce || "0"); qs.set("max_bounce_pct", maxBounce || "1000");
-  } else {
-    qs.set("within_days", emaDays || "3"); qs.set("touch_pct", touch || "0"); qs.set("max_above_pct", maxAbove || "100"); qs.set("require_rising", String(rising));
-  }
+  const qs = new URLSearchParams({ kind, max_price: maxPrice || "100", vol_mult: volMult || "1.5", use_rsi: String(useRsi) });
+  if (kind === "low52") { qs.set("near_low_pct", nearLow || "5"); qs.set("min_recover_pct", recover || "2"); }
+  else qs.set("touch_pct", touch || "1");
   const { data, error, reload, loading } = useApi<Resp>(`/bounces?${qs}`);
-  const { sorted, th } = useSort(data?.rows ?? [], null); // server order: most recent bounce first
+  const { sorted, th } = useSort(data?.rows ?? [], null);
   const info = data?.data;
-  const ageDays = info?.age_days ?? null;
 
+  async function load(rebuild = false) {
+    setErr(null);
+    setBusy("Loading daily prices for all US stocks…");
+    try {
+      for (let i = 0; i < 40; i++) {
+        const r = await api<Status & { processed: number; errors: string[] }>("/bounces/refresh", {
+          method: "POST", body: JSON.stringify({ max_seconds: 200, rebuild: rebuild && i === 0 }) });
+        setBusy(`Loaded ${r.sessions} of ${r.sessions + r.remaining} trading days…`);
+        if (r.errors.length) setErr(r.errors[0]);
+        if (r.remaining <= 0 || r.processed === 0) break;
+      }
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+    setBusy(null);
+    reload();
+  }
+
+  const loaded = !!info?.sessions;
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">Bounces</h1>
           <p className="text-sm text-muted">
-            Stocks turning up from their 52-week low or from a rising 50-day EMA, across every stock in your price CSV.
-            {info?.symbols ? <> Data: {info.symbols.toLocaleString()} stocks · prices as of {info.as_of} · {info.source}</> : null}
+            US stocks bouncing off their 52-week low or their 50-day EMA, from daily market data ({info?.provider ?? "Massive / FMP"}).
+            {loaded && <> {info!.symbols.toLocaleString()} stocks · {info!.first} → {info!.as_of} ({info!.sessions} trading days)</>}
           </p>
         </div>
         <ShariahLegend />
       </div>
-      {ageDays !== null && ageDays > 4 && (
-        <div className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm text-warn">
-          Prices are from {info?.as_of} ({ageDays} days ago). Import a current price CSV below to refresh the bounce lists.
+
+      <Card>
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          {!loaded || (info && info.remaining > 0) ? (
+            <Button onClick={() => load()} disabled={!!busy}>{loaded ? `Load remaining ${info!.remaining} days` : "Load price history (about 260 requests, once)"}</Button>
+          ) : (
+            <>
+              <span className="text-muted">Prices as of <b className="text-ink">{info!.as_of}</b> · updated by each scan.</span>
+              <Button variant="ghost" onClick={() => load()} disabled={!!busy}>Update now</Button>
+              <Button variant="ghost" onClick={() => { if (confirm("Reload the full year of daily prices? Use this after a stock split.")) load(true); }} disabled={!!busy}>Rebuild</Button>
+            </>
+          )}
+          {busy && <span className="text-xs text-muted">{busy}</span>}
         </div>
-      )}
-      {(data || error) && <PriceImport open={!info?.symbols} onDone={reload} />}
+        {info?.age_days != null && info.age_days > 3 && <p className="mt-2 text-sm text-warn">Prices are {info.age_days} days old — click “Update now” or run a scan.</p>}
+        <div className="mt-2"><ErrorBox error={err || error} /></div>
+      </Card>
 
       <Card>
         <div className="mb-3 flex gap-1">
@@ -68,63 +89,60 @@ export default function BouncesPage() {
               className={`rounded-md px-3 py-1.5 text-sm ${kind === k ? "bg-accent text-bg" : "border border-line text-muted hover:text-ink"}`}>{label}</button>
           ))}
         </div>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
-          <Field label="Price from ($)"><input value={minPrice} onChange={(e) => setMinPrice(num(e.target.value))} placeholder="any" /></Field>
-          <Field label="Price below ($)"><input value={maxPrice} onChange={(e) => setMaxPrice(num(e.target.value))} placeholder="any" /></Field>
-          <Field label="Min avg volume (50d)"><input value={minVol} onChange={(e) => setMinVol(num(e.target.value))} placeholder="0" /></Field>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <Field label="Price below ($)"><input value={maxPrice} onChange={(e) => setMaxPrice(num(e.target.value))} /></Field>
           {kind === "low52" ? (
             <>
-              <Field label="Low set within (sessions)"><input value={lowDays} onChange={(e) => setLowDays(num(e.target.value))} /></Field>
-              <Field label="Bounce at least (%)"><input value={minBounce} onChange={(e) => setMinBounce(num(e.target.value))} /></Field>
-              <Field label="Bounce at most (%)"><input value={maxBounce} onChange={(e) => setMaxBounce(num(e.target.value))} /></Field>
+              <Field label="Within % of 52-week low"><input value={nearLow} onChange={(e) => setNearLow(num(e.target.value))} /></Field>
+              <Field label="Recovered at least (%)"><input value={recover} onChange={(e) => setRecover(num(e.target.value))} /></Field>
+              <Field label="Volume > × 50-day average"><input value={volMult} onChange={(e) => setVolMult(num(e.target.value))} /></Field>
             </>
           ) : (
             <>
-              <Field label="Touched EMA within (sessions)"><input value={emaDays} onChange={(e) => setEmaDays(num(e.target.value))} /></Field>
-              <Field label="Touch tolerance (%)"><input value={touch} onChange={(e) => setTouch(num(e.target.value))} /></Field>
-              <Field label="Max above EMA (%)"><input value={maxAbove} onChange={(e) => setMaxAbove(num(e.target.value))} /></Field>
-              <label className="flex items-end gap-1.5 pb-2 text-sm"><input type="checkbox" checked={rising} onChange={(e) => setRising(e.target.checked)} /> EMA rising</label>
+              <Field label="Low within % of 50 EMA"><input value={touch} onChange={(e) => setTouch(num(e.target.value))} /></Field>
+              <Field label="Volume ≥ × 20-day average"><input value={volMult} onChange={(e) => setVolMult(num(e.target.value))} /></Field>
             </>
           )}
-          <label className="flex items-end gap-1.5 pb-2 text-sm"><input type="checkbox" checked={upDay} onChange={(e) => setUpDay(e.target.checked)} /> Closed up on the day</label>
+          <label className="flex items-end gap-1.5 pb-2 text-sm"><input type="checkbox" checked={useRsi} onChange={(e) => setUseRsi(e.target.checked)} />
+            RSI {kind === "low52" ? "30–50" : "40–60"} (optional)</label>
         </div>
       </Card>
 
-      <ErrorBox error={error} />
-      <Card title={data ? `${data.total.toLocaleString()} stock${data.total === 1 ? "" : "s"} ${kind === "low52" ? "bouncing from a 52-week low" : "bouncing from the 50 EMA"}` : "Loading…"}>
+      <Card title={data ? `${data.total.toLocaleString()} stock${data.total === 1 ? "" : "s"} ${kind === "low52" ? "bouncing from a 52-week low" : "bouncing from the 50 EMA"}${info?.as_of ? ` · ${info.as_of}` : ""}` : "Loading…"}>
         {loading && !data ? <Empty>Loading…</Empty> : sorted.length ? (
           <div className="overflow-x-auto">
             <table className="text-sm">
               <thead><tr>
                 {th("symbol", "Ticker")}{th("price", "Price")}{th("day_change_pct", "Day")}
-                {kind === "low52" ? <>{th("low52", "52w low")}<th>Low date</th>{th("sessions_since_low", "Sessions since low")}{th("bounce_pct", "Bounce off low")}</>
-                  : <>{th("ema50", "50 EMA")}{th("above_ema_pct", "Above EMA")}{th("sessions_since_touch", "Sessions since touch")}{th("ema_change_10d_pct", "EMA 10d slope")}</>}
-                {th("below_high52_pct", "From 52w high")}{th("avg_vol50", "Avg volume")}
+                {kind === "low52"
+                  ? <>{th("low52", "52w low")}<th>Low date</th>{th("above_low52_pct", "Above low")}</>
+                  : <>{th("ema50", "50 EMA")}{th("low_vs_ema_pct", "Day low vs EMA")}{th("vs_ema50_pct", "Close vs EMA")}</>}
+                {th("volume", "Volume")}{th("vol_ratio", kind === "low52" ? "× 50d avg" : "× 20d avg")}{th("rsi", "RSI 14")}
               </tr></thead>
               <tbody>{sorted.map((r) => (
-                <tr key={r.symbol} className={r.stale ? "opacity-60" : ""}>
-                  <td><Ticker symbol={r.symbol} status={r.shariah_status} />{r.stale && <span className="ml-1 text-[10px] text-warn" title={`last bar ${r.date}`}>old</span>}</td>
+                <tr key={r.symbol}>
+                  <td><Ticker symbol={r.symbol} status={r.shariah_status} /></td>
                   <td className="num">{usd(r.price)}</td>
                   <td className={`num ${tone(r.day_change_pct)}`}>{pct(r.day_change_pct, 2, true)}</td>
                   {kind === "low52" ? <>
                     <td className="num">{usd(r.low52)}</td><td className="text-xs text-muted">{r.low52_date}</td>
-                    <td className="num">{r.sessions_since_low}</td><td className="num text-bull">{pct(r.bounce_pct, 1, true)}</td>
+                    <td className="num text-bull">{pct(r.above_low52_pct, 1, true)}</td>
                   </> : <>
-                    <td className="num">{usd(r.ema50)}</td><td className="num text-bull">{pct(r.above_ema_pct, 1, true)}</td>
-                    <td className="num">{r.sessions_since_touch === 0 ? "today" : r.sessions_since_touch}</td>
-                    <td className={`num ${tone(r.ema_change_10d_pct)}`}>{pct(r.ema_change_10d_pct, 1, true)}</td>
+                    <td className="num">{usd(r.ema50)}</td><td className="num">{pct(r.low_vs_ema_pct, 2, true)}</td>
+                    <td className="num text-bull">{pct(r.vs_ema50_pct, 2, true)}</td>
                   </>}
-                  <td className={`num ${tone(r.below_high52_pct)}`}>{pct(r.below_high52_pct, 1, true)}</td>
-                  <td className="num">{compact(r.avg_vol50)}</td>
+                  <td className="num">{compact(r.volume)}</td>
+                  <td className="num font-semibold">{nf(r.vol_ratio, 1)}×</td>
+                  <td className="num">{nf(r.rsi, 0)}</td>
                 </tr>))}</tbody>
             </table>
           </div>
-        ) : <Empty>{info?.symbols ? "No stocks match these settings." : "No price data yet — import your OHLCV CSV above (include at least the last 14 months)."}</Empty>}
+        ) : <Empty>{loaded ? "No stocks match these criteria today." : "No price history yet — click “Load price history”."}</Empty>}
         <p className="mt-2 text-xs text-muted">
           {kind === "low52"
-            ? "52-week low = lowest daily low of the last 252 sessions (stocks with fewer than 200 sessions are skipped). A bounce = the low was set within the chosen number of sessions (not today) and the latest close is the chosen % above it."
-            : "50 EMA = 50-day exponential moving average of closes. A bounce = a daily low came within the tolerance of the EMA in the chosen window, no close in the last 10 sessions fell more than the tolerance below it, and the latest close is above the EMA."}
-          {" "}Research only — a bounce can fail.
+            ? "52-week low = lowest daily low of the last 252 sessions. Criteria: price below the cap, close within the chosen % of the 52-week low and recovered at least the chosen % from it, volume above the multiple of the previous 50-day average volume, optional RSI(14) 30–50."
+            : "50 EMA = 50-day exponential moving average of closes. Criteria: price below the cap, the day's low came within the chosen % of the EMA, the close is above the EMA, volume at least the multiple of the previous 20-day average, optional RSI(14) 40–60."}
+          {" "}Latest completed session only. Research only — a bounce can fail.
         </p>
       </Card>
     </div>

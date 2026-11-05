@@ -202,10 +202,16 @@ def latest_insider_buys(db: Session, days: int, limit: int) -> list[dict]:
                      "transaction_date": b.transaction_date.isoformat(), "filing_date": b.filing_date.isoformat(),
                      "shares": b.shares, "price": b.price, "value": (b.price or 0) * b.shares,
                      "owned_after": b.shares_owned_after, "accession": b.accession}
+    from app.services.research import shares_map
+
     rows = list(seen.values())[:limit]
     status = shariah_statuses(db, {r["ticker"] for r in rows})
+    so = shares_map(db, {r["ticker"] for r in rows})
     for r in rows:
         r["shariah_status"] = status.get(r["ticker"])
+        n = so.get(r["ticker"])
+        r["outstanding_shares"] = n
+        r["pct_outstanding"] = r["shares"] / n * 100 if n else None
     return rows
 
 
@@ -226,13 +232,30 @@ async def insiders_source_check(_: User = Depends(current_user)):
 
 
 @app.get("/api/insiders")
-def insiders(days: int = 30, db: Session = Depends(get_db), _: User = Depends(current_user)):
-    days = days if days in (7, 30, 60, 90) else 30
+def insiders(days: int = 90, min_pct: float = 1.0, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    """Purchases where shares bought / shares outstanding > ``min_pct`` (default 1%)."""
+    days = min(max(days, 1), 365)
     rows = latest_insider_buys(db, days, 500)
+    missing = sorted({r["ticker"] for r in rows if r["outstanding_shares"] is None})
+    shown = [r for r in rows if r["pct_outstanding"] is not None and r["pct_outstanding"] > min_pct]
     last = db.scalar(select(func.max(InsiderTransaction.filing_date)))
-    return {"days": days, "rows": rows, "latest_filing_date": last.isoformat() if last else None,
+    from app.services.research import shares_map
+
+    unknown = [t for t in missing if t not in shares_map(db, set(missing))]
+    return {"days": days, "min_pct": min_pct, "rows": shown, "total_purchases": len(rows),
+            "shares_missing": len(unknown), "shares_unavailable": len(missing) - len(unknown),
+            "latest_filing_date": last.isoformat() if last else None,
             "source": ("OpenInsider screener (SEC Form 4 open-market purchases, code P)"
                        if get_settings().insider_source == "openinsider" else "SEC EDGAR Form 4 (open-market purchases, code P)")}
+
+
+@app.post("/api/insiders/load-shares")
+async def insiders_load_shares(days: int = 90, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    """Look up shares outstanding for tickers on the Insider Buying list (cached 30 days)."""
+    from app.services.research import load_shares
+
+    rows = latest_insider_buys(db, min(max(days, 1), 365), 500)
+    return await load_shares(db, make_datasource(), [r["ticker"] for r in rows if r["outstanding_shares"] is None])
 
 
 @app.get("/api/dashboard")
@@ -424,6 +447,14 @@ async def _do_scan(kind: str, by: str) -> dict:
             from app.services.research import refresh_earnings
 
             await refresh_earnings(db, ds)
+            from app.services import bounces as bn
+
+            if bn.status(db)["sessions"]:  # keep the bounce screens current once history is loaded
+                await bn.refresh(db, ds, max_seconds=60)
+            from app.services.research import load_shares
+
+            await load_shares(db, ds, [r["ticker"] for r in latest_insider_buys(db, 90, 500)
+                                       if r["outstanding_shares"] is None], limit=80, max_seconds=40)
             prior = set(db.scalars(select(Recommendation.ticker).where(
                 Recommendation.session_date == run.session_date, Recommendation.run_id != run.id)).all())
             new = [r for r in db.scalars(select(Recommendation).where(Recommendation.run_id == run.id)).all()
@@ -810,36 +841,33 @@ def seasonality_import_finish(p: SeasonalityImportFinish, db: Session = Depends(
     return ss.finish_import(db, p.source, p.last_date) | {"coverage": ss.coverage(db)}
 
 
-class SnapshotChunk(BaseModel):
-    items: list[dict] = Field(..., max_length=5000)
-    replace_all: bool = False
-    source: str = Field("csv", max_length=200)
+class BounceRefresh(BaseModel):
+    max_seconds: float = Field(200, ge=10, le=270)
+    rebuild: bool = False
 
 
-@app.post("/api/prices/snapshots")
-def price_snapshots(p: SnapshotChunk, db: Session = Depends(get_db), _: User = Depends(admin_user)):
-    """Recent bars + 52-week/EMA levels per stock, computed in the browser from the OHLCV CSV."""
+@app.post("/api/bounces/refresh")
+async def bounces_refresh(p: BounceRefresh, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    """Load whole-market daily bars from the price API (resumable; one request per session)."""
     from app.services import bounces as bn
 
-    return bn.import_snapshots(db, p.items, p.replace_all, p.source)
+    return await bn.refresh(db, make_datasource(), p.max_seconds, p.rebuild)
 
 
 @app.get("/api/bounces")
-def bounces(kind: str = "low52", within_days: int | None = None, min_bounce_pct: float = 3.0,
-            max_bounce_pct: float = 20.0, touch_pct: float = 1.0, max_above_pct: float = 5.0,
-            require_rising: bool = True, up_day: bool = True, min_price: float | None = 5.0,
-            max_price: float | None = None, min_avg_volume: float = 200_000, limit: int = 500,
-            db: Session = Depends(get_db), _: User = Depends(current_user)):
+def bounces(kind: str = "low52", max_price: float = 100.0, min_price: float | None = 1.0,
+            near_low_pct: float = 5.0, min_recover_pct: float = 2.0, touch_pct: float = 1.0, vol_mult: float = 1.5,
+            use_rsi: bool = False, rsi_low_min: float = 30, rsi_low_max: float = 50, rsi_ema_min: float = 40,
+            rsi_ema_max: float = 60, limit: int = 500, db: Session = Depends(get_db), _: User = Depends(current_user)):
     from app.services import bounces as bn
     from app.services import research as rs
 
     if kind not in ("low52", "ema50"):
         raise HTTPException(422, "kind must be low52 or ema50")
-    wd = within_days if within_days is not None else (10 if kind == "low52" else 3)
-    params = {"within_days": min(max(wd, 1), 15), "min_bounce_pct": min_bounce_pct, "max_bounce_pct": max_bounce_pct,
-              "touch_pct": max(touch_pct, 0.0), "max_above_pct": max_above_pct, "require_rising": require_rising,
-              "up_day": up_day, "min_price": min_price, "max_price": max_price, "min_avg_volume": min_avg_volume,
-              "limit": min(max(limit, 10), 2000)}
+    params = {"max_price": max_price, "min_price": min_price, "near_low_pct": near_low_pct,
+              "min_recover_pct": min_recover_pct, "touch_pct": max(touch_pct, 0.0), "vol_mult": vol_mult,
+              "use_rsi": use_rsi, "rsi_low_min": rsi_low_min, "rsi_low_max": rsi_low_max,
+              "rsi_ema_min": rsi_ema_min, "rsi_ema_max": rsi_ema_max, "limit": min(max(limit, 5), 2000)}
     out = bn.screen(db, kind, params)
     sh = rs.shariah_map(db, {r["symbol"] for r in out["rows"]})
     for r in out["rows"]:
@@ -906,11 +934,11 @@ async def custom_watchlist(live: bool = False, db: Session = Depends(get_db), u:
     for i in items:
         s, o, a, q = i.symbol, opts.get(i.symbol), an.get(i.symbol), quotes.get(i.symbol) or {}
         snap = snaps.get(s) or {}
-        bars, bars_src = api_bars.get(s) or (snap.get("bars") or [], "price CSV" if snap.get("bars") else None)
+        bars, bars_src = api_bars.get(s) or (snap.get("bars") or [], "daily market data" if snap.get("bars") else None)
         price = q.get("price") or snap.get("price") or (o.price if o else None)
         rows.append({"symbol": s, "note": i.note, "added_at": i.added_at.isoformat(), "name": q.get("name"),
                      "price": price, "price_source": q.get("source") if q.get("price") else
-                     (f"CSV {snap['date']}" if snap.get("price") else ("options CSV" if o and o.price else None)),
+                     (f"daily close {snap['date']}" if snap.get("price") else ("options CSV" if o and o.price else None)),
                      "day_change_pct": q.get("day_change_pct") if q.get("price") else snap.get("day_change_pct"),
                      "pe": q.get("pe"), "market_cap": q.get("market_cap"),
                      "vs_ema50_pct": snap.get("vs_ema50_pct"), "above_low52_pct": snap.get("above_low52_pct"),

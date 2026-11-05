@@ -72,10 +72,17 @@ def test_dashboard_no_longer_has_low_float_or_health(client, db):
 def test_insiders_endpoint_and_options_rows(client, db):
     h = _auth(client)
     run_scan(db)
+    before = client.get("/api/insiders?days=30", headers=h).json()
+    assert before["rows"] == [] and before["shares_missing"] == 3 and before["total_purchases"] == 3
+    ld = client.post("/api/insiders/load-shares", headers=h).json()
+    assert ld["fetched"] == 2 and ld["remaining"] == 0
     r = client.get("/api/insiders?days=30", headers=h).json()
     good = [x for x in r["rows"] if x["ticker"] == "GOOD"]
     assert len(good) == 1 and good[0]["co_reporters"] == ["Doe Trust"] and good[0]["shariah_status"] == "Compliant"
-    assert client.get("/api/insiders?days=13", headers=h).json()["days"] == 30  # invalid -> default
+    assert good[0]["outstanding_shares"] == 100_000_000 and good[0]["pct_outstanding"] == pytest.approx(2.0)
+    assert [x["ticker"] for x in r["rows"]] == ["GOOD"]  # PCR 0.5% hidden, BANK has no share count
+    assert r["shares_unavailable"] == 1 and r["shares_missing"] == 0
+    assert len(client.get("/api/insiders?days=30&min_pct=0.1", headers=h).json()["rows"]) == 2
     from tests.test_options_import import fake_csv
     client.post("/api/admin/options-import", headers=h, json={"filename": "u.csv", "csv": fake_csv()})
     bid = client.get("/api/options-imports", headers=h).json()[0]["id"]

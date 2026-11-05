@@ -104,6 +104,51 @@ async def load_analyst_counts(db: Session, ds, symbols: list[str], limit: int = 
     return {"fetched": done, "remaining": max(0, remaining), "errors": errors[:5]}
 
 
+# ------------------------------------------------------------------ shares outstanding (cached)
+SHARES_TTL_DAYS = 30
+
+
+def shares_map(db: Session, tickers: set[str]) -> dict[str, float | None]:
+    from app.models import SharesOutstanding
+
+    if not tickers:
+        return {}
+    return {r.ticker: r.shares for r in db.scalars(select(SharesOutstanding).where(SharesOutstanding.ticker.in_(tickers))).all()}
+
+
+async def load_shares(db: Session, ds, tickers: list[str], limit: int = 60, max_seconds: float = 50) -> dict:
+    """Look up shares outstanding for tickers not cached (or older than 30 days), concurrently."""
+    from app.models import SharesOutstanding
+
+    if not hasattr(ds, "shares_outstanding"):
+        return {"fetched": 0, "remaining": 0, "errors": []}
+    have = {r.ticker: r for r in db.scalars(select(SharesOutstanding).where(SharesOutstanding.ticker.in_(tickers))).all()}
+    cutoff = _now() - timedelta(days=SHARES_TTL_DAYS)
+    todo = [t for t in dict.fromkeys(tickers) if t not in have or _aware(have[t].retrieved_at) < cutoff]
+    batch = todo[:limit]
+    sem = asyncio.Semaphore(6)
+    found: dict[str, tuple[float | None, str | None]] = {}
+    errors: list[str] = []
+
+    async def one(t):
+        async with sem:
+            try:
+                found[t] = await asyncio.wait_for(ds.shares_outstanding(t), 15)
+            except (ProviderError, asyncio.TimeoutError) as e:
+                errors.append(f"{t}: {str(e) or 'timed out'}")
+                found[t] = (None, None)
+
+    try:
+        await asyncio.wait_for(asyncio.gather(*(one(t) for t in batch)), max_seconds)
+    except asyncio.TimeoutError:
+        pass
+    for t, (n, src) in found.items():
+        db.merge(SharesOutstanding(ticker=t, shares=n, source=src, retrieved_at=_now()))
+    db.commit()
+    return {"fetched": sum(1 for n, _ in found.values() if n), "remaining": max(0, len(todo) - len(found)),
+            "errors": errors[:5]}
+
+
 # ------------------------------------------------------------------ insider / options context
 def insider_summary(db: Session, symbols: list[str], days: int = 90) -> dict[str, dict]:
     if not symbols:

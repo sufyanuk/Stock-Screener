@@ -1,10 +1,9 @@
 "use client";
-/** Price-history (OHLCV) CSV import shared by the Seasonality and Bounces tabs. One import feeds both:
- *  month-end closes (seasonality) and recent daily bars with 52-week / 50-EMA levels (bounce screens). */
+/** Price-history (OHLCV) CSV import for the Seasonality tab (month-end closes per stock). */
 import { useState } from "react";
 import { Button, Card, ErrorBox } from "@/components/ui";
 import { api } from "@/lib/api";
-import { chunks, readOhlcv, snapshots, type MonthEnd, type ParseStats, type Recent } from "@/lib/ohlcv";
+import { chunks, readOhlcv, type MonthEnd, type ParseStats, type Recent } from "@/lib/ohlcv";
 
 export function PriceImport({ onDone, open: openInit = true }: { onDone?: () => void; open?: boolean }) {
   const [open, setOpen] = useState(openInit);
@@ -42,18 +41,10 @@ export function PriceImport({ onDone, open: openInit = true }: { onDone?: () => 
           body: JSON.stringify({ rows: parts[i], replace_all: replaceAll && i === 0, source }) });
         stored += r.stored;
       }
-      const snaps = snapshots(parsed.recent);
-      const per = 1500;
-      for (let i = 0; i < snaps.length || (i === 0 && replaceAll); i += per) {
-        setBusy(`Uploading recent daily bars… ${Math.min(i + per, snaps.length)} of ${snaps.length} stocks`);
-        await api("/prices/snapshots", { method: "POST", body: JSON.stringify({ items: snaps.slice(i, i + per), replace_all: replaceAll && i === 0, source }) });
-        if (!snaps.length) break;
-      }
       setBusy("Calculating seasonality for every stock…");
       const f = await api<{ stats: number; partial_month_dropped: string | null }>("/seasonality/import/finish", {
         method: "POST", body: JSON.stringify({ source, last_date: parsed.stats.lastDate }) });
-      setDone(`Imported ${stored.toLocaleString()} month-end prices for ${parsed.stats.symbols.toLocaleString()} stocks` +
-        (snaps.length ? ` and the last year of daily bars for ${snaps.length.toLocaleString()} (bounce screens).` : ". No bars from the last 14 months, so the bounce screens were not updated.") +
+      setDone(`Imported ${stored.toLocaleString()} month-end prices for ${parsed.stats.symbols.toLocaleString()} stocks.` +
         (f.partial_month_dropped ? ` ${f.partial_month_dropped} was left out because the file ends part-way through that month.` : ""));
       setParsed(null); setFiles([]);
     } catch (e) {
@@ -65,7 +56,7 @@ export function PriceImport({ onDone, open: openInit = true }: { onDone?: () => 
 
   return (
       <Card title={<button className="flex items-center gap-2" onClick={() => setOpen(!open)}><span className="text-muted">{open ? "▾" : "▸"}</span>Import price-history CSV (OHLCV)</button>}>
-        {!open ? <p className="text-xs text-muted">One import updates both the Seasonality and Bounces tabs. Click to import a new file.</p> : <>
+        {!open ? <p className="text-xs text-muted">Click to import a new price-history file for the seasonality analysis.</p> : <>
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <input type="file" accept=".csv,.txt,text/csv" multiple disabled={!!busy}
             onChange={(e) => read(Array.from(e.target.files ?? []))} />
@@ -87,7 +78,7 @@ export function PriceImport({ onDone, open: openInit = true }: { onDone?: () => 
         <p className="mt-2 text-xs text-muted">
           Daily (or weekly/monthly) bars with a header row: Symbol/Ticker, Date, Open, High, Low, Close, Adj Close (optional), Volume —
           one file for all stocks, or one file per stock named by ticker (e.g. AAPL.csv). The file is read in your browser and only each
-          stock&apos;s month-end closes and its last year of daily bars are uploaded. Include at least the last 14 months for the Bounces tab. Use split-adjusted prices; “Adj Close” is used when present.
+          stock&apos;s month-end closes are uploaded. Use split-adjusted prices; “Adj Close” is used when present.
           {!replaceAll && " Unticked: stocks in the file replace their own history; other stocks are kept."}
         </p>
       </>}

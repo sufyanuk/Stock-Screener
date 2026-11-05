@@ -402,3 +402,23 @@ class PriceSnapshot(Base):
     data: Mapped[dict] = mapped_column(Json)
     source: Mapped[str] = mapped_column(String(64))
     imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SharesOutstanding(Base):
+    """Shares outstanding per ticker (for "% of outstanding acquired" on insider purchases)."""
+
+    __tablename__ = "shares_outstanding"
+    ticker: Mapped[str] = mapped_column(String(16), primary_key=True)
+    shares: Mapped[float | None] = mapped_column(Float, nullable=True)  # None = looked up, not available
+    source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class MarketDay(Base):
+    """A trading session whose whole-market daily bars were folded into ``price_snapshots``."""
+
+    __tablename__ = "market_days"
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    symbols: Mapped[int] = mapped_column(Integer)
+    provider: Mapped[str] = mapped_column(String(32))
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

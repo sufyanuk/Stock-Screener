@@ -22,7 +22,7 @@ export function Top5({ rows }: { rows: Rec[] }) {
     };
   });
   const { sorted, th } = useSort(flat, "rank" as keyof (typeof flat)[number], false);
-  if (!rows.length) return <Empty>No stocks met every requirement in the latest scan. Nothing has been substituted — see the watchlist for near-qualified names.</Empty>;
+  if (!rows.length) return <Empty>No stocks met every requirement in the latest scan. Nothing has been substituted — see the near-qualified list below.</Empty>;
   return (
     <div className="overflow-x-auto">
       <table className="text-sm">
