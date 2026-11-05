@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useMemo } from "react";
 import { PriceChart, type Bar } from "@/components/charts";
+import { TickerSearch } from "@/components/ticker-search";
 import { Badge, Empty, ErrorBox, Stat, Ticker } from "@/components/ui";
 import { useApi } from "@/lib/api";
 import { compact, nf, pct, tone, usd } from "@/lib/format";
@@ -45,7 +46,18 @@ export function StockPane() {
   const { data, error, loading } = useApi<Summary>(t ? `/stocks/${encodeURIComponent(t)}/summary` : null);
   const d = data && data.ticker === t ? data : null;
   const levels = useMemo(() => [], []);
-  if (!pane || !t) return null;
+  if (!pane) return null;
+  if (!t)
+    return (
+      <aside className="panel space-y-3 p-4">
+        <div className="text-sm font-semibold">Stock details</div>
+        <TickerSearch />
+        <p className="text-sm text-muted">
+          Click any ticker on the page, or search above, to see its price, P/E, float ratio, chart, analyst
+          recommendations, next earnings date and recent news here.
+        </p>
+      </aside>
+    );
   const e = d?.earnings;
   const n = e ? daysUntil(e.date) : null;
   return (
@@ -57,6 +69,7 @@ export function StockPane() {
         </div>
         <button aria-label="Close panel" className="rounded-md px-2 text-lg text-muted hover:bg-panel-2 hover:text-ink" onClick={() => pane.select(null)}>×</button>
       </header>
+      <div className="border-b border-line px-4 py-2"><TickerSearch /></div>
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
         <ErrorBox error={error} />
         {!d && loading && <Empty>Loading {t}…</Empty>}

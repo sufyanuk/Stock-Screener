@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState } from "react";
-import { Badge, Button, Card, Empty, ErrorBox, Field } from "@/components/ui";
+import { Badge, Button, Card, Empty, ErrorBox, Field, Ticker } from "@/components/ui";
 import { api, useApi } from "@/lib/api";
 import { compact, nf, pct, usd } from "@/lib/format";
 
@@ -75,7 +75,7 @@ export function OptionsImport({ isAdmin }: { isAdmin: boolean }) {
               {s.warnings?.length > 0 && <ul className="list-disc pl-5 text-xs text-warn">{s.warnings.map((w: string) => <li key={w}>{w}</li>)}</ul>}
               <div className="overflow-x-auto"><table className="text-xs"><thead><tr><th>Symbol</th><th>Price</th><th>Options vol</th><th>1M vol Δ</th><th>IV rank</th><th>Calls</th><th>Puts</th><th>P/C</th></tr></thead>
                 <tbody>{result.preview.map((r: any) => (
-                  <tr key={r.symbol}><td>{r.symbol}</td><td className="num">{usd(r.price)}</td><td className="num">{compact(r.options_volume)}</td>
+                  <tr key={r.symbol}><td><Ticker symbol={r.symbol} /></td><td className="num">{usd(r.price)}</td><td className="num">{compact(r.options_volume)}</td>
                     <td className="num">{pct(r.vol_change_1m_pct, 0, true)}</td><td className="num">{nf(r.iv_rank, 1)}</td>
                     <td className="num">{compact(r.call_volume)}</td><td className="num">{compact(r.put_volume)}</td><td className="num">{nf(r.pc_ratio, 3)}</td></tr>))}</tbody></table></div>
               <p className="text-xs text-muted">Check that the 1M change and IV rank look right (e.g. +1,639% and 3.3, not +16% and 0.03) before importing.</p>

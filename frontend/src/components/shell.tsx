@@ -3,6 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ReactNode, useState } from "react";
 import { StockPane } from "@/components/stock-pane";
+import { TickerSearch } from "@/components/ticker-search";
 import { PaneProvider, usePane } from "@/lib/pane-context";
 
 const NAV = [
@@ -21,14 +22,16 @@ export function Shell({ children }: { children: ReactNode }) {
   const [menu, setMenu] = useState(false);
   // Personal app: no sign-in. Access is restricted by Vercel Authentication on the deployment.
   return (
+    <PaneProvider>
     <div className="min-h-screen">
       <nav className="sticky top-0 z-20 border-b border-line bg-bg/90 backdrop-blur">
-        <div className="mx-auto flex max-w-[1500px] items-center gap-4 px-4 py-2.5">
+        <div className="mx-auto flex max-w-[1900px] items-center gap-4 px-4 py-2.5">
           <Link href="/" className="flex items-center gap-2 font-semibold">
             <span className="grid h-7 w-7 place-items-center rounded-md bg-accent/20 text-accent">SI</span>
             <span>Stock Intel</span>
           </Link>
-          <button className="ml-auto md:hidden" onClick={() => setMenu(!menu)} aria-label="menu">☰</button>
+          <TickerSearch className="ml-auto w-40 sm:w-56 md:order-last md:ml-2" />
+          <button className="md:hidden" onClick={() => setMenu(!menu)} aria-label="menu">☰</button>
           <div className={`${menu ? "flex" : "hidden"} absolute left-0 right-0 top-12 flex-col gap-1 border-b border-line bg-bg p-3 md:static md:flex md:flex-row md:border-0 md:p-0`}>
             {NAV.map(([href, label]) => (
               <Link key={href} href={href} onClick={() => setMenu(false)}
@@ -39,14 +42,13 @@ export function Shell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </nav>
-      <PaneProvider>
-        <MainWithPane>{children}</MainWithPane>
-      </PaneProvider>
-      <footer className="mx-auto max-w-[1500px] px-4 pb-8 text-xs text-muted">
+      <MainWithPane>{children}</MainWithPane>
+      <footer className="mx-auto max-w-[1900px] px-4 pb-8 text-xs text-muted">
         Research tool only — not investment advice. Data may be delayed or incomplete; every value shows its source and timestamp.
         Shariah highlighting (green / red) is an analytical aid, not a fatwa.
       </footer>
     </div>
+    </PaneProvider>
   );
 }
 
@@ -54,18 +56,19 @@ export function Shell({ children }: { children: ReactNode }) {
 function MainWithPane({ children }: { children: ReactNode }) {
   const pane = usePane();
   const open = !!pane?.selected;
+  // One panel instance: a sticky right column on large screens (always visible), and a slide-over
+  // on small screens that appears only when a stock is selected.
+  const place = open
+    ? "fixed inset-y-0 right-0 z-40 w-[min(420px,100vw)] p-2"
+    : "hidden";
   return (
-    <main className={`mx-auto px-4 py-5 ${open ? "max-w-[1900px]" : "max-w-[1500px]"}`}>
-      <div className={open ? "lg:grid lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-4" : ""}>
+    <main className="mx-auto max-w-[1900px] px-4 py-5">
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-4">
         <div className="min-w-0">{children}</div>
-        {open && (
-          <>
-            <div className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={() => pane?.select(null)} />
-            <div className="fixed inset-y-0 right-0 z-40 w-[min(420px,100vw)] p-2 lg:sticky lg:top-16 lg:z-auto lg:w-auto lg:self-start lg:p-0">
-              <StockPane />
-            </div>
-          </>
-        )}
+        {open && <div className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={() => pane?.select(null)} />}
+        <div className={`${place} lg:sticky lg:inset-auto lg:top-16 lg:z-auto lg:block lg:w-auto lg:self-start lg:p-0`}>
+          <StockPane />
+        </div>
       </div>
     </main>
   );
