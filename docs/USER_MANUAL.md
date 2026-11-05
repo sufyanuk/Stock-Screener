@@ -38,9 +38,9 @@ detail and largest contracts; insider purchases with joint-filing de-duplication
 consensus and changes; float and liquidity; news; SEC
 filings; and a data-provenance table. **Size this trade** opens the position calculator pre-filled.
 
-**Calculators** — position size (long/short, fees, slippage, allocation cap, fractional shares),
+**Calculators** — position size (long/short, fees, slippage, allocation cap, fractional shares) and
 expectancy (R-multiples, profit factor, break-even win rate, Monte-Carlo risk of ruin and drawdown,
-scenario grid), and dividend purification.
+scenario grid).
 
 **Unusual options CSV (Admin page, top)** — choose the day's export, click **Preview** to check how
 it was read (e.g. +1,639% and IV rank 3.3), then **Import**. The dashboard shows which file is in use and
