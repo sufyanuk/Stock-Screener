@@ -51,7 +51,8 @@ export default function EarningsPage() {
   const rows = (data?.rows ?? []).filter((r) => (!onlyInsider || r.insider) && (!onlyOptions || r.options))
     .map((r) => ({ ...r, ins_value: r.insider?.value ?? null, opt_chg: r.options?.vol_change_1m_pct ?? null, strong_buy: r.analysts?.strong_buy ?? null,
       analysts_total: r.analysts ? ["strong_buy", "buy", "hold", "sell", "strong_sell"].reduce((a, k) => a + ((r.analysts as Record<string, number | null>)[k] ?? 0), 0) : null }));
-  const { sorted, th } = useSort(rows, "date" as keyof (typeof rows)[number], false);
+  // Most "Strong Buy" analyst ratings first (companies without counts yet go last, soonest first).
+  const { sorted, th } = useSort(rows, "strong_buy" as keyof (typeof rows)[number], true);
 
   return (
     <div className="space-y-4">
@@ -104,7 +105,7 @@ export default function EarningsPage() {
             </table>
           </div>
         ) : <Empty>No earnings in the next 7 days{onlyInsider || onlyOptions ? " match the filters" : " — check that FMP_API_KEY or ALPHAVANTAGE_API_KEY is set"}.</Empty>}
-        <p className="mt-2 text-xs text-muted">— = no data. Analyst counts (FMP, or Alpha Vantage if FMP is unavailable) load automatically — one request per company — and are cached for a day.</p>
+        <p className="mt-2 text-xs text-muted">— = no data. Sorted by the number of analysts rating Strong Buy (click a column heading to re-sort). Analyst counts (Finnhub; FMP / Alpha Vantage as fallback) load automatically, soonest reports first — one request per company — and are cached for a day.</p>
       </Card>
     </div>
   );

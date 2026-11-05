@@ -45,6 +45,7 @@ export default function DashboardPage() {
 
   const optRows = opts.data ? [...opts.data.data].sort((a, b) => (b.vol_change_1m_pct ?? -1e9) - (a.vol_change_1m_pct ?? -1e9)) : latest === undefined && imports.data ? [] : undefined;
   const insRows = ins.data ? [...ins.data.rows].sort((a, b) => (b.pct_outstanding ?? 0) - (a.pct_outstanding ?? 0)) : undefined;
+  const earnRows = earn.data ? [...earn.data.rows].sort((a, b) => (b.analysts?.strong_buy ?? -1) - (a.analysts?.strong_buy ?? -1)) : undefined;
 
   return (
     <div className="space-y-4">
@@ -82,7 +83,7 @@ export default function DashboardPage() {
           cols={[{ label: "Insider", cell: (r) => <span className="block max-w-36 truncate text-left text-muted">{r.owner}</span> },
             { label: "% outstanding", cell: (r) => <span className="text-bull">{nf(r.pct_outstanding, 2)}%</span> },
             { label: "Value", cell: (r) => `$${compact(r.value)}` }, { label: "Filed", cell: (r) => <span className="text-xs">{r.filing_date}</span> }]} />
-        <Mini title="Upcoming earnings — next 5" href="/earnings" rows={earn.data?.rows} empty="No earnings in the next 7 days."
+        <Mini title="Upcoming earnings — top 5 by Strong Buy" href="/earnings" rows={earnRows} empty="No earnings in the next 7 days."
           cols={[{ label: "Date", cell: (r) => <span className="text-xs">{r.date}</span> },
             { label: "Insider buying", cell: (r) => r.insider ? <span className="text-bull">${compact(r.insider.value)}</span> : "—" },
             { label: "Options 1M Δ", cell: (r) => r.options ? pct(r.options.vol_change_1m_pct, 0, true) : "—" },
