@@ -59,6 +59,35 @@ class Alpaca:
         j = await self.http.get_json(f"/v2/stocks/{ticker}/snapshot", {"feed": self.feed})
         return parse_alpaca_snapshot(j)
 
+    async def multi_daily_bars(self, symbols: list[str], start: date, end: date) -> dict[str, list[tuple]]:
+        """Daily bars for many symbols in one paginated request (up to 10,000 bars a page):
+        symbol -> [(YYYY-MM-DD, open, high, low, close, volume), ...] oldest first, split/dividend adjusted.
+        Uses the consolidated SIP feed (free for history older than 15 minutes), else the configured feed."""
+        out: dict[str, list[tuple]] = {}
+        feeds = ["sip"] if self.feed == "sip" else ["sip", self.feed]
+        for feed in feeds:
+            token, out = None, {}
+            try:
+                for _ in range(200):
+                    params = {"symbols": ",".join(symbols), "timeframe": "1Day", "start": start.isoformat(),
+                              "end": end.isoformat(), "adjustment": "all", "feed": feed, "limit": 10000, "sort": "asc"}
+                    if token:
+                        params["page_token"] = token
+                    j = await self.http.get_json("/v2/stocks/bars", params, cache_ttl=0)
+                    for sym, bars in (j.get("bars") or {}).items():
+                        out.setdefault(sym, []).extend(
+                            (str(b["t"])[:10], _f(b.get("o")), _f(b.get("h")), _f(b.get("l")), _f(b.get("c")), _f(b.get("v")) or 0.0)
+                            for b in bars if b.get("c"))
+                    token = j.get("next_page_token")
+                    if not token:
+                        break
+                self.last_feed = feed
+                return out
+            except ProviderError as e:
+                if e.status not in (401, 403, 422) or feed == feeds[-1]:
+                    raise
+        return out
+
     async def daily_bars(self, ticker: str, start: date, end: date) -> pd.DataFrame:
         rows, token = [], None
         for _ in range(20):

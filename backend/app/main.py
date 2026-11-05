@@ -238,6 +238,13 @@ async def diagnostics(earnings: bool = False, _: User = Depends(current_user)):
     jobs = []
     if ds.alpaca:
         jobs.append(check("alpaca (price)", lambda: _price(ds.alpaca.snapshot("AAPL"))))
+
+        async def alpaca_hist():
+            bars = await ds.alpaca.multi_daily_bars(["AAPL", "MSFT", "F"], day - timedelta(days=14), day)
+            return {"feed": getattr(ds.alpaca, "last_feed", None), "bars": {k: len(v) for k, v in bars.items()},
+                    "last": max((v[-1][0] for v in bars.values() if v), default=None)}
+
+        jobs.append(check("alpaca (bounces history)", alpaca_hist))
     if ds.finnhub:
         jobs.append(check("finnhub (analysts)", lambda: ds.finnhub.recommendation("AAPL")))
     if ds.tiingo:

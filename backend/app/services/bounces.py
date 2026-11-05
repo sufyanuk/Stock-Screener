@@ -1,13 +1,14 @@
-"""Bounce screens over the whole US market, from API daily bars.
+"""Bounce screens over every listed US common stock, from API daily bars.
 
-Data: one "grouped daily" request per trading session returns the OHLCV of every US stock
-(Massive; FMP bulk end-of-day as fallback). Sessions are folded in oldest-first into a compact
+Data: Alpaca's multi-symbol daily-bars endpoint (consolidated SIP feed, split/dividend adjusted)
+returns a year of bars for 100 stocks per request, so the whole market loads in a couple of minutes;
+afterwards each refresh adds only the newest sessions. Bars are folded oldest-first into a compact
 rolling state per stock (``price_snapshots.data``):
   * the last 252 daily lows (52-week low), the last 51 volumes, the last 15 bars;
   * the 50-day EMA (seeded with a 50-day simple average, then 2/51 smoothing);
   * the 14-day RSI (Wilder smoothing).
-The first load needs ~260 sessions (one request each, resumable across calls); each daily scan
-then adds the newest session.
+The first load is resumable across calls (time budget per call); each daily scan then adds the newest
+session, and a stock with a split-sized jump in a new bar has its whole history reloaded.
 
 52-week-low bounce (all must hold, on the latest session):
   * price below ``max_price`` (default $100);
@@ -28,7 +29,7 @@ import re
 import time
 from datetime import date, datetime, timezone
 
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import delete, insert, select
 from sqlalchemy.orm import Session
 
 from app import market_calendar as mc
@@ -83,76 +84,158 @@ def update_state(st: dict, day: str, o: float, h: float, lo: float, c: float, v:
     st["rsih"] = (st["rsih"] + [rsi])[-15:]
 
 
+SOURCE = "alpaca"
+BATCH = 100          # symbols per multi-symbol request
+PARALLEL = 4         # batches fetched at the same time
+HISTORY_DAYS = 400   # calendar days of history for a first load (~275 sessions)
+
+
 def _target_days(today: date | None = None) -> list[date]:
     end = mc.last_completed_session(datetime.now(timezone.utc)) if today is None else today
     return mc.previous_sessions(end, HISTORY_SESSIONS)
 
 
+def _target() -> date:
+    return _target_days()[-1]
+
+
+def _universe(db: Session) -> list[str]:
+    from app.models import Security
+
+    return sorted({t for t in db.scalars(select(Security.ticker)).all() if t and TICKER_RE.match(t)})
+
+
 def status(db: Session) -> dict:
-    n, last, first = db.execute(select(func.count(), func.max(MarketDay.day), func.min(MarketDay.day))).one()
-    targets = _target_days()
-    have = set(db.scalars(select(MarketDay.day).where(MarketDay.day >= targets[0])).all())
-    remaining = len([d for d in targets if d not in have and (not last or d > last)])
-    provider = db.scalars(select(MarketDay.provider).order_by(MarketDay.day.desc()).limit(1)).first()
-    symbols = db.scalar(select(func.count()).select_from(PriceSnapshot).where(PriceSnapshot.source == "api")) or 0
-    return {"sessions": n or 0, "first": first.isoformat() if first else None, "as_of": last.isoformat() if last else None,
-            "remaining": remaining, "symbols": symbols, "provider": provider,
-            "age_days": (mc.last_completed_session(datetime.now(timezone.utc)) - last).days if last else None}
+    target = _target()
+    uni = _universe(db)
+    rows = db.execute(select(PriceSnapshot.symbol, PriceSnapshot.as_of, PriceSnapshot.close)
+                      .where(PriceSnapshot.source == SOURCE)).all()
+    have = {r.symbol for r in rows}
+    with_data = [r for r in rows if r.close and r.close > 0]
+    as_of = max((r.as_of for r in with_data), default=None)
+    stale = sum(1 for r in with_data if r.as_of < target)
+    remaining = len([s for s in uni if s not in have])
+    return {"sessions": HISTORY_SESSIONS if with_data else 0, "first": _target_days()[0].isoformat(),
+            "as_of": as_of.isoformat() if as_of else None, "target": target.isoformat(),
+            "remaining": remaining, "stale": stale, "universe": len(uni), "symbols": len(with_data),
+            "provider": "alpaca (SIP daily bars)" if with_data else None,
+            "age_days": (target - as_of).days if as_of else None}
+
+
+def _state_from(bars: list[tuple]) -> dict:
+    st = _new_state()
+    for d, o, h, lo, c, v in bars:
+        if c and c > 0:
+            update_state(st, d, float(o or c), float(h or c), float(lo or c), float(c), float(v or 0))
+    return st
+
+
+def _write(db: Session, states: dict[str, dict], target: date) -> None:
+    if not states:
+        return
+    now = datetime.now(timezone.utc)
+    db.execute(delete(PriceSnapshot).where(PriceSnapshot.symbol.in_(list(states))))
+    rows = []
+    for sym, st in states.items():
+        if st.get("days"):
+            rows.append({"symbol": sym, "as_of": date.fromisoformat(st["days"][-1]), "close": st["bars"][-1][4],
+                         "data": st, "source": SOURCE, "imported_at": now})
+        else:  # no bars from the provider (delisted, no trades): remember it so it is not re-requested
+            rows.append({"symbol": sym, "as_of": target, "close": 0.0, "data": {"days": []}, "source": SOURCE,
+                         "imported_at": now})
+    db.execute(insert(PriceSnapshot), rows)
+    db.commit()
 
 
 async def refresh(db: Session, ds, max_seconds: float = 200.0, rebuild: bool = False) -> dict:
-    """Fold missing sessions (oldest first) into the per-stock state, within a time budget."""
-    start = time.time()
+    """Load a year of daily bars for every listed US common stock (Alpaca multi-symbol requests, 100
+    stocks each), then keep it current by adding the newest sessions. Resumable within a time budget.
+    A stock whose new bar jumps by more than 40% (an unadjusted split) has its history reloaded."""
+    import asyncio
+    from datetime import timedelta
+
+    started = time.time()
+    alp = getattr(ds, "alpaca", None)
+    if alp is None or not hasattr(alp, "multi_daily_bars"):
+        return {"processed": 0, "errors": ["Alpaca keys are not set (ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY)"]} | status(db)
+    target = _target()
+    # rows from the earlier whole-market loader (and the old day markers) are replaced
+    db.execute(delete(PriceSnapshot).where(PriceSnapshot.source.notin_([SOURCE, "csv"])))
+    db.execute(delete(MarketDay))
     if rebuild:
-        db.execute(delete(MarketDay))
-        db.execute(delete(PriceSnapshot))
-        db.commit()
-    targets = _target_days()
-    last = db.scalar(select(func.max(MarketDay.day)))
-    if last is None:  # first API load replaces any earlier CSV-derived rows
-        db.execute(delete(PriceSnapshot))
-        db.commit()
-    todo = [d for d in targets if last is None or d > last]
-    if not todo:
-        return {"processed": 0, "errors": []} | status(db)
-    states = {s.symbol: s.data for s in db.scalars(select(PriceSnapshot).where(PriceSnapshot.source == "api")).all()}
-    known = set(states)
-    processed, errors, provider = [], [], None
-    for d in todo:
-        if time.time() - start > max_seconds:
-            break
+        db.execute(delete(PriceSnapshot).where(PriceSnapshot.source == SOURCE))
+    db.commit()
+    uni = _universe(db)
+    if not uni and hasattr(ds, "universe"):
         try:
-            bars, prov = await ds.market_bars(d)
+            uni = sorted({r["ticker"] for r in await ds.universe() if TICKER_RE.match(r.get("ticker") or "")})
         except ProviderError as e:
-            errors.append(str(e))
+            return {"processed": 0, "errors": [str(e)]} | status(db)
+    existing = {r.symbol: (r.as_of, r.close) for r in db.execute(
+        select(PriceSnapshot.symbol, PriceSnapshot.as_of, PriceSnapshot.close).where(PriceSnapshot.source == SOURCE)).all()}
+    new = [s for s in uni if s not in existing]
+    stale = [s for s, (a, c) in existing.items() if c and c > 0 and a < target]
+    errors: list[str] = []
+    done = 0
+    hist_start = target - timedelta(days=HISTORY_DAYS)
+
+    def time_left() -> bool:
+        return time.time() - started < max_seconds
+
+    # 1) first load: full history for stocks not loaded yet
+    batches = [new[i:i + BATCH] for i in range(0, len(new), BATCH)]
+    for i in range(0, len(batches), PARALLEL):
+        if not time_left():
             break
-        if not bars:  # not published yet (or holiday): retry on a later call
-            errors.append(f"no daily bars for {d.isoformat()} yet")
-            break
-        provider = prov.provider
-        ds_ = d.isoformat()
-        n = 0
-        for sym, (o, h, lo, c, v) in bars.items():
-            if not TICKER_RE.match(sym) or not c or c <= 0:
+        group = batches[i:i + PARALLEL]
+        results = await asyncio.gather(*(alp.multi_daily_bars(b, hist_start, target) for b in group), return_exceptions=True)
+        for b, res in zip(group, results):
+            if isinstance(res, Exception):
+                errors.append(str(res)[:200])
                 continue
-            st = states.get(sym)
-            if st is None:
-                st = states[sym] = _new_state()
-            update_state(st, ds_, float(o or c), float(h or c), float(lo or c), float(c), float(v or 0))
-            n += 1
-        processed.append((d, n))
-    if processed:
-        now = datetime.now(timezone.utc)
-        rows = [{"symbol": s, "as_of": date.fromisoformat(st["days"][-1]), "close": st["bars"][-1][4], "data": st,
-                 "source": "api", "imported_at": now} for s, st in states.items() if st["days"]]
-        if known:
-            db.execute(delete(PriceSnapshot).where(PriceSnapshot.source == "api"))
-        for i in range(0, len(rows), 1000):
-            db.execute(insert(PriceSnapshot), rows[i:i + 1000])
-        db.execute(insert(MarketDay), [{"day": d, "symbols": n, "provider": provider or "?", "processed_at": now}
-                                       for d, n in processed])
-        db.commit()
-    return {"processed": len(processed), "errors": errors[:3]} | status(db)
+            _write(db, {s: _state_from(res.get(s, [])) for s in b}, target)
+            done += len(b)
+        if errors and not done:
+            break
+    # 2) daily update: add the sessions after each stock's last bar
+    batches = [stale[i:i + BATCH * 2] for i in range(0, len(stale), BATCH * 2)]
+    for i in range(0, len(batches), PARALLEL):
+        if not time_left():
+            break
+        group = batches[i:i + PARALLEL]
+        frm = [min(existing[s][0] for s in b) + timedelta(days=1) for b in group]
+        results = await asyncio.gather(*(alp.multi_daily_bars(b, f, target) for b, f in zip(group, frm)), return_exceptions=True)
+        for b, res in zip(group, results):
+            if isinstance(res, Exception):
+                errors.append(str(res)[:200])
+                continue
+            states = {s.symbol: s.data for s in db.scalars(select(PriceSnapshot).where(PriceSnapshot.symbol.in_(b))).all()}
+            reload = []
+            for sym in b:
+                st, bars = states.get(sym), res.get(sym, [])
+                if not st or not st.get("days"):
+                    continue
+                prev = st["bars"][-1][4]
+                for d, o, h, lo, c, v in bars:
+                    if d <= st["days"][-1] or not c:
+                        continue
+                    if prev and not 0.6 < c / prev < 1.67:  # probable split: history must be re-adjusted
+                        reload.append(sym)
+                        break
+                    update_state(st, d, float(o or c), float(h or c), float(lo or c), float(c), float(v or 0))
+                    prev = c
+            if reload:
+                try:
+                    full = await alp.multi_daily_bars(reload, hist_start, target)
+                    for sym in reload:
+                        states[sym] = _state_from(full.get(sym, []))
+                except ProviderError as e:
+                    errors.append(str(e)[:200])
+                    for sym in reload:
+                        states.pop(sym, None)
+            _write(db, {s: st for s, st in states.items() if s in b}, target)
+            done += len(b)
+    return {"processed": done, "errors": errors[:3]} | status(db)
 
 
 def _metrics(st: dict) -> dict | None:
@@ -210,7 +293,7 @@ def screen(db: Session, kind: str, p: dict) -> dict:
     info = status(db)
     fn = low52_bounce if kind == "low52" else ema50_bounce
     rows = []
-    for s in db.scalars(select(PriceSnapshot).where(PriceSnapshot.source == "api",
+    for s in db.scalars(select(PriceSnapshot).where(PriceSnapshot.source == SOURCE,
                                                     PriceSnapshot.close < p["max_price"])).all():
         if info["as_of"] and s.as_of.isoformat() != info["as_of"]:
             continue  # not traded in the latest session
@@ -230,7 +313,7 @@ def lookup(db: Session, symbols: list[str]) -> dict[str, dict]:
         return {}
     out = {}
     for s in db.scalars(select(PriceSnapshot).where(PriceSnapshot.symbol.in_(symbols),
-                                                    PriceSnapshot.source == "api")).all():
+                                                    PriceSnapshot.source == SOURCE)).all():
         m = _metrics(s.data) or {}
         m["bars"] = [{"date": b[0], "open": b[1], "high": b[2], "low": b[3], "close": b[4], "volume": b[5]}
                      for b in s.data.get("bars", [])]

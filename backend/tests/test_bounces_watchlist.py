@@ -5,7 +5,7 @@ import pytest
 
 from app import market_calendar as mc
 from app.services import bounces as bn
-from tests.conftest import FakeDataSource, prov
+from tests.conftest import FakeDataSource
 from tests.test_research import _auth, client  # noqa: F401  (fixture)
 
 DAYS = mc.previous_sessions(date(2026, 11, 4), 260)
@@ -42,22 +42,44 @@ def _series():
 SERIES = _series()
 
 
-class BarsDS(FakeDataSource):
+class FakeAlpaca:
+    """Multi-symbol daily bars over the synthetic SERIES (one entry per session in DAYS)."""
     calls = 0
+    upto = len(DAYS)  # sessions "published" so far (to test the daily update)
+    split_from = None  # (symbol, index): bars from this index are halved, as an unadjusted split would be
 
-    async def market_bars(self, day):
-        BarsDS.calls += 1
-        i = DAYS.index(day)
-        return {s: v[i] for s, v in SERIES.items()}, prov("massive")
+    async def multi_daily_bars(self, symbols, start, end):
+        FakeAlpaca.calls += 1
+        out = {}
+        for s in symbols:
+            if s not in SERIES:
+                continue
+            rows = []
+            for i, d in enumerate(DAYS[:FakeAlpaca.upto]):
+                if start <= d <= end:
+                    o, h, lo, c, v = SERIES[s][i]
+                    k = 0.5 if FakeAlpaca.split_from and FakeAlpaca.split_from[0] == s and i >= FakeAlpaca.split_from[1] else 1
+                    rows.append((d.isoformat(), o * k, h * k, lo * k, c * k, v))
+            out[s] = rows
+        return out
+
+
+class BarsDS(FakeDataSource):
+    alpaca = FakeAlpaca()
 
 
 @pytest.fixture
-def bars_client(client, monkeypatch):  # noqa: F811
+def bars_client(client, db, monkeypatch):  # noqa: F811
     import app.main as main
+    from app.models import Security
 
+    for t in ["LOWB", "EMAB", "FLAT", "PRICY", "ABC.W", "GONE"]:
+        db.add(Security(ticker=t, cik="1", name=f"{t} Inc", exchange="Nasdaq"))
+    db.commit()
+    FakeAlpaca.calls, FakeAlpaca.upto, FakeAlpaca.split_from = 0, len(DAYS), None
     monkeypatch.setattr(main, "make_datasource", lambda: BarsDS())
-    monkeypatch.setattr(bn, "_target_days", lambda today=None: DAYS)
-    monkeypatch.setattr(bn.mc, "last_completed_session", lambda now=None: DAYS[-1])
+    monkeypatch.setattr(bn, "_target_days", lambda today=None: DAYS[:FakeAlpaca.upto])
+    monkeypatch.setattr(bn.mc, "last_completed_session", lambda now=None: DAYS[FakeAlpaca.upto - 1])
     return client
 
 
@@ -74,12 +96,12 @@ def test_rsi_and_ema_state():
 
 def test_bounce_screens_from_api(bars_client, db):
     h = _auth(bars_client)
-    BarsDS.calls = 0
     r = bars_client.post("/api/bounces/refresh", headers=h, json={"max_seconds": 200}).json()
-    assert r["processed"] == 260 and r["remaining"] == 0 and BarsDS.calls == 260
-    assert r["symbols"] == 4  # warrant filtered out
+    # 5 common-stock tickers (warrant excluded) in one multi-symbol request; GONE has no bars
+    assert r["remaining"] == 0 and r["symbols"] == 4 and r["universe"] == 5 and FakeAlpaca.calls == 1
+    assert r["as_of"] == DAYS[-1].isoformat() and r["stale"] == 0
     again = bars_client.post("/api/bounces/refresh", headers=h, json={}).json()
-    assert again["processed"] == 0 and BarsDS.calls == 260
+    assert again["processed"] == 0 and FakeAlpaca.calls == 1  # nothing new to fetch
 
     low = bars_client.get("/api/bounces?kind=low52", headers=h).json()
     assert [x["symbol"] for x in low["rows"]] == ["LOWB"]
@@ -112,3 +134,30 @@ def test_custom_watchlist(bars_client, db):
     assert len(bars_client.get("/api/custom-watchlist", headers=h).json()["rows"]) == 2
     r2 = bars_client.post("/api/auth/register", json={"email": "z@example.com", "password": "correct horse battery"})
     assert bars_client.get("/api/custom-watchlist", headers={"Authorization": f"Bearer {r2.json()['token']}"}).json()["rows"] == []
+
+
+def test_daily_update_adds_new_session_and_reloads_splits(bars_client, db):
+    h = _auth(bars_client)
+    FakeAlpaca.upto = len(DAYS) - 1  # yesterday's view: last session not published yet
+    r = bars_client.post("/api/bounces/refresh", headers=h, json={}).json()
+    assert r["as_of"] == DAYS[-2].isoformat()
+    FakeAlpaca.upto = len(DAYS)  # next day: one new session, and FLAT "splits" 2:1 on it
+    FakeAlpaca.split_from = ("FLAT", len(DAYS) - 1)
+    r = bars_client.post("/api/bounces/refresh", headers=h, json={}).json()
+    assert r["as_of"] == DAYS[-1].isoformat() and r["stale"] == 0
+    from app.models import PriceSnapshot
+
+    flat = db.get(PriceSnapshot, "FLAT")
+    db.refresh(flat)
+    assert flat.as_of == DAYS[-1] and flat.data["lows"][0] < 10  # history reloaded at the new (split) scale
+    low = bars_client.get("/api/bounces?kind=low52", headers=h).json()
+    assert [x["symbol"] for x in low["rows"]] == ["LOWB"]
+
+
+def test_refresh_without_alpaca(client, db, monkeypatch):  # noqa: F811
+    import app.main as main
+
+    monkeypatch.setattr(main, "make_datasource", lambda: FakeDataSource())
+    h = _auth(client)
+    r = client.post("/api/bounces/refresh", headers=h, json={}).json()
+    assert "Alpaca keys are not set" in r["errors"][0]

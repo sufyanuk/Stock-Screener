@@ -35,9 +35,10 @@ purchases of the last 90 days, and earnings this week):
   letter. Loaded with SentiSense's screener (all rated stocks in one request) or per stock if the screener is not
   on your plan. A research score, not a buy/sell recommendation.
 
-**Bounces** — every US stock, from daily market data (Massive grouped daily bars; FMP bulk as fallback).
-Click **Load price history** once (about 260 requests, one per trading day; resumable); each scan then adds
-the newest day. **Rebuild** reloads the year (use it after a stock split).
+**Bounces** — every listed US common stock, from a year of daily prices (Alpaca's multi-stock daily bars,
+consolidated SIP feed, split/dividend adjusted; 100 stocks per request, so the first load takes about two
+minutes). The tab loads automatically when prices are missing or behind the latest session; each scan adds
+the newest day, and a stock with a split-sized jump has its history reloaded. **Rebuild** reloads everything.
 - **Bouncing from 52-week low**: price below $100; close within 5% of the 52-week low and at least 2% above
   it; volume more than 1.5× the 50-day average volume; optional RSI(14) 30–50.
 - **Bouncing from 50 EMA**: price below $100; the day's low came within 1% of the 50-day EMA; the close is
