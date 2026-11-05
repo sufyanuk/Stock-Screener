@@ -157,8 +157,9 @@ class OpenInsider:
     def prov(self, endpoint: str = "/screener") -> Provenance:
         return Provenance(self.name, Freshness.EOD, datetime.now(timezone.utc), None, endpoint=endpoint)
 
-    async def purchases(self, filed_days: int = 7, per_page: int = 1000, max_pages: int = 5) -> list[InsiderTxn]:
-        """Open-market purchases filed in the last ``filed_days`` days."""
+    async def purchases(self, filed_days: int = 730, per_page: int = 100, max_pages: int = 1) -> list[InsiderTxn]:
+        """The latest open-market purchases (newest filing first). Default: the first 100 results of the
+        screener (fd=730, cnt=100, page 1), i.e. one request per scan."""
         out: list[InsiderTxn] = []
         for page in range(1, max_pages + 1):
             url = (f"/screener?s=&o=&pl=&ph=&ll=&lh=&fd={filed_days}&fdr=&td=0&tdr=&fdlyl=&fdlyh=&daysago=&xp=1"

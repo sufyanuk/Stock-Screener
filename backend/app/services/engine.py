@@ -154,11 +154,8 @@ class ScanEngine:
             self.db.commit()
 
     async def _ingest_openinsider(self) -> bool:
-        """One screener request covers every purchase filed in the window: 90 days on the first run
-        (so the Insider Buying tab is full), then the last 7 days on each scan."""
-        recent = self.db.scalar(select(func.count()).select_from(InsiderTransaction).where(
-            InsiderTransaction.filing_date >= date.today() - timedelta(days=14)))
-        res = await self._call("openinsider", self.ds.insider_recent(7 if recent else 90))
+        """One screener request per scan: the first 100 results (latest purchase filings)."""
+        res = await self._call("openinsider", self.ds.insider_recent(730))
         if not res:
             return False
         txns, _ = res

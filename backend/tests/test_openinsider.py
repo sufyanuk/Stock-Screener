@@ -50,4 +50,18 @@ def test_openinsider_ingest_into_scan(monkeypatch, db):
     asyncio.run(eng.ingest_insiders([date(2026, 11, 4)]))
     asyncio.run(eng.ingest_insiders([date(2026, 11, 4)]))  # re-run: no duplicates
     assert db.query(InsiderTransaction).count() == 2
-    assert DS.calls[0] in (7, 90)
+    assert DS.calls == [730, 730]
+
+
+def test_requests_first_100_results(monkeypatch):
+    p = oi.OpenInsider()
+    urls = []
+
+    async def fake_get_text(url):
+        urls.append(url)
+        return HTML
+
+    monkeypatch.setattr(p.http, "get_text", fake_get_text)
+    rows = asyncio.run(p.purchases())
+    assert len(urls) == 1 and "cnt=100&page=1" in urls[0] and "fd=730" in urls[0] and "xp=1" in urls[0]
+    assert len(rows) == 2
