@@ -291,6 +291,23 @@ class AlphaVantage:
             raise ProviderError(self.name, f"unexpected response: {txt[:120]!r}")
         return parse_av_earnings(txt)
 
+    async def analyst_counts(self, ticker: str) -> dict | None:
+        """Analyst rating counts and target from COMPANY_OVERVIEW (fallback when FMP is unavailable)."""
+        j = await self.http.get_json("/query", {"function": "OVERVIEW", "symbol": ticker, "apikey": self.key})
+        return parse_av_overview(j)
+
+    def prov(self, endpoint: str):
+        return Provenance(self.name, Freshness.EOD, _now(), None, endpoint=endpoint)
+
+
+def parse_av_overview(j) -> dict | None:
+    if not isinstance(j, dict) or not j.get("Symbol"):
+        return None
+    keys = {"strong_buy": "AnalystRatingStrongBuy", "buy": "AnalystRatingBuy", "hold": "AnalystRatingHold",
+            "sell": "AnalystRatingSell", "strong_sell": "AnalystRatingStrongSell"}
+    counts = {k: int(_f(j.get(v))) for k, v in keys.items() if _f(j.get(v)) is not None}
+    return {"counts": counts or None, "target": _f(j.get("AnalystTargetPrice"))}
+
 
 def parse_av_earnings(txt: str) -> list[dict]:
     import csv

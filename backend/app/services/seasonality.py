@@ -1,17 +1,18 @@
-"""Whole-market seasonality.
+"""Seasonality from an imported price-history CSV.
 
-Data: the split-adjusted close of **every US stock** on the last trading session of each month,
-fetched with one "grouped daily" request per month (Massive; FMP bulk EOD as fallback).
-Ten years = ~120 requests once, then one request per month.
+Data: the user's CSV of historical daily (or weekly/monthly) OHLCV bars. The browser reads the file
+locally and sends only the **last close of each month per stock** (so files of any size work within
+the upload limit); the server stores those month-end closes and rebuilds the statistics.
 
 Method, per stock and calendar month (Jan…Dec):
   * monthly return = close(month) / close(previous month) − 1, only for consecutive months;
-  * the current (unfinished) month is excluded;
+  * the current (unfinished) month and a partial final month in the file are excluded;
   * returns beyond ±200% in a single month are treated as probable data errors (unadjusted
-    corporate actions, ticker reuse) and excluded;
+    splits, ticker reuse) and excluded;
   * stats: years of data, average, median, % of years positive, best and worst year.
 Ranking: by average return (or % of years positive) among stocks with at least ``min_years``.
-Price returns only (dividends excluded). Past seasonality does not guarantee future returns.
+If the CSV has an adjusted-close column it is used (returns then include dividends); otherwise
+the close column (price returns). Past seasonality does not guarantee future returns.
 """
 from __future__ import annotations
 
@@ -24,10 +25,10 @@ from sqlalchemy.orm import Session
 
 from app import market_calendar as mc
 from app.models import MarketMonth, MonthlyClose, SeasonalityStat
-from app.providers.http import ProviderError
 
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-TICKER_RE = re.compile(r"^[A-Z]{1,5}$")  # common stocks; excludes warrants/units/preferreds (".", "-", 6+ chars)
+TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
+MONTH_RE = re.compile(r"^(\d{4})-(\d{2})$")
 MAX_ABS_MONTHLY_RETURN = 200.0
 
 
@@ -35,55 +36,64 @@ def _today() -> date:
     return datetime.now(timezone.utc).astimezone(mc.NY).date()
 
 
-def month_end_sessions(years: int, today: date | None = None) -> list[tuple[date, date]]:
-    """(first-of-month key, last trading session) for each completed month, oldest first.
-    Includes the month before the window so the first month has a return."""
-    today = today or _today()
-    y, m = today.year, today.month  # current month is not complete -> stop at previous month
-    out = []
-    for _ in range(years * 12 + 1):
-        y, m = (y - 1, 12) if m == 1 else (y, m - 1)
-        nxt = date(y + (m == 12), 1 if m == 12 else m + 1, 1)
-        last = mc.previous_sessions(nxt - timedelta(days=1), 1)[-1]
-        out.append((date(y, m, 1), last))
-    return out[::-1]
+def month_last_session(month: date) -> date:
+    nxt = date(month.year + (month.month == 12), 1 if month.month == 12 else month.month + 1, 1)
+    return mc.previous_sessions(nxt - timedelta(days=1), 1)[-1]
+
+
+def import_chunk(db: Session, rows: list[list], replace_all: bool, source: str) -> dict:
+    """Store month-end closes ``[symbol, "YYYY-MM", close]``. ``replace_all`` wipes the existing
+    history first (first chunk of a fresh import); otherwise each symbol in the chunk replaces that
+    symbol's stored history (the browser never splits one symbol across chunks)."""
+    clean: dict[tuple[str, date], float] = {}
+    skipped = 0
+    for r in rows:
+        try:
+            sym, mon, close = str(r[0]).strip().upper(), MONTH_RE.match(str(r[1]).strip()), float(r[2])
+        except (TypeError, ValueError, IndexError):
+            skipped += 1
+            continue
+        if not mon or not TICKER_RE.match(sym) or not 1 <= int(mon[2]) <= 12 or not close > 0:
+            skipped += 1
+            continue
+        clean[(sym, date(int(mon[1]), int(mon[2]), 1))] = close
+    syms = {s for s, _ in clean}
+    if replace_all:
+        db.execute(delete(SeasonalityStat))
+        db.execute(delete(MarketMonth))
+        db.execute(delete(MonthlyClose))
+    elif syms:
+        db.execute(delete(MonthlyClose).where(MonthlyClose.symbol.in_(syms)))
+    now = datetime.now(timezone.utc)
+    vals = [{"symbol": s, "month": m, "close": c, "provider": source[:32], "retrieved_at": now}
+            for (s, m), c in clean.items()]
+    for i in range(0, len(vals), 20_000):
+        db.execute(insert(MonthlyClose), vals[i:i + 20_000])
+    db.commit()
+    return {"stored": len(vals), "symbols": len(syms), "skipped": skipped}
+
+
+def finish_import(db: Session, source: str, last_date: date | None) -> dict:
+    """Drop a partial final month, record which months are loaded, and rebuild the statistics."""
+    dropped = None
+    last_month = db.scalar(select(func.max(MonthlyClose.month)))
+    if last_month and last_date and (last_date.year, last_date.month) == (last_month.year, last_month.month) \
+            and last_date < month_last_session(last_month):
+        db.execute(delete(MonthlyClose).where(MonthlyClose.month == last_month))
+        dropped = last_month.isoformat()[:7]
+    db.execute(delete(MarketMonth))
+    now = datetime.now(timezone.utc)
+    counts = db.execute(select(MonthlyClose.month, func.count()).group_by(MonthlyClose.month)).all()
+    if counts:
+        db.execute(insert(MarketMonth), [{"month": m, "session": month_last_session(m), "symbols": n,
+                                          "provider": source[:32], "retrieved_at": now} for m, n in counts])
+    db.commit()
+    stats = recompute(db)
+    return {"stats": stats, "partial_month_dropped": dropped}
 
 
 def months_loaded(db: Session) -> set[date]:
-    """Months loaded for the WHOLE market (rows from single-stock fetches don't count)."""
     return set(db.scalars(select(MarketMonth.month)).all())
-
-
-async def refresh(db: Session, ds, years: int = 10, max_months: int = 12) -> dict:
-    targets = month_end_sessions(years)
-    have = months_loaded(db)
-    missing = [t for t in reversed(targets) if t[0] not in have]  # newest first
-    fetched, errors = 0, []
-    for key, session in missing[:max_months]:
-        try:
-            closes, prov = await ds.market_closes(session)
-        except ProviderError as e:
-            errors.append(str(e))
-            break
-        rows = [{"symbol": s, "month": key, "close": c, "provider": prov.provider,
-                 "retrieved_at": datetime.now(timezone.utc)}
-                for s, c in closes.items() if TICKER_RE.match(s) and c and c > 0]
-        if not rows:
-            errors.append(f"no prices returned for {session.isoformat()} (market holiday or plan limit?)")
-            continue
-        db.execute(delete(MonthlyClose).where(MonthlyClose.month == key))
-        db.execute(insert(MonthlyClose), rows)
-        db.merge(MarketMonth(month=key, session=session, symbols=len(rows), provider=prov.provider,
-                             retrieved_at=datetime.now(timezone.utc)))
-        db.commit()
-        fetched += 1
-    stats_missing = db.scalar(select(func.count()).select_from(SeasonalityStat)) == 0
-    if fetched or (stats_missing and months_loaded(db)):
-        recompute(db)
-    loaded = months_loaded(db)
-    return {"fetched": fetched, "remaining": len([t for t in targets if t[0] not in loaded]),
-            "months_loaded": len(loaded & {t[0] for t in targets}), "total_months": len(targets),
-            "errors": errors[:3]}
 
 
 def recompute(db: Session) -> int:
@@ -168,7 +178,7 @@ def ranking(db: Session, month: int, min_years: int = 5, rank_by: str = "avg", l
               for i, r in enumerate(rows, 1)]
     return {"month": month, "month_name": MONTHS[month - 1], "rank_by": rank_by, "min_years": min_years,
             "total_matching": total, "ranked": ranked,
-            "note": "Average price return in this calendar month over past years (dividends excluded). "
+            "note": "Average return in this calendar month over past years, from the imported price history. "
                     "Past seasonality does not guarantee future returns."}
 
 

@@ -399,10 +399,6 @@ async def _do_scan(kind: str, by: str) -> dict:
             from app.services.research import refresh_earnings
 
             await refresh_earnings(db, ds)
-            from app.services import seasonality as ss
-
-            if ss.months_loaded(db):  # only top up once the initial history has been loaded
-                await ss.refresh(db, ds, 10, 2)
             prior = set(db.scalars(select(Recommendation.ticker).where(
                 Recommendation.session_date == run.session_date, Recommendation.run_id != run.id)).all())
             new = [r for r in db.scalars(select(Recommendation).where(Recommendation.run_id == run.id)).all()
@@ -763,17 +759,30 @@ async def earnings_load_analysts(days: int = 7, limit: int = 100, db: Session = 
     return await rs.load_analyst_counts(db, make_datasource(), syms, min(max(limit, 1), 200))
 
 
-class SeasonalityRefresh(BaseModel):
-    years: int = Field(10, ge=3, le=20)
-    max_months: int = Field(12, ge=1, le=36)
+class SeasonalityImportChunk(BaseModel):
+    rows: list[list] = Field(..., max_length=100_000)  # [symbol, "YYYY-MM", close]
+    replace_all: bool = False
+    source: str = Field("csv", max_length=200)
 
 
-@app.post("/api/seasonality/refresh")
-async def seasonality_refresh(p: SeasonalityRefresh, db: Session = Depends(get_db), _: User = Depends(current_user)):
-    """Load month-end closes for ALL US stocks (one request per month), newest months first."""
+class SeasonalityImportFinish(BaseModel):
+    source: str = Field("csv", max_length=200)
+    last_date: date | None = None
+
+
+@app.post("/api/seasonality/import")
+def seasonality_import(p: SeasonalityImportChunk, db: Session = Depends(get_db), _: User = Depends(admin_user)):
+    """Month-end closes extracted in the browser from the user's historical OHLCV CSV."""
     from app.services import seasonality as ss
 
-    return await ss.refresh(db, make_datasource(), p.years, p.max_months) | {"coverage": ss.coverage(db)}
+    return ss.import_chunk(db, p.rows, p.replace_all, p.source)
+
+
+@app.post("/api/seasonality/import/finish")
+def seasonality_import_finish(p: SeasonalityImportFinish, db: Session = Depends(get_db), _: User = Depends(admin_user)):
+    from app.services import seasonality as ss
+
+    return ss.finish_import(db, p.source, p.last_date) | {"coverage": ss.coverage(db)}
 
 
 @app.get("/api/seasonality")

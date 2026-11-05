@@ -86,32 +86,40 @@ def test_insiders_endpoint_and_options_rows(client, db):
     assert d["thresholds"]["min_volume_change_pct"] == 300
 
 
-def test_month_end_sessions_exclude_current_month():
-    t = ss.month_end_sessions(1, date(2026, 11, 5))
-    assert t[-1] == (date(2026, 10, 1), date(2026, 10, 30)) and len(t) == 13
-    assert (date(2026, 5, 1), date(2026, 5, 29)) in t  # last session of May 2026 (Memorial Day is 25th)
+def _month_rows(years=range(2015, 2026)):
+    """GOOD gains 10% every November, BANK loses 5% every November, FLAT never moves, PENNY is cheap."""
+    rows = []
+    for sym, f in {"GOOD": 1.10, "BANK": 0.95, "FLAT": 1.0, "PENNY": 1.0}.items():
+        px = 0.5 if sym == "PENNY" else 100.0
+        for y in years:
+            for m in range(1, 13):
+                if m == 11:
+                    px *= f
+                rows.append([sym, f"{y}-{m:02d}", px])
+    return rows
 
 
-def test_whole_market_seasonality(client, db):
+def test_month_last_session():
+    assert ss.month_last_session(date(2026, 5, 1)) == date(2026, 5, 29)
+    assert ss.month_last_session(date(2026, 10, 1)) == date(2026, 10, 30)
+
+
+def test_seasonality_from_imported_csv(client, db):
     h = _auth(client)
-    FakeDataSource.market_calls = 0
-    r = client.post("/api/seasonality/refresh", headers=h, json={"years": 10, "max_months": 36}).json()
-    assert r["fetched"] == 36 and r["remaining"] == 121 - 36 and FakeDataSource.market_calls == 36
-    while r["remaining"]:
-        r = client.post("/api/seasonality/refresh", headers=h, json={"years": 10, "max_months": 36}).json()
-    assert FakeDataSource.market_calls == 121  # one request per month for the whole market
-    again = client.post("/api/seasonality/refresh", headers=h, json={"years": 10}).json()
-    assert again["fetched"] == 0 and FakeDataSource.market_calls == 121
-    assert r["coverage"]["symbols"] == 4  # warrant and 6+ letter symbols filtered out
+    rows = _month_rows() + [["abc.w!", "2020-01", 1.0], ["BAD", "2020-13", 1.0], ["NEG", "2020-01", -1]]
+    r = client.post("/api/seasonality/import", headers=h, json={"rows": rows, "replace_all": True, "source": "prices.csv"}).json()
+    assert r["stored"] == 4 * 11 * 12 and r["skipped"] == 3
+    f = client.post("/api/seasonality/import/finish", headers=h, json={"source": "prices.csv", "last_date": "2025-12-31"}).json()
+    assert f["partial_month_dropped"] is None and f["coverage"]["symbols"] == 4 and f["coverage"]["months"] == 132
+    assert f["coverage"]["provider"] == "prices.csv"
 
     t = client.get("/api/seasonality?month=11&min_years=5", headers=h).json()
     syms = [e["symbol"] for e in t["ranked"]]
     assert syms[0] == "GOOD" and syms[-1] == "BANK"
     good = t["ranked"][0]
-    assert good["avg"] == pytest.approx(10.0) and good["win_rate"] == 100 and good["years"] == 10
+    assert good["avg"] == pytest.approx(10.0) and good["win_rate"] == 100 and good["years"] == 11
     assert good["heatmap"][10] == pytest.approx(10.0) and good["heatmap"][0] == pytest.approx(0.0)
     assert t["ranked"][-1]["avg"] == pytest.approx(-5.0)
-    # price filter removes the penny stock; search filter
     t2 = client.get("/api/seasonality?month=11&min_price=1", headers=h).json()
     assert "PENNY" not in [e["symbol"] for e in t2["ranked"]]
     assert [e["symbol"] for e in client.get("/api/seasonality?month=11&q=go", headers=h).json()["ranked"]] == ["GOOD"]
@@ -119,14 +127,37 @@ def test_whole_market_seasonality(client, db):
     assert nov["top"][0]["symbol"] == "GOOD"
     assert client.get("/api/seasonality?month=0", headers=h).status_code == 422
 
+    # merge mode: re-importing one symbol replaces only that symbol's history
+    client.post("/api/seasonality/import", headers=h, json={"rows": [["GOOD", "2025-01", 10.0], ["GOOD", "2025-02", 11.0]]})
+    f = client.post("/api/seasonality/import/finish", headers=h, json={"last_date": "2025-02-10"}).json()
+    assert f["partial_month_dropped"] is None  # Feb 2025 is not the latest month (Dec 2025 is)
+    feb = client.get("/api/seasonality?month=2&min_years=1&q=GOOD", headers=h).json()["ranked"]
+    assert len(feb) == 1 and feb[0]["years"] == 1 and feb[0]["avg"] == pytest.approx(10.0)  # only the new history
+    assert client.get("/api/seasonality?month=11&min_years=1&q=GOOD", headers=h).json()["ranked"] == []
 
-def test_old_single_stock_rows_do_not_count_as_loaded(client, db):
-    from app.models import MonthlyClose
 
+def test_partial_final_month_is_dropped(client, db):
     h = _auth(client)
-    db.add(MonthlyClose(symbol="OLD", month=date(2026, 9, 1), close=10.0, provider="massive"))  # pre-existing row
-    db.commit()
-    FakeDataSource.market_calls = 0
-    r = client.post("/api/seasonality/refresh", headers=h, json={"years": 3, "max_months": 36}).json()
-    assert r["fetched"] == 36 and FakeDataSource.market_calls == 36  # Sep 2026 fetched despite the old row
-    assert r["coverage"]["symbols"] >= 4
+    rows = _month_rows(range(2020, 2023)) + [["GOOD", "2023-01", 500.0]]
+    client.post("/api/seasonality/import", headers=h, json={"rows": rows, "replace_all": True})
+    f = client.post("/api/seasonality/import/finish", headers=h, json={"last_date": "2023-01-13"}).json()
+    assert f["partial_month_dropped"] == "2023-01"
+    jan = client.get("/api/seasonality?month=1&min_years=1&q=GOOD", headers=h).json()["ranked"][0]
+    assert jan["avg"] == pytest.approx(0.0)  # the half-month +400% move was not counted
+
+
+def test_seasonality_import_requires_admin(client, db):
+    _auth(client)
+    r2 = client.post("/api/auth/register", json={"email": "b@example.com", "password": "correct horse battery"})
+    h2 = {"Authorization": f"Bearer {r2.json()['token']}"}
+    assert client.post("/api/seasonality/import", headers=h2, json={"rows": []}).status_code == 403
+
+
+def test_alpha_vantage_overview_counts():
+    from app.providers.market import parse_av_overview
+
+    o = parse_av_overview({"Symbol": "IBM", "AnalystTargetPrice": "250.5", "AnalystRatingStrongBuy": "3",
+                           "AnalystRatingBuy": "7", "AnalystRatingHold": "9", "AnalystRatingSell": "1",
+                           "AnalystRatingStrongSell": "None"})
+    assert o["counts"] == {"strong_buy": 3, "buy": 7, "hold": 9, "sell": 1} and o["target"] == 250.5
+    assert parse_av_overview({"Information": "rate limit"}) is None

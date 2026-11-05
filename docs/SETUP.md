@@ -7,9 +7,9 @@
 | `SEC_USER_AGENT` | none — set `"YourApp you@domain.com"` | free |
 | `ORATS_API_KEY` | orats.com → Data API | Only if Admin → Options data source = ORATS (default is CSV import) |
 | `MASSIVE_API_KEY` | massive.com (Polygon.io keys work) | Stocks + Options (Starter or higher) |
-| `FMP_API_KEY` | financialmodelingprep.com | Starter — analysts, P/E, float, earnings calendar, news & price history (panel, earnings and seasonality screens) |
-| Seasonality data | `MASSIVE_API_KEY` (grouped daily bars) or FMP bulk end-of-day | ~120 whole-market requests once, then 1 per month |
-| `ALPHAVANTAGE_API_KEY` | alphavantage.co (free key) | Optional — earnings-calendar fallback if FMP is not set |
+| `FMP_API_KEY` | financialmodelingprep.com | Starter — analysts, P/E, float, earnings calendar, news & price history (stock panel and earnings screen) |
+| Seasonality data | none — import your historical OHLCV CSV on the Seasonality tab | — |
+| `ALPHAVANTAGE_API_KEY` | alphavantage.co (free key) | Optional — earnings calendar and analyst Strong Buy counts if FMP is not set (free tier: 25 requests/day) |
 | `SMTP_*`, `TELEGRAM_BOT_TOKEN` | optional | — |
 
 Without a key, the affected criteria show as **missing** and nothing qualifies. This is intentional.

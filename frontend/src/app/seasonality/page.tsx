@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Button, Card, Empty, ErrorBox, Field, ShariahLegend, Ticker } from "@/components/ui";
 import { api, useApi } from "@/lib/api";
 import { nf, pct, tone, usd } from "@/lib/format";
+import { chunks, readOhlcv, type MonthEnd, type ParseStats } from "@/lib/ohlcv";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -34,17 +35,44 @@ export default function SeasonalityPage() {
   const { data, error, reload } = useApi<Resp>(`/seasonality?${qs}`);
   const cov = data?.coverage;
 
-  async function update() {
-    setErr(null);
-    setBusy("Loading month-end prices for all US stocks…");
+  const [files, setFiles] = useState<File[]>([]);
+  const [parsed, setParsed] = useState<{ data: MonthEnd; stats: ParseStats } | null>(null);
+  const [replaceAll, setReplaceAll] = useState(true);
+  const [done, setDone] = useState<string | null>(null);
+
+  async function read(list: File[]) {
+    setFiles(list); setParsed(null); setErr(null); setDone(null);
+    if (!list.length) return;
+    setBusy("Reading…");
     try {
-      for (let i = 0; i < 15; i++) {
-        const r = await api<{ fetched: number; remaining: number; months_loaded: number; total_months: number; errors: string[] }>(
-          "/seasonality/refresh", { method: "POST", body: JSON.stringify({ years: 10, max_months: 12 }) });
-        setBusy(`Loaded ${r.months_loaded} of ${r.total_months} months…`);
-        if (r.errors.length) setErr(r.errors[0]);
-        if (r.remaining <= 0 || r.fetched === 0) break;
+      const res = await readOhlcv(list, setBusy);
+      if (!res.stats.used) throw new Error("No usable rows found (need Date and Close columns with prices).");
+      setParsed(res);
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+    setBusy(null);
+  }
+
+  async function upload() {
+    if (!parsed) return;
+    setErr(null); setDone(null);
+    const source = files.length === 1 ? files[0].name : `${files.length} CSV files`;
+    const parts = chunks(parsed.data);
+    try {
+      let stored = 0;
+      for (let i = 0; i < parts.length; i++) {
+        setBusy(`Uploading month-end prices… ${i + 1} of ${parts.length}`);
+        const r = await api<{ stored: number }>("/seasonality/import", { method: "POST",
+          body: JSON.stringify({ rows: parts[i], replace_all: replaceAll && i === 0, source }) });
+        stored += r.stored;
       }
+      setBusy("Calculating seasonality for every stock…");
+      const f = await api<{ stats: number; partial_month_dropped: string | null }>("/seasonality/import/finish", {
+        method: "POST", body: JSON.stringify({ source, last_date: parsed.stats.lastDate }) });
+      setDone(`Imported ${stored.toLocaleString()} month-end prices for ${parsed.stats.symbols.toLocaleString()} stocks.` +
+        (f.partial_month_dropped ? ` ${f.partial_month_dropped} was left out because the file ends part-way through that month.` : ""));
+      setParsed(null); setFiles([]);
     } catch (e) {
       setErr((e as Error).message);
     }
@@ -56,26 +84,51 @@ export default function SeasonalityPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Seasonality — all US stocks</h1>
+          <h1 className="text-xl font-semibold">Seasonality</h1>
           <p className="text-sm text-muted">
-            Ranked by how each stock performed in the chosen calendar month over past years (split-adjusted month-end closes).
+            Ranked by how each stock performed in the chosen calendar month over past years, from your imported price-history CSV.
             {cov && cov.months > 0 && <> Data: {cov.symbols.toLocaleString()} stocks · {cov.first_month?.slice(0, 7)} → {cov.last_month?.slice(0, 7)} ({cov.months} months) · {cov.provider}</>}
           </p>
         </div>
         <ShariahLegend />
       </div>
 
+      <Card title="Price history CSV">
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <input type="file" accept=".csv,.txt,text/csv" multiple disabled={!!busy}
+            onChange={(e) => read(Array.from(e.target.files ?? []))} />
+          <label className="flex items-center gap-1.5"><input type="checkbox" checked={replaceAll} onChange={(e) => setReplaceAll(e.target.checked)} />
+            Replace all existing price history</label>
+          {parsed && <Button onClick={upload} disabled={!!busy}>Import</Button>}
+        </div>
+        {parsed && (
+          <p className="mt-2 text-sm">
+            Read {parsed.stats.used.toLocaleString()} rows: <b>{parsed.stats.symbols.toLocaleString()}</b> stocks,{" "}
+            {parsed.stats.firstDate} → {parsed.stats.lastDate} ({parsed.stats.months} months), using the <b>{parsed.stats.closeColumn}</b> column,
+            ticker from the {parsed.stats.symbolSource} (e.g. {parsed.stats.sample.slice(0, 5).join(", ")}).
+            {parsed.stats.skipped > 0 && <span className="text-warn"> {parsed.stats.skipped.toLocaleString()} rows skipped (missing date/price).</span>}
+          </p>
+        )}
+        {busy && <p className="mt-2 text-xs text-muted">{busy}</p>}
+        {done && <p className="mt-2 text-sm text-bull">{done}</p>}
+        <div className="mt-2"><ErrorBox error={err} /></div>
+        <p className="mt-2 text-xs text-muted">
+          Daily (or weekly/monthly) bars with a header row: Symbol/Ticker, Date, Open, High, Low, Close, Adj Close (optional), Volume —
+          one file for all stocks, or one file per stock named by ticker (e.g. AAPL.csv). The file is read in your browser and only each
+          stock&apos;s month-end close is uploaded. Use split-adjusted prices; “Adj Close” is used when present.
+          {!replaceAll && " Unticked: stocks in the file replace their own history; other stocks are kept."}
+        </p>
+      </Card>
+
       <Card>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
           <Field label="Rank by"><select value={rankBy} onChange={(e) => setRankBy(e.target.value)}><option value="avg">Average return</option><option value="win">% of years positive</option></select></Field>
           <Field label="Minimum years of history"><input type="number" min={1} max={20} value={minYears} onChange={(e) => setMinYears(Number(e.target.value) || 1)} /></Field>
           <Field label="Price from ($)"><input value={minPrice} onChange={(e) => setMinPrice(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="any" /></Field>
           <Field label="Price below ($)"><input value={maxPrice} onChange={(e) => setMaxPrice(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="any" /></Field>
           <Field label="Ticker starts with"><input value={q} onChange={(e) => setQ(e.target.value.toUpperCase())} placeholder="e.g. AA" /></Field>
-          <div className="flex items-end"><Button onClick={update} disabled={!!busy}>{cov?.months ? "Update prices" : "Load price history"}</Button></div>
         </div>
-        {busy && <p className="mt-2 text-xs text-muted">{busy}</p>}
-        <div className="mt-3"><ErrorBox error={err || error} /></div>
+        <div className="mt-3"><ErrorBox error={error} /></div>
         <div className="mt-3 flex flex-wrap gap-1">
           {MONTHS.map((m, i) => (
             <button key={m} onClick={() => setMonth(i + 1)}
@@ -107,7 +160,7 @@ export default function SeasonalityPage() {
                 </tr>))}</tbody>
             </table>
           </div>
-        ) : <Empty>{cov?.months ? "No stocks match these filters." : "No price history yet — click “Load price history” (about 120 requests to your price provider, done once; takes a few minutes)."}</Empty>}
+        ) : <Empty>{cov?.months ? "No stocks match these filters." : "No price history yet — import your historical OHLCV CSV above."}</Empty>}
         <p className="mt-2 text-xs text-muted">{data?.note} Monthly moves beyond ±200% are treated as data errors and ignored.</p>
       </Card>
 
@@ -124,7 +177,7 @@ export default function SeasonalityPage() {
               </div>
             ))}
           </div>
-        ) : <Empty>Load the price history to see the monthly leaders.</Empty>}
+        ) : <Empty>Import the price history CSV to see the monthly leaders.</Empty>}
       </Card>
     </div>
   );

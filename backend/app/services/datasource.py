@@ -162,9 +162,22 @@ class LiveDataSource:
         return f, so, sec.prov("/api/xbrl/companyfacts", None)
 
     async def analyst(self, ticker):
-        f = self._need(self.fmp, "fmp")
-        return AnalystData(await f.grades_consensus(ticker), await f.price_target_consensus(ticker),
-                           await f.grades(ticker)), f.prov("/grades-consensus,/price-target-consensus,/grades")
+        if self.fmp:
+            try:
+                f = self.fmp
+                return AnalystData(await f.grades_consensus(ticker), await f.price_target_consensus(ticker),
+                                   await f.grades(ticker)), f.prov("/grades-consensus,/price-target-consensus,/grades")
+            except ProviderError as e:
+                if not self.av:
+                    raise
+                self.errors.append(str(e))
+        av = self._need(self.av, "fmp or alphavantage")
+        o = await av.analyst_counts(ticker)
+        if not o:
+            raise ProviderError("alphavantage", f"no overview for {ticker}")
+        t = o["target"]
+        return AnalystData(o["counts"], {"avg": t, "high": None, "low": None, "median": None} if t else None), \
+            av.prov("OVERVIEW")
 
     async def float_info(self, ticker):
         f = self._need(self.fmp, "fmp")

@@ -21,15 +21,19 @@ Ctrl/Cmd-click a ticker (or "Full analysis →") for the full page. An amber **E
 earnings are due within 7 days.
 
 **Earnings** — companies reporting in the next 7 days with insider buying (open-market, last 90 days),
-unusual options from the latest CSV, and analyst Strong Buy / Buy counts ("Load analyst counts" fetches
-them; they are cached for a day). Filters show only names with insider buying or unusual options.
+unusual options from the latest CSV, and the number of analysts rating the stock Strong Buy, Buy and
+in total (loaded automatically from FMP, or Alpha Vantage as a fallback, and cached for a day). Filters show only names with insider buying or unusual options.
 
-**Seasonality** — covers all US stocks. Click **Load price history** once: it fetches the month-end
-close of every stock for the last 10 years (one request per month, about 120 in total), then the daily
-closing scan keeps it current. Pick a month to rank stocks by average return in that month (or % of
-years positive), with median, best/worst year, years of data, latest price and a 12-month heatmap.
-Filter by price range, minimum years and ticker prefix. "Top 5 for each month" shows the leaders for
-every month. Price returns only; moves beyond ±200% in a month are ignored as data errors. Past
+**Seasonality** — based on your own price-history CSV (daily, weekly or monthly OHLCV). On the
+Seasonality tab choose the file (one file with a Symbol/Ticker column for all stocks, or one file per
+stock named by ticker, e.g. AAPL.csv), check the preview (stocks, date range, close column), then
+**Import**. The file is read in your browser and only each stock's month-end close is uploaded, so
+large files are fine. "Replace all existing price history" starts fresh; untick it to add or update
+only the stocks in the file. "Adj Close" is used when present; use split-adjusted prices. Pick a month
+to rank stocks by average return in that month (or % of years positive), with median, best/worst
+year, years of data, latest price and a 12-month heatmap. Filter by price range, minimum years and
+ticker prefix. "Top 5 for each month" shows the leaders for every month. A month the file only
+partly covers is left out, and moves beyond ±200% in a month are ignored as data errors. Past
 seasonality does not guarantee future returns.
 
 **Stock page** — why the stock was or wasn't selected (pass/fail/missing per criterion, in plain

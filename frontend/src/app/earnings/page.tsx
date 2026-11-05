@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Card, Empty, ErrorBox, ShariahLegend, Ticker, useSort } from "@/components/ui";
 import { api, useApi } from "@/lib/api";
 import { compact, nf, pct } from "@/lib/format";
@@ -39,8 +39,18 @@ export default function EarningsPage() {
     reload();
   }
 
+  // Analyst counts load automatically the first time the screen opens with companies missing them.
+  const auto = useRef(false);
+  useEffect(() => {
+    if (data && data.analysts_missing > 0 && !auto.current) {
+      auto.current = true;
+      loadAnalysts();
+    }
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const rows = (data?.rows ?? []).filter((r) => (!onlyInsider || r.insider) && (!onlyOptions || r.options))
-    .map((r) => ({ ...r, ins_value: r.insider?.value ?? null, opt_chg: r.options?.vol_change_1m_pct ?? null, strong_buy: r.analysts?.strong_buy ?? null }));
+    .map((r) => ({ ...r, ins_value: r.insider?.value ?? null, opt_chg: r.options?.vol_change_1m_pct ?? null, strong_buy: r.analysts?.strong_buy ?? null,
+      analysts_total: r.analysts ? ["strong_buy", "buy", "hold", "sell", "strong_sell"].reduce((a, k) => a + ((r.analysts as Record<string, number | null>)[k] ?? 0), 0) : null }));
   const { sorted, th } = useSort(rows, "date" as keyof (typeof rows)[number], false);
 
   return (
@@ -69,7 +79,7 @@ export default function EarningsPage() {
               <thead><tr>
                 {th("date", "Date")}<th>Time</th>{th("symbol", "Ticker")}<th>Company</th>{th("eps_estimate", "EPS est.")}
                 {th("ins_value", "Insider buying")}{th("opt_chg", "Unusual options (1M vol Δ)")}<th>IV rank</th><th>P/C</th>
-                {th("strong_buy", "Analysts: Strong Buy")}<th>Buy</th>
+                {th("strong_buy", "No. of analysts: Strong Buy")}<th>Buy</th>{th("analysts_total", "Total analysts")}
               </tr></thead>
               <tbody>{sorted.map((r) => {
                 const n = daysUntil(r.date);
@@ -87,13 +97,14 @@ export default function EarningsPage() {
                     <td className="num">{nf(r.options?.put_call, 2)}</td>
                     <td className="num">{r.analysts ? <Badge tone={(r.analysts.strong_buy ?? 0) > 0 ? "bull" : "muted"}>{r.analysts.strong_buy ?? 0}</Badge> : <span className="text-muted">—</span>}</td>
                     <td className="num">{r.analysts?.buy ?? "—"}</td>
+                    <td className="num">{r.analysts_total ?? "—"}</td>
                   </tr>
                 );
               })}</tbody>
             </table>
           </div>
         ) : <Empty>No earnings in the next 7 days{onlyInsider || onlyOptions ? " match the filters" : " — check that FMP_API_KEY or ALPHAVANTAGE_API_KEY is set"}.</Empty>}
-        <p className="mt-2 text-xs text-muted">— = no data. Analyst counts are loaded on demand (they need one request per company) and cached for a day.</p>
+        <p className="mt-2 text-xs text-muted">— = no data. Analyst counts (FMP, or Alpha Vantage if FMP is unavailable) load automatically — one request per company — and are cached for a day.</p>
       </Card>
     </div>
   );
