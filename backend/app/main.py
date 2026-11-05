@@ -216,7 +216,7 @@ def latest_insider_buys(db: Session, days: int, limit: int) -> list[dict]:
 
 
 @app.get("/api/diagnostics")
-async def diagnostics(_: User = Depends(current_user)):
+async def diagnostics(earnings: bool = False, _: User = Depends(current_user)):
     """One small request to every configured data provider: status, time and a sample value."""
     import time as _t
 
@@ -251,6 +251,27 @@ async def diagnostics(_: User = Depends(current_user)):
     if ds.sec:
         jobs.append(check("sec_edgar (company list)", lambda: _count(ds.sec.universe())))
     jobs.append(check("openinsider (screener)", lambda: _count(OpenInsider().purchases())))
+    if earnings:
+        from collections import Counter
+
+        from app.providers.market import fmp_earnings_calendar
+        from app.services.research import today_ny
+
+        t0 = today_ny()
+        t1 = t0 + timedelta(days=7)
+
+        async def by_day(coro):
+            rows = await coro
+            return dict(sorted(Counter(r["report_date"] for r in rows).items()))
+
+        if ds.fmp:
+            jobs.append(check("earnings: fmp", lambda: by_day(fmp_earnings_calendar(ds.fmp, t0, t1))))
+        if ds.finnhub:
+            jobs.append(check("earnings: finnhub", lambda: by_day(ds.finnhub.earnings_calendar(t0, t1))))
+        if ds.av:
+            async def av_rows():
+                return [r for r in await ds.av.earnings_calendar() if t0.isoformat() <= r["report_date"] <= t1.isoformat()]
+            jobs.append(check("earnings: alphavantage", lambda: by_day(av_rows())))
     results = await asyncio.gather(*jobs)
     return {"session": day.isoformat(), "results": results, "configured": ds.describe()}
 
@@ -862,10 +883,15 @@ async def earnings_load_analysts(days: int = 7, limit: int = 100, db: Session = 
                                  _: User = Depends(current_user)):
     from app.services import research as rs
 
-    syms = sorted({e.symbol for e in rs.upcoming_earnings(db, days)})
+    events = rs.upcoming_earnings(db, days)
+    first_date = {}
+    for e in events:
+        first_date.setdefault(e.symbol, e.report_date)
+    syms = sorted(first_date)
     insider = rs.insider_summary(db, syms)
     _, opts = rs.options_rows(db, syms)
-    syms.sort(key=lambda s: (s not in insider and s not in opts, s))  # most interesting first
+    # most interesting first (insider buying / unusual options), then the soonest reports
+    syms.sort(key=lambda s: (s not in insider and s not in opts, first_date[s], s))
     return await rs.load_analyst_counts(db, make_datasource(), syms, min(max(limit, 1), 200))
 
 
