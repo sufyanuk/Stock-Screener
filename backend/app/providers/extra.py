@@ -123,6 +123,10 @@ class Finnhub:
         j = await self._get("/stock/profile2", cache_ttl=86400, symbol=ticker)
         return j if isinstance(j, dict) else {}
 
+    async def earnings_calendar(self, start: date, end: date) -> list[dict]:
+        j = await self._get("/calendar/earnings", cache_ttl=6 * 3600, **{"from": start.isoformat(), "to": end.isoformat()})
+        return parse_finnhub_earnings(j)
+
     async def metrics(self, ticker: str) -> dict:
         j = await self._get("/stock/metric", cache_ttl=3600, symbol=ticker, metric="all")
         return (j.get("metric") or {}) if isinstance(j, dict) else {}
@@ -133,6 +137,18 @@ def parse_finnhub_quote(j: dict) -> dict:
     return {"price": _f(j.get("c")), "day_change_pct": _f(j.get("dp")), "open": _f(j.get("o")), "high": _f(j.get("h")),
             "low": _f(j.get("l")), "prev_close": _f(j.get("pc")), "bid": None, "ask": None, "volume": None,
             "market_ts": datetime.fromtimestamp(t, timezone.utc) if t else None}
+
+
+def parse_finnhub_earnings(j) -> list[dict]:
+    hours = {"bmo": "pre-market", "amc": "post-market", "dmh": "during market"}
+    out = []
+    for r in (j or {}).get("earningsCalendar") or [] if isinstance(j, dict) else []:
+        if not r.get("symbol") or not r.get("date"):
+            continue
+        out.append({"symbol": str(r["symbol"]).upper(), "name": None, "report_date": str(r["date"])[:10],
+                    "fiscal_date_ending": None, "eps_estimate": _f(r.get("epsEstimate")),
+                    "time_of_day": hours.get(r.get("hour") or "", None)})
+    return out
 
 
 def parse_finnhub_recommendation(j) -> dict | None:
@@ -199,7 +215,8 @@ class SentiSense:
         key = get_settings().sentisense_api_key
         if not key:
             raise NotConfigured(self.name, "SENTISENSE_API_KEY not set")
-        self.http = HttpProvider(self.name, "https://app.sentisense.ai", requests_per_second=0.5, cache_ttl=6 * 3600,
+        self.http = HttpProvider(self.name, "https://app.sentisense.ai", requests_per_second=2, cache_ttl=6 * 3600,
+                                 timeout=15, max_retries=1,
                                  headers={"X-SentiSense-API-Key": key})
 
     def prov(self, endpoint: str) -> Provenance:

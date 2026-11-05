@@ -1,5 +1,4 @@
 """Bounce screens from whole-market daily bars, and the custom watchlist."""
-import asyncio
 from datetime import date
 
 import pytest

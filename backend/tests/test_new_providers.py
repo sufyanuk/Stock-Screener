@@ -137,3 +137,42 @@ def test_sentisense_parsers():
         {"insightType": "insider_buy_signal", "category": "FUNDAMENTAL", "insightText": "Cluster buying.",
          "confidence": 0.8, "urgency": "high", "generatedAt": 1774958400}]})
     assert ins[0]["type"] == "insider_buy_signal" and ins[0]["urgency"] == "high" and ins[0]["generated"] == "2026-03-31"
+
+
+def test_finnhub_earnings_and_calendar_merge():
+    rows = extra.parse_finnhub_earnings({"earningsCalendar": [
+        {"date": "2026-11-06", "epsEstimate": 1.2, "hour": "bmo", "symbol": "abc"},
+        {"date": "2026-11-07", "epsEstimate": None, "hour": "", "symbol": "XYZ"}]})
+    assert rows[0] == {"symbol": "ABC", "name": None, "report_date": "2026-11-06", "fiscal_date_ending": None,
+                       "eps_estimate": 1.2, "time_of_day": "pre-market"}
+    from app.services.datasource import LiveDataSource
+
+    class F:
+        async def earnings_calendar(self, s, e):
+            return rows
+
+    class Fail:
+        pass
+
+    ds = LiveDataSource.__new__(LiveDataSource)
+    ds.errors = []
+    ds.finnhub, ds.av = F(), None
+
+    import app.services.datasource as dsm
+
+    async def fake_fmp(f, s, e):
+        return [{"symbol": "ABC", "name": "Abc Corp", "report_date": "2026-11-06", "fiscal_date_ending": None,
+                 "eps_estimate": None, "time_of_day": None}]
+
+    import app.providers.market as m
+    orig = m.fmp_earnings_calendar
+    m.fmp_earnings_calendar = fake_fmp
+    try:
+        ds.fmp = Fail()
+        out, prov = asyncio.run(ds.earnings_calendar(date(2026, 11, 5), date(2026, 11, 12)))
+    finally:
+        m.fmp_earnings_calendar = orig
+    by = {r["symbol"]: r for r in out}
+    assert prov.provider == "fmp+finnhub" and set(by) == {"ABC", "XYZ"}
+    assert by["ABC"]["name"] == "Abc Corp" and by["ABC"]["eps_estimate"] == 1.2 and by["ABC"]["time_of_day"] == "pre-market"
+    assert dsm  # imported for clarity

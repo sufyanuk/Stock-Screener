@@ -5,7 +5,6 @@ identifies the application and a contact e-mail (https://www.sec.gov/os/accessin
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
 from defusedxml import ElementTree as ET

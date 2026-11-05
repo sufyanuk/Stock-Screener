@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from dataclasses import dataclass
-from datetime import date
 
 import pandas as pd
 

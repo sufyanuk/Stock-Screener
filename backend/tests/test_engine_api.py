@@ -1,5 +1,4 @@
 import asyncio
-from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,7 +7,7 @@ from sqlalchemy import select
 from app.config import ScreeningConfig
 from app.models import Recommendation, ScanResult
 from app.services.engine import ScanEngine
-from tests.conftest import AS_OF, FakeDataSource, oscillating_bars
+from tests.conftest import AS_OF, FakeDataSource
 
 
 def orats(cfg: ScreeningConfig | None = None) -> ScreeningConfig:

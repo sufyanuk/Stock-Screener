@@ -1,11 +1,9 @@
-import asyncio
 from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.providers.market import parse_av_earnings
-from app.services import research as rs
 from app.services import seasonality as ss
 from tests.conftest import FakeDataSource
 from tests.test_engine_api import run_scan

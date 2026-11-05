@@ -281,9 +281,6 @@ class AlphaVantage:
         self.http = HttpProvider(self.name, "https://www.alphavantage.co", requests_per_second=1, cache_ttl=6 * 3600)
 
     async def earnings_calendar(self) -> list[dict]:
-        import csv
-        import io
-
         txt = await self.http.get_text(f"/query?function=EARNINGS_CALENDAR&horizon=3month&apikey={self.key}")
         if not txt.lower().startswith("symbol"):
             from app.providers.http import ProviderError

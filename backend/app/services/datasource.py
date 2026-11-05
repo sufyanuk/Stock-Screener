@@ -92,11 +92,14 @@ class LiveDataSource:
 
         self.openinsider = OpenInsider() if get_settings().insider_source == "openinsider" else None
 
+    OPTIONAL = {"Orats", "SentiSense", "AlphaVantage"}  # a missing key here is not a data issue
+
     def _try(self, cls):
         try:
             return cls()
         except NotConfigured as e:
-            self.errors.append(str(e))
+            if cls.__name__ not in self.OPTIONAL:
+                self.errors.append(str(e))
             return None
 
     def describe(self) -> dict[str, str]:
@@ -118,14 +121,17 @@ class LiveDataSource:
 
     async def sentisense_info(self, ticker):
         """SentiSense Rating + top insights (stock panel only, to stay within the free quota)."""
+        import asyncio as _a
+
         p = self._need(self.sentisense, "sentisense")
-        rating = await p.rating(ticker)
-        try:
-            ins = await p.insights(ticker)
-        except ProviderError as e:
-            self.errors.append(str(e))
+        rating, ins = await _a.gather(p.rating(ticker), p.insights(ticker), return_exceptions=True)
+        if isinstance(rating, Exception) and isinstance(ins, Exception):
+            raise rating
+        if isinstance(ins, Exception):
+            self.errors.append(str(ins))
             ins = []
-        return {"rating": rating, "insights": ins}, p.prov("/api/v1/rating, /api/v1/insights/stock")
+        return {"rating": None if isinstance(rating, Exception) else rating, "insights": ins}, \
+            p.prov("/api/v1/rating, /api/v1/insights/stock")
 
     async def _first(self, what: str, attempts):
         """Run (provider, coroutine-factory) pairs in order; return the first success."""
@@ -341,19 +347,44 @@ class LiveDataSource:
                                datetime.now(timezone.utc), None, endpoint=label)
 
     async def earnings_calendar(self, start, end):
-        """FMP earnings calendar; Alpha Vantage's free EARNINGS_CALENDAR as fallback."""
+        """Union of FMP, Finnhub and Alpha Vantage earnings calendars (each plan may cover only part of
+        the market), de-duplicated by symbol and date; the first source with a value wins per field."""
+        import asyncio as _a
+
         from app.providers.market import fmp_earnings_calendar
 
-        if self.fmp:
-            try:
-                return await fmp_earnings_calendar(self.fmp, start, end), self.fmp.prov("/earnings-calendar")
-            except ProviderError as e:
-                if not self.av:
-                    raise
-                self.errors.append(str(e))
-        av = self._need(self.av, "alphavantage")
-        rows = [r for r in await av.earnings_calendar() if start.isoformat() <= r["report_date"] <= end.isoformat()]
-        return rows, Provenance(av.name, Freshness.EOD, datetime.now(timezone.utc), None, endpoint="EARNINGS_CALENDAR")
+        async def fmp():
+            return await fmp_earnings_calendar(self.fmp, start, end)
+
+        async def finnhub():
+            return await self.finnhub.earnings_calendar(start, end)
+
+        async def av():
+            return [r for r in await self.av.earnings_calendar() if start.isoformat() <= r["report_date"] <= end.isoformat()]
+
+        jobs = [(n, f) for n, p, f in (("fmp", self.fmp, fmp), ("finnhub", self.finnhub, finnhub), ("alphavantage", self.av, av)) if p]
+        if not jobs:
+            raise NotConfigured("earnings", "no earnings-calendar provider configured")
+        results = await _a.gather(*(f() for _, f in jobs), return_exceptions=True)
+        merged: dict[tuple, dict] = {}
+        used = []
+        for (name, _), res in zip(jobs, results):
+            if isinstance(res, Exception):
+                self.errors.append(str(res))
+                continue
+            used.append(name)
+            for r in res:
+                k = (r["symbol"], r["report_date"])
+                if k not in merged:
+                    merged[k] = dict(r)
+                else:
+                    for f, v in r.items():
+                        if merged[k].get(f) in (None, "") and v not in (None, ""):
+                            merged[k][f] = v
+        if not used:
+            raise ProviderError("earnings", "; ".join(str(r) for r in results if isinstance(r, Exception))[:300])
+        return list(merged.values()), Provenance("+".join(used), Freshness.EOD, datetime.now(timezone.utc), None,
+                                                 endpoint="earnings calendars")
 
     async def shares_outstanding(self, ticker):
         """Shares outstanding: FMP shares-float → Finnhub profile → Alpha Vantage OVERVIEW."""

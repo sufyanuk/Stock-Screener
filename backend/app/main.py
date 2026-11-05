@@ -215,6 +215,60 @@ def latest_insider_buys(db: Session, days: int, limit: int) -> list[dict]:
     return rows
 
 
+@app.get("/api/diagnostics")
+async def diagnostics(_: User = Depends(current_user)):
+    """One small request to every configured data provider: status, time and a sample value."""
+    import time as _t
+
+    from app.providers.market import fmp_quote
+    from app.providers.openinsider import OpenInsider
+
+    ds = make_datasource()
+    day = mc.last_completed_session(datetime.now(timezone.utc))
+
+    async def check(name, coro_fn):
+        t0 = _t.time()
+        try:
+            detail = await asyncio.wait_for(coro_fn(), 25)
+            return {"provider": name, "ok": True, "ms": int((_t.time() - t0) * 1000), "detail": detail}
+        except Exception as e:  # noqa: BLE001 - report every failure
+            return {"provider": name, "ok": False, "ms": int((_t.time() - t0) * 1000),
+                    "detail": f"{type(e).__name__}: {str(e)[:300]}"}
+
+    jobs = []
+    if ds.alpaca:
+        jobs.append(check("alpaca (price)", lambda: _price(ds.alpaca.snapshot("AAPL"))))
+    if ds.finnhub:
+        jobs.append(check("finnhub (analysts)", lambda: ds.finnhub.recommendation("AAPL")))
+    if ds.tiingo:
+        jobs.append(check("tiingo (history)", lambda: _rows(ds.tiingo.daily_bars("AAPL", day - timedelta(days=10), day))))
+    if ds.fmp:
+        jobs.append(check("fmp (fundamentals)", lambda: _price(fmp_quote(ds.fmp, "AAPL"))))
+    if ds.massive:
+        jobs.append(check("massive (whole-market day)", lambda: _count(ds.massive.grouped_daily(day))))
+    if ds.sentisense:
+        jobs.append(check("sentisense (rating)", lambda: ds.sentisense.rating("AAPL")))
+    if ds.sec:
+        jobs.append(check("sec_edgar (company list)", lambda: _count(ds.sec.universe())))
+    jobs.append(check("openinsider (screener)", lambda: _count(OpenInsider().purchases())))
+    results = await asyncio.gather(*jobs)
+    return {"session": day.isoformat(), "results": results, "configured": ds.describe()}
+
+
+async def _price(coro):
+    q = await coro
+    return {k: q.get(k) for k in ("price", "pe", "market_cap") if k in q}
+
+
+async def _rows(coro):
+    df = await coro
+    return {"rows": len(df), "last": str(df.index[-1].date()) if len(df) else None}
+
+
+async def _count(coro):
+    return {"items": len(await coro)}
+
+
 @app.get("/api/insiders/source-check")
 async def insiders_source_check(_: User = Depends(current_user)):
     """Fetch and parse the OpenInsider screener without storing anything (diagnostics)."""

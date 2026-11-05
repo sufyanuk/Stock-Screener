@@ -39,6 +39,10 @@ def today_ny() -> date:
 # ------------------------------------------------------------------ earnings
 async def refresh_earnings(db: Session, ds, force: bool = False, horizon_days: int = 21) -> dict:
     last = _aware(db.scalar(select(func.max(EarningsEvent.retrieved_at))))
+    stored = db.scalars(select(EarningsEvent.provider).order_by(EarningsEvent.retrieved_at.desc()).limit(1)).first()
+    several = sum(1 for a in ("fmp", "finnhub", "av") if getattr(ds, a, None) is not None) > 1
+    if several and stored and "+" not in stored:
+        force = True  # calendar was stored from a single source: rebuild it from all of them once
     if not force and last and _now() - last < timedelta(hours=EARNINGS_REFRESH_HOURS):
         return {"refreshed": False, "retrieved_at": last.isoformat()}
     start = today_ny()
@@ -211,7 +215,7 @@ async def stock_summary(db: Session, ds, ticker: str) -> dict:
     q, an, fl, news, ssr = await asyncio.gather(
         safe("quote", ds.company_quote(t)), safe("analysts", ds.analyst(t)),
         safe("float", ds.float_info(t)), safe("news", ds.news(t)),
-        safe("sentisense", ds.sentisense_info(t)) if ss_on else none())
+        safe("sentisense", ds.sentisense_info(t), timeout=25) if ss_on else none())
     out["sentisense"] = ssr[0] if ssr else None
 
     # price & P/E
