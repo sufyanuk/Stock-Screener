@@ -1,10 +1,18 @@
 # User manual
 
-**Dashboard** — Daily Top 5 table (all the spec fields; click column headers to sort, click `?` to see the formula),
-unusual options, latest Form-4 open-market buys, low-float names, the near-qualified watchlist with the reason each stock fails, and data-freshness/API health.
+**Unusual Options** (opens first) — every stock in your latest imported CSV, sorted by 1-month options
+volume change, with price, calls/puts, put/call and IV rank. "passes" marks stocks meeting the options
+rules and price < $100; "Top 5" marks current recommendations. Filter by ticker/name or "Passes rules only".
+
+**Insider Buying** — open-market purchases from SEC Form 4 filings over the last 7 / 30 / 60 / 90 days
+(joint filings of one purchase shown once).
+
+**Watchlist** — the Top 5 (stocks meeting every rule) and near-qualified stocks that fail one or two rules,
+with the reasons.
+
+Every tab shows the last scan, a **Run scan now** button and warnings (missing/old options CSV, data issues).
 Tickers are coloured by Shariah status everywhere: **green** = compliant, **red** = non-compliant,
 blue = not yet screened. Shariah status does not affect which stocks qualify.
-**Run scan now** queues a manual scan. A yellow banner appears if an admin relaxed any requirement.
 
 **Stock panel (right side)** — click any ticker on any screen to open it: price and day change, P/E,
 float ratio, market cap, next earnings date, analyst ratings (how many recommend Buy / Strong Buy) with

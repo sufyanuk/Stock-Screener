@@ -7,7 +7,9 @@ import { TickerSearch } from "@/components/ticker-search";
 import { PaneProvider, usePane } from "@/lib/pane-context";
 
 const NAV = [
-  ["/", "Dashboard"],
+  ["/options", "Unusual Options"],
+  ["/insiders", "Insider Buying"],
+  ["/watchlist", "Watchlist"],
   ["/earnings", "Earnings"],
   ["/seasonality", "Seasonality"],
   ["/history", "History"],
@@ -26,7 +28,7 @@ export function Shell({ children }: { children: ReactNode }) {
     <div className="min-h-screen">
       <nav className="sticky top-0 z-20 border-b border-line bg-bg/90 backdrop-blur">
         <div className="mx-auto flex max-w-[1900px] items-center gap-4 px-4 py-2.5">
-          <Link href="/" className="flex items-center gap-2 font-semibold">
+          <Link href="/options" className="flex items-center gap-2 font-semibold">
             <span className="grid h-7 w-7 place-items-center rounded-md bg-accent/20 text-accent">SI</span>
             <span>Stock Intel</span>
           </Link>
@@ -35,7 +37,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <div className={`${menu ? "flex" : "hidden"} absolute left-0 right-0 top-12 flex-col gap-1 border-b border-line bg-bg p-3 md:static md:flex md:flex-row md:border-0 md:p-0`}>
             {NAV.map(([href, label]) => (
               <Link key={href} href={href} onClick={() => setMenu(false)}
-                className={`rounded-md px-2.5 py-1.5 text-sm ${path === href || (href !== "/" && path.startsWith(href)) ? "bg-panel-2 text-ink" : "text-muted hover:text-ink"}`}>
+                className={`rounded-md px-2.5 py-1.5 text-sm ${path.startsWith(href) ? "bg-panel-2 text-ink" : "text-muted hover:text-ink"}`}>
                 {label}
               </Link>
             ))}

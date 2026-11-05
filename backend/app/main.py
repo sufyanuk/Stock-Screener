@@ -181,6 +181,43 @@ def shariah_statuses(db: Session, tickers: set[str]) -> dict[str, str]:
     return {t: st for t, st in rows}  # later rows overwrite earlier ones
 
 
+def latest_insider_buys(db: Session, days: int, limit: int) -> list[dict]:
+    """Open-market purchases (Form 4 code P) filed in the last ``days``; joint/indirect reports of one
+    purchase are shown once, with the co-reporters listed."""
+    since = date.today() - timedelta(days=days)
+    buys = db.scalars(select(InsiderTransaction).where(InsiderTransaction.code == "P", InsiderTransaction.acquired_disposed == "A",
+                                                       InsiderTransaction.is_derivative.is_(False),
+                                                       InsiderTransaction.filing_date >= since)
+                      .order_by(InsiderTransaction.filing_date.desc(), InsiderTransaction.direct_indirect)
+                      .limit(limit * 8)).all()
+    seen: dict[tuple, dict] = {}
+    for b in buys:
+        key = (b.issuer_cik, b.transaction_date, round(b.shares, 4), round(b.price or 0, 4))
+        if key in seen:
+            if b.owner_name not in seen[key]["co_reporters"] and b.owner_name != seen[key]["owner"]:
+                seen[key]["co_reporters"].append(b.owner_name)
+            continue
+        seen[key] = {"ticker": b.ticker, "owner": b.owner_name, "co_reporters": [],
+                     "title": b.officer_title or ("Director" if b.is_director else "10% Owner" if b.is_ten_pct_owner else ""),
+                     "transaction_date": b.transaction_date.isoformat(), "filing_date": b.filing_date.isoformat(),
+                     "shares": b.shares, "price": b.price, "value": (b.price or 0) * b.shares,
+                     "owned_after": b.shares_owned_after, "accession": b.accession}
+    rows = list(seen.values())[:limit]
+    status = shariah_statuses(db, {r["ticker"] for r in rows})
+    for r in rows:
+        r["shariah_status"] = status.get(r["ticker"])
+    return rows
+
+
+@app.get("/api/insiders")
+def insiders(days: int = 30, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    days = days if days in (7, 30, 60, 90) else 30
+    rows = latest_insider_buys(db, days, 500)
+    last = db.scalar(select(func.max(InsiderTransaction.filing_date)))
+    return {"days": days, "rows": rows, "latest_filing_date": last.isoformat() if last else None,
+            "source": "SEC EDGAR Form 4 (open-market purchases, code P)"}
+
+
 @app.get("/api/dashboard")
 def dashboard(db: Session = Depends(get_db), _: User = Depends(current_user)):
     run = _latest_run(db)
@@ -197,28 +234,7 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(current_user)):
                                    **{k: r.criteria["options"]["metrics"].get(k) for k in (
             "current_volume", "baseline_volume", "volume_change_pct", "iv_rank", "put_call_ratio", "call_volume", "put_volume",
             "current_session")}} for r in sorted(opt, key=lambda r: -(r.criteria["options"]["metrics"].get("volume_change_pct") or 0))[:20]]
-    since = date.today() - timedelta(days=7)
-    buys = db.scalars(select(InsiderTransaction).where(InsiderTransaction.code == "P", InsiderTransaction.acquired_disposed == "A",
-                                                       InsiderTransaction.is_derivative.is_(False),
-                                                       InsiderTransaction.filing_date >= since)
-                      .order_by(InsiderTransaction.filing_date.desc(), InsiderTransaction.direct_indirect)
-                      .limit(200)).all()
-    # Same rule as the insider criterion: joint/indirect reports of one purchase are shown once.
-    seen: dict[tuple, dict] = {}
-    for b in buys:
-        key = (b.issuer_cik, b.transaction_date, round(b.shares, 4), round(b.price or 0, 4))
-        if key in seen:
-            if b.owner_name not in seen[key]["co_reporters"] and b.owner_name != seen[key]["owner"]:
-                seen[key]["co_reporters"].append(b.owner_name)
-            continue
-        seen[key] = {"ticker": b.ticker, "owner": b.owner_name, "co_reporters": [],
-                     "title": b.officer_title or ("Director" if b.is_director else ""),
-                     "transaction_date": b.transaction_date.isoformat(), "filing_date": b.filing_date.isoformat(),
-                     "shares": b.shares, "price": b.price, "value": (b.price or 0) * b.shares}
-    out["insider_buys"] = list(seen.values())[:25]
-    status = shariah_statuses(db, {b["ticker"] for b in out["insider_buys"]})
-    for b in out["insider_buys"]:
-        b["shariah_status"] = status.get(b["ticker"])
+    out["insider_buys"] = latest_insider_buys(db, 7, 25)
     out["options_source"] = _options_source(db)
     return out
 
@@ -556,9 +572,24 @@ def get_options_import(batch_id: int, db: Session = Depends(get_db), _: User = D
     if not b:
         raise HTTPException(404)
     rows = sorted(b.rows, key=lambda r: -(r.vol_change_1m_pct or 0))
-    return _batch_dict(b) | {"data": [{c: getattr(r, c) for c in (
-        "symbol", "name", "price", "change", "pct_change", "iv_rank", "options_volume", "vol_change_1m_pct",
-        "put_volume", "call_volume", "pc_ratio")} for r in rows]}
+    status = shariah_statuses(db, {r.symbol for r in rows})
+    cfg = load_config(db).options
+    run = _latest_run(db)
+    top = set(db.scalars(select(Recommendation.ticker).where(Recommendation.run_id == run.id)).all()) if run else set()
+    max_price = load_config(db).max_price
+
+    def passes(r) -> bool:
+        return (r.price is not None and r.price < max_price and r.vol_change_1m_pct is not None
+                and r.vol_change_1m_pct >= cfg.min_volume_change_pct and r.iv_rank is not None
+                and r.iv_rank > cfg.min_iv_rank and r.pc_ratio is not None and r.pc_ratio < cfg.max_put_call_ratio)
+
+    return _batch_dict(b) | {
+        "thresholds": {"min_volume_change_pct": cfg.min_volume_change_pct, "min_iv_rank": cfg.min_iv_rank,
+                       "max_put_call_ratio": cfg.max_put_call_ratio, "max_price": max_price},
+        "data": [{c: getattr(r, c) for c in (
+            "symbol", "name", "price", "change", "pct_change", "iv_rank", "options_volume", "vol_change_1m_pct",
+            "put_volume", "call_volume", "pc_ratio")} | {"shariah_status": status.get(r.symbol), "passes_rules": passes(r),
+                                                          "in_top5": r.symbol in top} for r in rows]}
 
 
 @app.delete("/api/admin/options-import/{batch_id}")

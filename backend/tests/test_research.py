@@ -95,3 +95,20 @@ def test_dashboard_no_longer_has_low_float_or_health(client, db):
     run_scan(db)
     d = client.get("/api/dashboard", headers=h).json()
     assert "low_float" not in d and "provider_health" not in d
+
+
+def test_insiders_endpoint_and_options_rows(client, db):
+    h = _auth(client)
+    run_scan(db)
+    r = client.get("/api/insiders?days=30", headers=h).json()
+    good = [x for x in r["rows"] if x["ticker"] == "GOOD"]
+    assert len(good) == 1 and good[0]["co_reporters"] == ["Doe Trust"] and good[0]["shariah_status"] == "Compliant"
+    assert client.get("/api/insiders?days=13", headers=h).json()["days"] == 30  # invalid -> default
+    from tests.test_options_import import fake_csv
+    client.post("/api/admin/options-import", headers=h, json={"filename": "u.csv", "csv": fake_csv()})
+    bid = client.get("/api/options-imports", headers=h).json()[0]["id"]
+    d = client.get(f"/api/options-imports/{bid}", headers=h).json()
+    rows = {x["symbol"]: x for x in d["data"]}
+    assert rows["GOOD"]["passes_rules"] and not rows["PCR"]["passes_rules"] and not rows["PRICY"]["passes_rules"]
+    assert rows["GOOD"]["in_top5"] and rows["BANK"]["shariah_status"] == "Non-Compliant"
+    assert d["thresholds"]["min_volume_change_pct"] == 300

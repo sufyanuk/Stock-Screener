@@ -58,7 +58,7 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
 
   return (
     <div className="space-y-4">
-      <Link href="/" className="text-xs text-muted hover:text-accent">← Dashboard</Link>
+      <Link href="/watchlist" className="text-xs text-muted hover:text-accent">← Watchlist</Link>
       <ErrorBox error={error} />
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
