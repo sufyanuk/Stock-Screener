@@ -123,9 +123,30 @@ class Finnhub:
         j = await self._get("/stock/profile2", cache_ttl=86400, symbol=ticker)
         return j if isinstance(j, dict) else {}
 
+    CALENDAR_CAP = 1500  # Finnhub returns at most this many rows per request (later dates win)
+
     async def earnings_calendar(self, start: date, end: date) -> list[dict]:
-        j = await self._get("/calendar/earnings", cache_ttl=6 * 3600, **{"from": start.isoformat(), "to": end.isoformat()})
-        return parse_finnhub_earnings(j)
+        """Requested in chunks of a few days; a chunk that hits the row cap is split further."""
+        from datetime import timedelta
+
+        out: list[dict] = []
+
+        async def chunk(a: date, b: date):
+            j = await self._get("/calendar/earnings", cache_ttl=6 * 3600, **{"from": a.isoformat(), "to": b.isoformat()})
+            rows = parse_finnhub_earnings(j)
+            if len(rows) >= self.CALENDAR_CAP and a < b:
+                mid = a + timedelta(days=(b - a).days // 2)
+                await chunk(a, mid)
+                await chunk(mid + timedelta(days=1), b)
+            else:
+                out.extend(rows)
+
+        a = start
+        while a <= end:
+            b = min(end, a + timedelta(days=2))
+            await chunk(a, b)
+            a = b + timedelta(days=1)
+        return out
 
     async def metrics(self, ticker: str) -> dict:
         j = await self._get("/stock/metric", cache_ttl=3600, symbol=ticker, metric="all")

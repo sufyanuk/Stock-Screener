@@ -176,3 +176,29 @@ def test_finnhub_earnings_and_calendar_merge():
     assert prov.provider == "fmp+finnhub" and set(by) == {"ABC", "XYZ"}
     assert by["ABC"]["name"] == "Abc Corp" and by["ABC"]["eps_estimate"] == 1.2 and by["ABC"]["time_of_day"] == "pre-market"
     assert dsm  # imported for clarity
+
+
+def test_finnhub_calendar_chunks_split_on_row_cap():
+    from datetime import timedelta
+
+    f = extra.Finnhub.__new__(extra.Finnhub)
+    f.CALENDAR_CAP = 10
+    calls = []
+
+    async def fake_get(path, cache_ttl=None, **params):
+        a, b = date.fromisoformat(params["from"]), date.fromisoformat(params["to"])
+        calls.append((a, b))
+        rows = []
+        d = a
+        while d <= b:  # 6 companies a day; a request returns at most the cap, latest dates first
+            rows += [{"symbol": f"S{d.day}{i}", "date": d.isoformat(), "hour": "amc"} for i in range(6)]
+            d += timedelta(days=1)
+        return {"earningsCalendar": sorted(rows, key=lambda r: r["date"], reverse=True)[:10]}
+
+    f._get = fake_get
+    rows = asyncio.run(f.earnings_calendar(date(2026, 11, 5), date(2026, 11, 11)))
+    by_day = {}
+    for r in rows:
+        by_day[r["report_date"]] = by_day.get(r["report_date"], 0) + 1
+    assert by_day == {f"2026-11-{d:02d}": 6 for d in range(5, 12)}  # every day complete
+    assert len(calls) > 3
