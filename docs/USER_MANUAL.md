@@ -63,7 +63,9 @@ scenario grid).
 
 **Data APIs** — the footer shows which data APIs are connected (● = key set). Stock prices come from
 Alpaca (Finnhub fallback), price history from Tiingo (Alpha Vantage fallback), insider buying from SEC
-EDGAR, analyst ratings from Finnhub, and fundamentals (P/E, market cap, float) from FMP. Keys are set in
+EDGAR, analyst ratings from Finnhub, and fundamentals (P/E, market cap, float) from FMP. With a SentiSense key, the stock panel also shows the
+SentiSense Rating (A–F letter, 0–100 score and rank, risk adjustments; a research score, not a buy/sell call)
+and its top AI-generated insights. Keys are set in
 Vercel → Settings → Environment Variables (see docs/SETUP.md).
 
 Disclaimer: research tool only, not investment advice. Shariah screening is not a fatwa.

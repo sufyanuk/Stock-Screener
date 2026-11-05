@@ -187,3 +187,77 @@ def parse_av_daily(j) -> pd.DataFrame:
     rows = [{"date": d, "open": _f(v.get("1. open")), "high": _f(v.get("2. high")), "low": _f(v.get("3. low")),
              "close": _f(v.get("4. close")), "volume": _f(v.get("5. volume"))} for d, v in ts.items()]
     return _frame(rows)
+
+
+class SentiSense:
+    """SentiSense Rating API (/api/v1/rating/{ticker}) and Insights API (/api/v1/insights/stock/{ticker}).
+    Free tier: 1,000 requests/month, 30/minute; the rating is recomputed once per trading day."""
+
+    name = "sentisense"
+
+    def __init__(self):
+        key = get_settings().sentisense_api_key
+        if not key:
+            raise NotConfigured(self.name, "SENTISENSE_API_KEY not set")
+        self.http = HttpProvider(self.name, "https://app.sentisense.ai", requests_per_second=0.5, cache_ttl=6 * 3600,
+                                 headers={"X-SentiSense-API-Key": key})
+
+    def prov(self, endpoint: str) -> Provenance:
+        return Provenance(self.name, Freshness.EOD, _now(), None, endpoint=endpoint)
+
+    async def rating(self, ticker: str) -> dict | None:
+        try:
+            j = await self.http.get_json(f"/api/v1/rating/{ticker}")
+        except ProviderError as e:
+            if e.status == 404:  # entity_not_found
+                return None
+            raise
+        return parse_sentisense_rating(j)
+
+    async def insights(self, ticker: str, limit: int = 3) -> list[dict]:
+        try:
+            j = await self.http.get_json(f"/api/v1/insights/stock/{ticker}", cache_ttl=3600)
+        except ProviderError as e:
+            if e.status == 404:
+                return []
+            raise
+        return parse_sentisense_insights(j)[:limit]
+
+
+def parse_sentisense_rating(j) -> dict | None:
+    """Rated: score (0-100), letter A-F, percentile, risk adjustments, analysts dimension.
+    Not rated: {"rated": false, "reason": ...}. The letter is a score band, not a buy/sell call."""
+    if not isinstance(j, dict) or "rated" not in j:
+        return None
+    out = {"ticker": j.get("ticker"), "rated": bool(j["rated"]), "as_of": j.get("asOf"), "reason": j.get("reason"),
+           "disclaimer": j.get("disclaimer")}
+    if not j["rated"]:
+        return out
+    dims = {d.get("key"): d for d in j.get("dimensions") or [] if isinstance(d, dict)}
+    an = dims.get("analysts") or {}
+    out.update({
+        "score": _f(j.get("score")), "letter": j.get("letter"), "percentile": _f(j.get("percentile")),
+        "penalty_points": _f(j.get("penaltyPoints")), "rated_count": j.get("ratedCount"),
+        "methodology": j.get("methodologyVersion"),
+        "risk_adjustments": [{"condition": str(r.get("condition")), "points": _f(r.get("points"))}
+                             for r in j.get("riskAdjustments") or [] if isinstance(r, dict)],
+        "analyst_favorable_pct": _f(an.get("raw")) if an.get("present") else None,
+        "dimensions": [{"key": d.get("key"), "label": d.get("label"), "percentile": _f(d.get("percentile")),
+                        "present": bool(d.get("present"))} for d in j.get("dimensions") or [] if isinstance(d, dict)],
+        "flags": [{"key": f.get("key"), "label": f.get("label"), "active": bool(f.get("active"))}
+                  for f in j.get("flags") or [] if isinstance(f, dict)],
+    })
+    return out
+
+
+def parse_sentisense_insights(j) -> list[dict]:
+    rows = (j.get("data") if isinstance(j, dict) else j) or []
+    out = []
+    for r in rows if isinstance(rows, list) else []:
+        if not isinstance(r, dict) or not r.get("insightText"):
+            continue
+        ts = r.get("generatedAt")
+        out.append({"type": r.get("insightType"), "category": r.get("category"), "text": str(r["insightText"])[:600],
+                    "confidence": _f(r.get("confidence")), "urgency": r.get("urgency"),
+                    "generated": datetime.fromtimestamp(ts, timezone.utc).date().isoformat() if isinstance(ts, (int, float)) else None})
+    return out

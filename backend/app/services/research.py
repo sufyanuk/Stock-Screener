@@ -159,9 +159,15 @@ async def stock_summary(db: Session, ds, ticker: str) -> dict:
             out["errors"].append(f"{name}: {str(e) or type(e).__name__}")
             return None
 
-    q, an, fl, news = await asyncio.gather(
+    async def none():
+        return None
+
+    ss_on = getattr(ds, "sentisense", None) is not None and hasattr(ds, "sentisense_info")
+    q, an, fl, news, ssr = await asyncio.gather(
         safe("quote", ds.company_quote(t)), safe("analysts", ds.analyst(t)),
-        safe("float", ds.float_info(t)), safe("news", ds.news(t)))
+        safe("float", ds.float_info(t)), safe("news", ds.news(t)),
+        safe("sentisense", ds.sentisense_info(t)) if ss_on else none())
+    out["sentisense"] = ssr[0] if ssr else None
 
     # price & P/E
     quote = q[0] if q else {}

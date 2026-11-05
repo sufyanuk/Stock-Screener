@@ -92,3 +92,48 @@ def test_analyst_prefers_finnhub():
     ds.finnhub, ds.fmp, ds.av = F(), None, None
     ad, prov = asyncio.run(ds.analyst("AAPL"))
     assert ad.counts["strong_buy"] == 6 and "period" not in ad.counts and prov.provider == "finnhub"
+
+
+def test_live_quote_routing_prefers_alpaca_then_finnhub():
+    from app.services.datasource import LiveDataSource
+
+    class A:
+        name = "alpaca"
+
+        async def snapshot(self, t):
+            raise ProviderError("alpaca", "down", 503)
+
+    class F:
+        name = "finnhub"
+
+        async def quote(self, t):
+            return extra.parse_finnhub_quote({"c": 50.0, "dp": 1.0, "o": 49.0, "h": 51.0, "l": 48.0, "pc": 49.5, "t": 1793822400})
+
+        def prov(self, endpoint, market_ts=None, freshness=None):
+            from app.screening.types import Freshness, Provenance
+            return Provenance("finnhub", Freshness.DELAYED, pd.Timestamp.now(tz="UTC").to_pydatetime(), market_ts, endpoint=endpoint)
+
+    ds = LiveDataSource.__new__(LiveDataSource)
+    ds.errors = []
+    ds.alpaca, ds.finnhub, ds.massive = A(), F(), None
+    q, prov = asyncio.run(ds.quote("AAPL"))
+    assert q["price"] == 50.0 and prov.provider == "finnhub"
+
+
+def test_sentisense_parsers():
+    r = extra.parse_sentisense_rating({
+        "ticker": "AAPL", "rated": True, "score": 85.6, "letter": "B", "percentile": 100.0, "penaltyPoints": 14.4,
+        "riskAdjustments": [{"condition": "weak_dimension", "points": 2.4}, {"condition": "high_leverage", "points": 12.0}],
+        "ratedCount": 1000, "asOf": "2026-09-03", "methodologyVersion": "2026.09-v5",
+        "dimensions": [{"key": "analysts", "label": "Analysts", "percentile": 30.0, "raw": 57.0, "present": True},
+                       {"key": "crowd", "label": "Crowd sentiment", "percentile": None, "raw": None, "present": False}],
+        "flags": [{"key": "unusual_options_flow", "label": "Unusual options flow", "active": True}],
+        "disclaimer": "research signal"})
+    assert (r["letter"], r["score"], r["percentile"], r["penalty_points"]) == ("B", 85.6, 100.0, 14.4)
+    assert r["analyst_favorable_pct"] == 57.0 and r["risk_adjustments"][1] == {"condition": "high_leverage", "points": 12.0}
+    nr = extra.parse_sentisense_rating({"ticker": "SPY", "rated": False, "asOf": "2026-09-03", "reason": "not_rated_today"})
+    assert nr["rated"] is False and nr["reason"] == "not_rated_today" and "score" not in nr
+    ins = extra.parse_sentisense_insights({"isPreview": True, "data": [
+        {"insightType": "insider_buy_signal", "category": "FUNDAMENTAL", "insightText": "Cluster buying.",
+         "confidence": 0.8, "urgency": "high", "generatedAt": 1774958400}]})
+    assert ins[0]["type"] == "insider_buy_signal" and ins[0]["urgency"] == "high" and ins[0]["generated"] == "2026-03-31"

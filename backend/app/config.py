@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     alpaca_data_feed: str = "iex"  # "iex" (free plan) or "sip" (paid)
     finnhub_api_key: str = ""  # analyst ratings (first choice), stock prices (fallback)
     tiingo_api_key: str = ""  # historical prices (first choice)
+    sentisense_api_key: str = ""  # SentiSense Rating + AI insights (stock panel)
 
     smtp_host: str = ""
     smtp_port: int = 587

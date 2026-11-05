@@ -53,7 +53,7 @@ export function Shell({ children }: { children: ReactNode }) {
   );
 }
 
-const PROVIDERS: [string, string][] = [["alpaca", "Alpaca"], ["finnhub", "Finnhub"], ["tiingo", "Tiingo"], ["alphavantage", "Alpha Vantage"],
+const PROVIDERS: [string, string][] = [["alpaca", "Alpaca"], ["finnhub", "Finnhub"], ["tiingo", "Tiingo"], ["sentisense", "SentiSense"], ["alphavantage", "Alpha Vantage"],
   ["fmp", "FMP"], ["sec_edgar", "SEC EDGAR"], ["massive", "Massive"]];
 
 /** Which data APIs have keys set on the server. */

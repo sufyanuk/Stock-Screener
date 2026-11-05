@@ -12,6 +12,7 @@
 | `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY` | alpaca.markets → API keys (paper account is fine) | **Stock prices (first choice)**; `ALPACA_DATA_FEED=iex` on the free plan, `sip` on a paid plan |
 | `FINNHUB_API_KEY` | finnhub.io (free key) | **Analyst ratings (first choice)**; stock-price fallback; P/E / market cap fallback |
 | `TIINGO_API_KEY` | tiingo.com (free key) | **Historical prices (first choice)** — charts, scan technicals, watchlist OHLCV |
+| `SENTISENSE_API_KEY` | sentisense.ai (free key, `ss_live_…`) | Optional — SentiSense Rating (A–F composite score) and AI insights in the stock panel; 1,000 requests/month free. It has no Strong Buy / Buy counts, so analyst counts stay on Finnhub |
 | `ALPHAVANTAGE_API_KEY` | alphavantage.co (free key) | Historical-price fallback, earnings calendar, analyst fallback (free tier: 25 requests/day) |
 
 Provider order (first that is configured and answers wins):

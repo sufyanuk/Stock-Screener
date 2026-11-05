@@ -16,6 +16,7 @@ type Summary = {
   earnings: { date: string; time_of_day: string | null; eps_estimate: number | null; source: string } | null;
   bars: Bar[]; bars_provider: string | null; news: { title: string; url: string; published: string; publisher: string }[];
   options: { vol_change_1m_pct: number | null; options_volume: number | null; iv_rank: number | null; put_call: number | null; session: string } | null;
+  sentisense: { rating: SsRating | null; insights: { type: string; category: string; text: string; confidence: number | null; urgency: string; generated: string | null }[] } | null;
   insider_90d: { purchases: number; shares: number; value: number; latest: string; insiders: number } | null;
   shariah_status: string | null; errors: string[];
 };
@@ -24,6 +25,46 @@ const RATINGS: [string, string, string][] = [
   ["strong_buy", "Strong Buy", "bg-bull"], ["buy", "Buy", "bg-bull/60"], ["hold", "Hold", "bg-muted/60"],
   ["sell", "Sell", "bg-bear/60"], ["strong_sell", "Strong Sell", "bg-bear"],
 ];
+
+type SsRating = {
+  rated: boolean; as_of: string | null; reason: string | null; disclaimer: string | null; score?: number; letter?: string; percentile?: number;
+  penalty_points?: number; analyst_favorable_pct?: number | null; risk_adjustments?: { condition: string; points: number }[];
+  flags?: { key: string; label: string; active: boolean }[];
+};
+
+const LETTER_TONE: Record<string, string> = { A: "text-bull", B: "text-bull", C: "text-warn", D: "text-bear", F: "text-bear" };
+
+/** SentiSense Rating (a composite score band — not a buy/sell call) and its top AI insights. */
+function SentiSenseBlock({ s }: { s: NonNullable<Summary["sentisense"]> }) {
+  const r = s.rating;
+  return (
+    <div>
+      <div className="mb-1 flex items-baseline justify-between text-[11px] uppercase tracking-wide text-muted">
+        <span>SentiSense rating (beta)</span><span className="normal-case">{r?.as_of ? `as of ${r.as_of}` : ""}</span>
+      </div>
+      {!r ? <p className="text-xs text-muted">Not covered by SentiSense.</p> : !r.rated ? (
+        <p className="text-xs text-muted">Not rated today{r.reason ? ` (${r.reason.replaceAll("_", " ")})` : ""}.</p>
+      ) : (
+        <>
+          <div className="flex items-baseline gap-2">
+            <span className={`text-2xl font-bold ${LETTER_TONE[r.letter ?? ""] ?? ""}`}>{r.letter}</span>
+            <span className="text-sm">{nf(r.score, 1)} / 100</span>
+            <span className="text-xs text-muted">ranked {nf(r.percentile, 0)}th percentile{r.penalty_points ? ` · −${nf(r.penalty_points, 1)} risk points` : ""}</span>
+          </div>
+          {r.analyst_favorable_pct != null && <p className="text-xs text-muted">Favourable analyst ratings: {nf(r.analyst_favorable_pct, 0)}%</p>}
+          {!!r.risk_adjustments?.length && <p className="text-xs text-muted">Risks: {r.risk_adjustments.map((a) => `${a.condition.replaceAll("_", " ")} (−${nf(a.points, 1)})`).join(", ")}</p>}
+          {r.flags?.some((f) => f.active) && <p className="text-xs text-warn">{r.flags.filter((f) => f.active).map((f) => f.label).join(" · ")}</p>}
+        </>
+      )}
+      {s.insights.length > 0 && (
+        <ul className="mt-2 space-y-1.5 text-xs">{s.insights.map((x, i) => (
+          <li key={i}><Badge tone={x.urgency === "high" ? "warn" : "muted"}>{x.urgency}</Badge> <span>{x.text}</span>
+            <span className="text-muted"> · {x.type?.replaceAll("_", " ")}{x.generated ? ` · ${x.generated}` : ""}</span></li>))}</ul>
+      )}
+      <p className="mt-1 text-[10px] text-muted">Composite research score from SentiSense, not a recommendation. Insights are AI-generated.</p>
+    </div>
+  );
+}
 
 function AnalystBar({ counts }: { counts: Record<string, number> }) {
   const total = RATINGS.reduce((a, [k]) => a + (counts[k] ?? 0), 0);
@@ -108,6 +149,8 @@ export function StockPane() {
               {d.analysts.target_avg ? <p className="mt-1 text-xs text-muted">Target {usd(d.analysts.target_avg)} ({usd(d.analysts.target_low)} – {usd(d.analysts.target_high)})
                 {d.price ? <> · <span className={tone(d.analysts.target_avg - d.price)}>{pct((d.analysts.target_avg / d.price - 1) * 100, 1, true)}</span></> : null}</p> : null}
             </div>
+
+            {d.sentisense && <SentiSenseBlock s={d.sentisense} />}
 
             <div>
               <div className="mb-1 flex justify-between text-[11px] uppercase tracking-wide text-muted"><span>Chart (1 year)</span><span className="normal-case">{d.bars_provider ?? ""}</span></div>

@@ -79,13 +79,14 @@ class LiveDataSource:
         self.orats = self._try(Orats)
         self.massive = self._try(Massive)
         self.fmp = self._try(Fmp)
-        from app.providers.extra import Alpaca, Finnhub, Tiingo
+        from app.providers.extra import Alpaca, Finnhub, SentiSense, Tiingo
         from app.providers.market import AlphaVantage
 
         self.av = self._try(AlphaVantage)
         self.alpaca = self._try(Alpaca)
         self.finnhub = self._try(Finnhub)
         self.tiingo = self._try(Tiingo)
+        self.sentisense = self._try(SentiSense)
 
     def _try(self, cls):
         try:
@@ -102,7 +103,19 @@ class LiveDataSource:
                 "alphavantage": "configured" if self.av else "not configured (optional)",
                 "alpaca": "configured" if self.alpaca else "not configured",
                 "finnhub": "configured" if self.finnhub else "not configured",
-                "tiingo": "configured" if self.tiingo else "not configured"}
+                "tiingo": "configured" if self.tiingo else "not configured",
+                "sentisense": "configured" if self.sentisense else "not configured (optional)"}
+
+    async def sentisense_info(self, ticker):
+        """SentiSense Rating + top insights (stock panel only, to stay within the free quota)."""
+        p = self._need(self.sentisense, "sentisense")
+        rating = await p.rating(ticker)
+        try:
+            ins = await p.insights(ticker)
+        except ProviderError as e:
+            self.errors.append(str(e))
+            ins = []
+        return {"rating": rating, "insights": ins}, p.prov("/api/v1/rating, /api/v1/insights/stock")
 
     async def _first(self, what: str, attempts):
         """Run (provider, coroutine-factory) pairs in order; return the first success."""
@@ -188,137 +201,6 @@ class LiveDataSource:
             return q, p.prov("/v2/snapshot/.../tickers", q.get("market_ts"))
 
         return await self._first("stock price", [(self.alpaca, alpaca), (self.finnhub, finnhub), (self.massive, massive)])
-
-    async def insider_filings(self, day: date, skip: set[str] | None = None, limit: int | None = None
-                              ) -> tuple[list[InsiderTxn], Provenance, set[str], int]:
-        """Returns (transactions, provenance, accessions processed, filings left unfetched)."""
-        ...
-    async def fundamentals(self, ticker: str, cik: str, as_of: date, market_cap: float | None,
-                           avg_24: float | None, avg_36: float | None) -> tuple[Fundamentals, float | None, Provenance]: ...
-    async def analyst(self, ticker: str) -> tuple[AnalystData, Provenance]: ...
-    async def float_info(self, ticker: str) -> tuple[dict, Provenance]: ...
-    async def news(self, ticker: str) -> tuple[list[dict], Provenance]: ...
-    async def company_quote(self, ticker: str) -> tuple[dict, Provenance]: ...
-    async def earnings_calendar(self, start: date, end: date) -> tuple[list[dict], Provenance]: ...
-    async def market_closes(self, day: date) -> tuple[dict[str, float], Provenance]: ...
-
-
-class LiveDataSource:
-    """Provider routing (first choice → fallbacks):
-      stock prices        Alpaca → Finnhub → FMP → Massive
-      historical prices   Tiingo → Alpha Vantage → Alpaca → Massive → FMP
-      analyst ratings     Finnhub (counts; FMP price targets added when available) → FMP → Alpha Vantage
-      fundamentals        FMP (P/E, market cap, float) → Finnhub metrics; SEC XBRL for Shariah ratios
-      insider buying      SEC EDGAR Form 4
-      options             CSV import (or ORATS)"""
-
-    def __init__(self):
-        from app.providers.market import Fmp, Massive, Orats
-        from app.providers.sec_edgar import SecEdgar
-
-        self.errors: list[str] = []
-        self.sec = self._try(SecEdgar)
-        self.orats = self._try(Orats)
-        self.massive = self._try(Massive)
-        self.fmp = self._try(Fmp)
-        from app.providers.extra import Alpaca, Finnhub, Tiingo
-        from app.providers.market import AlphaVantage
-
-        self.av = self._try(AlphaVantage)
-        self.alpaca = self._try(Alpaca)
-        self.finnhub = self._try(Finnhub)
-        self.tiingo = self._try(Tiingo)
-
-    def _try(self, cls):
-        try:
-            return cls()
-        except NotConfigured as e:
-            self.errors.append(str(e))
-            return None
-
-    def describe(self) -> dict[str, str]:
-        return {"sec_edgar": "configured" if self.sec else "not configured",
-                "orats": "configured" if self.orats else "not configured",
-                "massive": "configured" if self.massive else "not configured",
-                "fmp": "configured" if self.fmp else "not configured",
-                "alphavantage": "configured" if self.av else "not configured (optional)",
-                "alpaca": "configured" if self.alpaca else "not configured",
-                "finnhub": "configured" if self.finnhub else "not configured",
-                "tiingo": "configured" if self.tiingo else "not configured"}
-
-    async def _first(self, what: str, attempts):
-        """Run (provider, coroutine-factory) pairs in order; return the first success."""
-        errs = []
-        for prov, make in attempts:
-            if prov is None:
-                continue
-            try:
-                return await make(prov)
-            except ProviderError as e:
-                errs.append(str(e))
-                self.errors.append(str(e))
-        if errs:
-            raise ProviderError("fallbacks", f"{what}: " + " | ".join(errs[-3:]))
-        raise NotConfigured("prices", f"no provider configured for {what}")
-
-    def _need(self, p, name):
-        if p is None:
-            raise NotConfigured(name, f"{name} is not configured")
-        return p
-
-    async def universe(self):
-        return await self._need(self.sec, "sec_edgar").universe()
-
-    async def options_day(self, day: date):
-        o = self._need(self.orats, "orats")
-        cores = {r["ticker"]: r for r in await o.hist_cores_for_date(day)}
-        summ = {r["ticker"]: r for r in await o.hist_summaries_for_date(day)}
-        rows = []
-        for t, c in cores.items():
-            s = summ.get(t, {})
-            rows.append(OptionsDayRow(t, day, c.get("call_volume"), c.get("put_volume"), s.get("iv30"), None,
-                                      c.get("price") or s.get("price"), c.get("call_oi"), c.get("put_oi")))
-        return rows, o.prov("/hist/cores+/hist/summaries", pd.Timestamp(day).to_pydatetime())
-
-    async def option_contracts(self, ticker: str):
-        m = self._need(self.massive, "massive")
-        c, spot = await m.option_chain(ticker)
-        return c, spot, m.prov("/v3/snapshot/options", None)
-
-    async def bars(self, ticker, start, end):
-        """Daily OHLCV history: Tiingo → Alpha Vantage → Alpaca → Massive → FMP."""
-        from app.providers.market import fmp_daily_bars
-
-        def ts(df):
-            return df.index[-1].to_pydatetime() if len(df) else None
-
-        async def tiingo(p):
-            df = await p.daily_bars(ticker, start, end)
-            return df, p.prov("/tiingo/daily/prices", ts(df))
-
-        async def av(p):
-            df = await p.daily_bars(ticker, start, end)
-            return df, Provenance(p.name, Freshness.EOD, datetime.now(timezone.utc), ts(df), endpoint="TIME_SERIES_DAILY")
-
-        async def alpaca(p):
-            df = await p.daily_bars(ticker, start, end)
-            return df, p.prov("/v2/stocks/bars", ts(df))
-
-        async def massive(p):
-            df = await p.daily_bars(ticker, start, end)
-            return df, p.prov("/v2/aggs/ticker/range/1/day", ts(df))
-
-        async def fmp(p):
-            df = (await fmp_daily_bars(p, ticker, start, end)).drop(columns=["adj_close"], errors="ignore")
-            return df, p.prov("/historical-price-eod/full", ts(df))
-
-        return await self._first("historical prices", [(self.tiingo, tiingo), (self.av, av), (self.alpaca, alpaca),
-                                                       (self.massive, massive), (self.fmp, fmp)])
-
-    async def quote(self, ticker):
-        m = self._need(self.massive, "massive")
-        q = await m.snapshot(ticker)
-        return q, m.prov("/v2/snapshot/.../tickers", q.get("market_ts"))
 
     async def insider_filings(self, day: date, skip: set[str] | None = None, limit: int | None = None):
         from app.providers.sec_edgar import parse_form4
