@@ -8,7 +8,7 @@ This page summarises them.
 **Non-compliant stocks are hidden from all scan results.** Each evaluated stock is screened with the methodology
 chosen on the Shariah tab (FTSE by default). Stocks that are NON-COMPLIANT never enter the Top 5 or the scan
 watchlist (they are dropped before ranking, so the Top 5 fills with the next eligible stocks) and are hidden from
-the Dashboard, Unusual Options, Insider Buying, Earnings, Ratings, Bounces and Seasonality lists. DOUBTFUL stocks
+the Dashboard, Unusual Options, Insider Buying, Earnings, Ratings and Seasonality lists. DOUBTFUL stocks
 stay visible in **amber**, compliant ones in **green**, not-yet-screened ones in blue. The Shariah tab, stock
 lookups and your own custom watchlist still show every stock.
 

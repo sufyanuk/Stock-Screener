@@ -255,7 +255,7 @@ async def diagnostics(earnings: bool = False, _: User = Depends(current_user)):
             return {"feed": getattr(ds.alpaca, "last_feed", None), "bars": {k: len(v) for k, v in bars.items()},
                     "last": max((v[-1][0] for v in bars.values() if v), default=None)}
 
-        jobs.append(check("alpaca (bounces history)", alpaca_hist))
+        jobs.append(check("alpaca (multi-stock bars)", alpaca_hist))
     if ds.finnhub:
         jobs.append(check("finnhub (analysts)", lambda: ds.finnhub.recommendation("AAPL")))
     if ds.tiingo:
@@ -589,10 +589,6 @@ async def _do_scan(kind: str, by: str) -> dict:
             from app.services.research import refresh_earnings
 
             await refresh_earnings(db, ds)
-            from app.services import bounces as bn
-
-            if bn.status(db)["sessions"]:  # keep the bounce screens current once history is loaded
-                await bn.refresh(db, ds, max_seconds=60)
             from app.services.research import load_shares
 
             await load_shares(db, ds, [r["ticker"] for r in latest_insider_buys(db, 90, 500)
@@ -1029,38 +1025,6 @@ def seasonality_import_finish(p: SeasonalityImportFinish, db: Session = Depends(
     return ss.finish_import(db, p.source, p.last_date) | {"coverage": ss.coverage(db)}
 
 
-class BounceRefresh(BaseModel):
-    max_seconds: float = Field(200, ge=10, le=270)
-    rebuild: bool = False
-
-
-@app.post("/api/bounces/refresh")
-async def bounces_refresh(p: BounceRefresh, db: Session = Depends(get_db), _: User = Depends(current_user)):
-    """Load whole-market daily bars from the price API (resumable; one request per session)."""
-    from app.services import bounces as bn
-
-    return await bn.refresh(db, make_datasource(), p.max_seconds, p.rebuild)
-
-
-@app.get("/api/bounces")
-def bounces(kind: str = "low52", max_price: float = 100.0, min_price: float | None = 1.0,
-            near_low_pct: float = 5.0, min_recover_pct: float = 2.0, touch_pct: float = 1.0, vol_mult: float = 1.5,
-            use_rsi: bool = False, rsi_low_min: float = 30, rsi_low_max: float = 50, rsi_ema_min: float = 40,
-            rsi_ema_max: float = 60, limit: int = 500, db: Session = Depends(get_db), _: User = Depends(current_user)):
-    from app.services import bounces as bn
-    from app.services import research as rs
-
-    if kind not in ("low52", "ema50"):
-        raise HTTPException(422, "kind must be low52 or ema50")
-    params = {"max_price": max_price, "min_price": min_price, "near_low_pct": near_low_pct,
-              "min_recover_pct": min_recover_pct, "touch_pct": max(touch_pct, 0.0), "vol_mult": vol_mult,
-              "use_rsi": use_rsi, "rsi_low_min": rsi_low_min, "rsi_low_max": rsi_low_max,
-              "rsi_ema_min": rsi_ema_min, "rsi_ema_max": rsi_ema_max, "limit": min(max(limit, 5), 2000)}
-    out = bn.screen(db, kind, params)
-    out["rows"] = rs.hide_non_compliant(db, out["rows"])  # scan results hide non-compliant stocks
-    return out
-
-
 # ------------------------------------------------------------------ ratings tab
 @app.get("/api/ratings/analysts")
 def ratings_analysts(min_strong_buy: int = 1, db: Session = Depends(get_db), _: User = Depends(current_user)):
@@ -1098,15 +1062,14 @@ class WatchAdd(BaseModel):
 
 
 @app.get("/api/custom-watchlist")
-async def custom_watchlist(live: bool = False, db: Session = Depends(get_db), u: User = Depends(current_user)):
+async def custom_watchlist(live: bool = True, db: Session = Depends(get_db), u: User = Depends(current_user)):
     from app.models import CustomWatchItem
-    from app.services import bounces as bn
     from app.services import research as rs
 
     items = db.scalars(select(CustomWatchItem).where(CustomWatchItem.user_id == u.id)
                        .order_by(CustomWatchItem.added_at.desc(), CustomWatchItem.id.desc())).all()
     syms = [i.symbol for i in items]
-    snaps = bn.lookup(db, syms)
+    snaps: dict[str, dict] = {}  # no stored daily history (the Bounces loader was removed): prices are live
     batch, opts = rs.options_rows(db, syms)
     insider = rs.insider_summary(db, syms)
     an = rs.analyst_counts(db, syms)

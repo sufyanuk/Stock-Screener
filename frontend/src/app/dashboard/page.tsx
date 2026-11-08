@@ -28,10 +28,8 @@ export default function DashboardPage() {
   const imports = useApi<{ id: number }[]>("/options-imports");
   const latest = imports.data?.[0];
   const opts = useApi<{ data: any[] }>(latest ? `/options-imports/${latest.id}` : null);
-  const ins = useApi<{ rows: any[] }>("/insiders?days=90");
+  const ins = useApi<{ rows: any[] }>("/insiders");
   const earn = useApi<{ rows: any[] }>("/earnings/upcoming?days=7");
-  const low = useApi<{ rows: any[] }>("/bounces?kind=low52&limit=5");
-  const ema = useApi<{ rows: any[] }>("/bounces?kind=ema50&limit=5");
   const month = new Date().getMonth() + 1;
   const seas = useApi<{ month_name: string; ranked: any[] }>(`/seasonality?month=${month}&min_years=5&min_price=5&max_price=100&limit=5`);
 
@@ -42,7 +40,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <ScanBar showButton title="Dashboard" onScanned={() => { dash.reload(); ins.reload(); low.reload(); ema.reload(); }} />
+        <ScanBar showButton title="Dashboard" onScanned={() => { dash.reload(); ins.reload(); }} />
       </div>
       <ErrorBox error={dash.error} />
 
@@ -75,12 +73,6 @@ export default function DashboardPage() {
         <Mini title={`Seasonality — best in ${seas.data?.month_name ?? ""}`} href="/seasonality" rows={seas.data?.ranked} empty="Import a price-history CSV on the Seasonality tab."
           cols={[{ label: "Price", cell: (r) => usd(r.last_close), sort: (r) => r.last_close }, { label: "Avg return", sort: (r) => r.avg, cell: (r) => <span className={tone(r.avg)}>{pct(r.avg, 2, true)}</span> },
             { label: "% years up", cell: (r) => `${nf(r.win_rate, 0)}%`, sort: (r) => r.win_rate }, { label: "Years", cell: (r) => r.years, sort: (r) => r.years }]} />
-        <Mini title="Bouncing from 52-week low — top 5" href="/bounces" rows={low.data?.rows} empty="No 52-week-low bounces (or price history not loaded on the Bounces tab)."
-          cols={[{ label: "Price", cell: (r) => usd(r.price), sort: (r) => r.price }, { label: "Above low", sort: (r) => r.above_low52_pct, cell: (r) => <span className="text-bull">{pct(r.above_low52_pct, 1, true)}</span> },
-            { label: "Volume ×", cell: (r) => `${nf(r.vol_ratio, 1)}×`, sort: (r) => r.vol_ratio }, { label: "RSI", cell: (r) => nf(r.rsi, 0), sort: (r) => r.rsi }]} />
-        <Mini title="Bouncing from 50 EMA — top 5" href="/bounces" rows={ema.data?.rows} empty="No 50-EMA bounces (or price history not loaded on the Bounces tab)."
-          cols={[{ label: "Price", cell: (r) => usd(r.price), sort: (r) => r.price }, { label: "Close vs EMA", sort: (r) => r.vs_ema50_pct, cell: (r) => <span className="text-bull">{pct(r.vs_ema50_pct, 2, true)}</span> },
-            { label: "Volume ×", cell: (r) => `${nf(r.vol_ratio, 1)}×`, sort: (r) => r.vol_ratio }, { label: "RSI", cell: (r) => nf(r.rsi, 0), sort: (r) => r.rsi }]} />
       </div>
     </div>
   );

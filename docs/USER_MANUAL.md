@@ -1,13 +1,13 @@
 # User manual
 
 **Scans** — the first time the app is opened on a new day it runs a scan automatically (insider buying,
-earnings calendar, analyst and SentiSense ratings, bounce prices, outstanding shares); a banner shows
+earnings calendar, analyst and SentiSense ratings, outstanding shares); a banner shows
 progress. **Run scan now** is on the Dashboard and Unusual Options tabs for an extra scan (e.g. after
 importing today's options CSV). Every table column can be sorted by clicking its heading.
 
 **Dashboard** (opens first) — near-qualified stocks failing one or two rules (with reasons), and the top 5
 from each tab: unusual options, insider buying (by % of outstanding
-shares), upcoming earnings, seasonality for this month, 52-week-low bounces and 50-EMA bounces.
+shares), upcoming earnings and seasonality for this month.
 "View all →" opens the full tab.
 
 **Unusual Options** — import the day's unusual-options CSV at the top of this tab
@@ -39,16 +39,6 @@ purchases of the last 90 days, and earnings this week):
   letter. Loaded with SentiSense's screener (all rated stocks in one request) or per stock if the screener is not
   on your plan. A research score, not a buy/sell recommendation.
 
-**Bounces** — every listed US common stock, from a year of daily prices (Alpaca's multi-stock daily bars,
-consolidated SIP feed, split/dividend adjusted; 100 stocks per request, so the first load takes about two
-minutes). The tab loads automatically when prices are missing or behind the latest session; each scan adds
-the newest day, and a stock with a split-sized jump has its history reloaded. **Rebuild** reloads everything.
-- **Bouncing from 52-week low**: price below $100; close within 5% of the 52-week low and at least 2% above
-  it; volume more than 1.5× the 50-day average volume; optional RSI(14) 30–50.
-- **Bouncing from 50 EMA**: price below $100; the day's low came within 1% of the 50-day EMA; the close is
-  above the EMA; volume at least 1.5× the 20-day average; optional RSI(14) 40–60.
-All thresholds can be changed on the tab. Latest completed session only.
-
 **Seasonality** — covers all US stocks. Pick a month with the month buttons and use the filters: Rank
 by (% of years positive, or average positive change), minimum years of history, price range (default
 $5 to $100) and ticker prefix. The table shows Ticker, Company, Price (current market price from Alpaca; if that is unavailable, the latest
@@ -70,7 +60,7 @@ lines used. Missing data is never treated as compliant. FTSE's rules are built i
 rules; AAOIFI's from Shari'ah Standard No. 21 (borrowings and interest-bearing deposits each ≤ 30% of market
 capitalisation, prohibited income ≤ 5% of revenue). Both can be edited under **Methodology rules**. "Use … instead" chooses which methodology colours
 tickers across the app (green = compliant, red = non-compliant, amber = doubtful, blue = not yet screened). Stocks that are NON-COMPLIANT under that methodology are hidden from every scan result (Top 5, Dashboard,
-Unusual Options, Insider Buying, Earnings, Ratings, Bounces, Seasonality); they still appear on the Shariah tab,
+Unusual Options, Insider Buying, Earnings, Ratings, Seasonality); they still appear on the Shariah tab,
 in stock lookups and in your custom watchlist.
 
 **Stock page** — why the stock was or wasn't selected (pass/fail/missing per criterion, in plain

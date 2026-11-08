@@ -17,8 +17,7 @@ type Bar = { date: string; open: number | null; high: number | null; low: number
 type Item = { symbol: string; note: string | null; added_at: string; name: string | null; shariah_status: string | null; bars: Bar[]; bars_source: string | null };
 
 function CustomWatchlist() {
-  const [live, setLive] = useState(true);
-  const { data, error, reload, loading } = useApi<{ rows: Item[] }>(`/custom-watchlist?live=${live}`);
+  const { data, error, reload, loading } = useApi<{ rows: Item[] }>("/custom-watchlist");  // live prices from the APIs
   const [symbols, setSymbols] = useState("");
   const [note, setNote] = useState("");
   const [sel, setSel] = useState<string | null>(null);
@@ -49,8 +48,7 @@ function CustomWatchlist() {
   const chosen = rows.find((r) => r.symbol === sel) ?? null;
 
   return (
-    <Card title="Custom watchlist" right={
-      <label className="flex items-center gap-1.5 text-sm"><input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} /> Live prices from API</label>}>
+    <Card title="Custom watchlist">
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Add tickers (spaces or commas)"><input className="w-64" value={symbols} onChange={(e) => setSymbols(e.target.value.toUpperCase())}
           onKeyDown={(e) => { if (e.key === "Enter" && symbols.trim()) add(); }} placeholder="e.g. AAPL, MSFT, NVDA" /></Field>
@@ -108,7 +106,7 @@ function CustomWatchlist() {
                 { key: "change", label: "Change", cell: (b) => <span className={tone(b.change)}>{pct(b.change, 2, true)}</span>, className: "num" },
                 { key: "volume", label: "Volume", cell: (b) => compact(b.volume), className: "num" },
               ]} />
-          ) : <Empty>No price bars for {chosen.symbol} — set MASSIVE_API_KEY or FMP_API_KEY for live data, or import a price CSV that includes it.</Empty>}
+          ) : <Empty>No price bars for {chosen.symbol} from the data APIs right now.</Empty>}
         </div>
       )}
       <p className="mt-2 text-xs text-muted">Latest daily bar per stock; click a row or use “Select stock” for the last 15 sessions. Prices come from your price API when available, otherwise from the imported price CSV.</p>

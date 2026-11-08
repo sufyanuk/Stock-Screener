@@ -14,7 +14,6 @@ const NAV = [
   ["/watchlist", "Watchlist"],
   ["/earnings", "Earnings"],
   ["/ratings", "Ratings"],
-  ["/bounces", "Bounces"],
   ["/seasonality", "Seasonality"],
   ["/shariah", "Shariah"],
   ["/tools", "Calculators"],
@@ -106,7 +105,7 @@ function DailyAutoScan() {
   return (
     <div className="mx-auto max-w-[1900px] px-4 pt-3">
       <div className={`flex flex-wrap items-center gap-3 rounded-lg border p-2 text-sm ${state === "error" ? "border-warn/40 bg-warn/10 text-warn" : "border-accent/40 bg-accent/10"}`}>
-        {state === "running" ? <span>Running today&apos;s first scan… (insider buying, earnings, analysts and bounces are refreshed)</span> : <span>{msg}</span>}
+        {state === "running" ? <span>Running today&apos;s first scan… (insider buying, earnings and analysts are refreshed)</span> : <span>{msg}</span>}
         {state === "done" && <button className="underline" onClick={() => window.location.reload()}>Refresh the page</button>}
         {state !== "running" && <button className="ml-auto text-muted hover:text-ink" onClick={() => setState("idle")}>Dismiss</button>}
       </div>
