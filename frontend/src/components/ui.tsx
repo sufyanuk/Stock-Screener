@@ -29,9 +29,10 @@ export function Badge({ tone = "muted", children }: { tone?: keyof typeof TONES;
   return <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${TONES[tone]}`}>{children}</span>;
 }
 
-/** Shariah status is shown only as a colour: green = compliant, red = non-compliant, default = unknown. */
+/** Shariah status is shown only as a colour: green = compliant, red = non-compliant, amber = doubtful /
+ * insufficient data, blue = not yet screened. */
 export function shariahTone(status?: string | null) {
-  return status === "Compliant" ? "text-bull" : status === "Non-Compliant" ? "text-bear" : "text-accent";
+  return status === "Compliant" ? "text-bull" : status === "Non-Compliant" ? "text-bear" : status === "Needs Review" ? "text-warn" : "text-accent";
 }
 
 /** Small amber "E" next to a ticker that reports earnings within the next 7 days. */
@@ -74,7 +75,7 @@ export function ShariahLegend() {
   return (
     <span className="text-xs text-muted">
       <span className="font-semibold text-bull">Green</span> = Shariah-compliant · <span className="font-semibold text-bear">red</span> = non-compliant ·{" "}
-      <span className="font-semibold text-accent">blue</span> = not yet screened ·{" "}
+      <span className="font-semibold text-warn">amber</span> = doubtful / insufficient data · <span className="font-semibold text-accent">blue</span> = not yet screened ·{" "}
       <span className="rounded border border-warn/50 bg-warn/15 px-0.5 text-[9px] font-bold text-warn">E</span> = earnings within 7 days
     </span>
   );

@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from app.config import (AnalystCriteria, FloatCriteria, InsiderCriteria, LiquidityCriteria, OptionsCriteria,
-                        ScreeningConfig, ShariahConfig, TechnicalCriteria)
+                        ScreeningConfig, TechnicalCriteria)
 from app.screening import analyst, float_liquidity as fl, insider, options, ranking, shariah, technicals
 from app.screening.types import CriterionResult, Outcome
 from app.tools.expectancy import ExpectancyInput, calculate_expectancy, scenario_grid
@@ -227,44 +227,8 @@ def test_liquidity_flags_pump_and_dump():
     assert len(r.metrics["flags"]) == 3
 
 
-# ---------------------------------------------------------------- shariah
-def _fund(**kw):
-    base = dict(ticker="X", company_name="Widget Corp", sic="3571", period_end=date(2026, 6, 30),
-                filed=date(2026, 8, 1), source="test", total_assets=1000.0, debt=100.0, cash_and_securities=150.0,
-                receivables=100.0, revenue=500.0, interest_income=5.0, market_cap=2000.0,
-                avg_market_cap_24m=1800.0, avg_market_cap_36m=1700.0)
-    base.update(kw)
-    return shariah.Fundamentals(**base)
-
-
-def test_shariah_compliant_and_ratios():
-    r = shariah.screen(_fund(), ShariahConfig(), date(2026, 11, 1))
-    assert r.status == "Compliant"
-    debt = next(x for x in r.ratios if x["name"] == "Interest-bearing debt")
-    assert debt["value"] == pytest.approx(5.0) and debt["denominator"] == "market cap"
-
-
-def test_shariah_fail_bank_and_debt():
-    assert shariah.screen(_fund(sic="6022"), ShariahConfig(), date(2026, 11, 1)).status == "Non-Compliant"
-    assert shariah.screen(_fund(debt=700.0), ShariahConfig(), date(2026, 11, 1)).status == "Non-Compliant"
-    # MSCI uses total assets: debt 340/1000 = 34% fails, while AAOIFI 340/2000 = 17% passes
-    f = _fund(debt=340.0)
-    assert shariah.screen(f, ShariahConfig(methodology="AAOIFI"), date(2026, 11, 1)).status == "Compliant"
-    assert shariah.screen(f, ShariahConfig(methodology="MSCI"), date(2026, 11, 1)).status == "Non-Compliant"
-
-
-def test_shariah_needs_review_on_missing_or_stale():
-    assert shariah.screen(_fund(interest_income=None), ShariahConfig(), date(2026, 11, 1)).status == "Needs Review"
-    assert shariah.screen(_fund(filed=date(2025, 1, 1)), ShariahConfig(), date(2026, 11, 1)).status == "Needs Review"
-    assert shariah.screen(_fund(sic=None), ShariahConfig(), date(2026, 11, 1)).status == "Needs Review"
-    assert shariah.screen(_fund(company_name="Lucky Casino Inc"), ShariahConfig(), date(2026, 11, 1)).status == "Needs Review"
-
-
-def test_shariah_mixed_revenue_review_and_purification():
-    rv = shariah.BusinessReview("compliant", "admin", date(2026, 10, 1), "hotel without casino", prohibited_revenue_pct=4.5)
-    r = shariah.screen(_fund(sic="7011"), ShariahConfig(), date(2026, 11, 1), rv)
-    inc = next(x for x in r.ratios if x["name"] == "Non-compliant income")
-    assert inc["value"] == pytest.approx(5.5) and r.status == "Non-Compliant"
+# ---------------------------------------------------------------- shariah (purification; engine tests in test_shariah_engine.py)
+def test_purification():
     assert shariah.purification(1000, 3.2)["purification_amount"] == 32.0
 
 

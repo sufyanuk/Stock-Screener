@@ -256,10 +256,21 @@ class ScanEngine:
         if day_chg is None and bars is not None and len(bars) > 1:
             day_chg = (bars["close"].iloc[-1] / bars["close"].iloc[-2] - 1) * 100
 
-        # Shariah + shares outstanding (SEC)
+        # Shariah (internal engine, methodology from Settings) + shares outstanding (SEC)
+        from app.screening import shariah_engine as se
+        from app.services import shariah as shs
+
+        method = cfg.shariah.methodology
+        rules = se.methodologies(shs.rules_overrides(self.db)).get(method)
         mcap = avg24 = avg36 = None
         so = so_date = None
-        shariah_res: sh.ShariahResult | None = None
+        shariah_res: dict | None = None
+        if rules is None:
+            shariah_res = {"methodology": method, "status": se.DOUBTFUL, "status_label": se.LABELS[se.DOUBTFUL],
+                           "reasons": [f"{method} is not supported by the internal Shariah engine"]}
+        stored = shs.screen_symbols(self.db, [t], as_of).get(t) if rules is not None else None
+        if stored and stored["inputs"].period_end is not None:
+            shariah_res = stored["methods"][method]
         if sec.cik:
             fres = await self._call("sec_edgar", self.ds.fundamentals(t, sec.cik, as_of, None, None, None))
             if fres:
@@ -273,14 +284,19 @@ class ScanEngine:
                         avg36 = float(m.tail(36).mean() * so) if len(m) >= 36 else None
                 f.market_cap, f.avg_market_cap_24m, f.avg_market_cap_36m = mcap, avg24, avg36
                 so_date = f.shares_outstanding_date  # SEC report date, not the scan date
-                shariah_res = sh.screen(f, cfg.shariah, as_of, self.business_review(t, as_of))
+                if shariah_res is None:
+                    r = self.business_review(t, as_of)
+                    shariah_res = se.screen(method, rules, se.inputs_from_fundamentals(f), as_of,
+                                            se.Review(r.status, r.reviewer, r.reviewed_on, r.notes,
+                                                      r.prohibited_revenue_pct) if r else None,
+                                            cfg.shariah.max_financials_age_days)
         if shariah_res is None:
-            shariah_res = sh.ShariahResult("Needs Review", cfg.shariah.methodology,
-                                           sh.METHODOLOGIES[cfg.shariah.methodology]["label"], as_of, {}, [],
-                                           ["Financial data unavailable"], "unavailable", None)
+            shariah_res = {"methodology": method, "status": se.DOUBTFUL, "status_label": se.LABELS[se.DOUBTFUL],
+                           "reasons": ["Financial data unavailable"]}
+        legacy_status = se.LEGACY[shariah_res["status"]]
         if self.persist:
-            self.db.add(ShariahScreen(ticker=t, screened_on=as_of, methodology=cfg.shariah.methodology,
-                                      status=shariah_res.status, result=_jsonable(shariah_res.to_dict())))
+            self.db.add(ShariahScreen(ticker=t, screened_on=as_of, methodology=method,
+                                      status=legacy_status, result=_jsonable(shariah_res)))
 
         crit: dict[str, CriterionResult] = {"options": opt_result}
         crit["insider"] = ins.evaluate_insider(self.insider_input(t, as_of, so, so_date), cfg.insider)
@@ -310,10 +326,10 @@ class ScanEngine:
             tm.get("avg_dollar_volume20"), tm.get("relative_volume"), (quote or {}).get("bid"), (quote or {}).get("ask"),
             None, day_chg, crit["float"].metrics.get("float_ratio_pct")), cfg.liquidity)
 
-        extra = {"shariah": shariah_res.to_dict(), "provenance": provenance, "exchange": sec.exchange,
+        extra = {"shariah": shariah_res, "provenance": provenance, "exchange": sec.exchange,
                  "trade_plan": tm.get("trade_plan"), "market_cap": mcap,
                  "volume": float(bars["volume"].iloc[-1]) if bars is not None and len(bars) else None}
-        return Candidate(t, sec.name, price, day_chg, shariah_res.status, crit, extra)
+        return Candidate(t, sec.name, price, day_chg, legacy_status, crit, extra)
 
     async def screen(self, as_of: date, live: bool, include_inactive: bool = False):
         """Point-in-time screen for ``as_of``: returns (candidates, top, watchlist, funnel)."""

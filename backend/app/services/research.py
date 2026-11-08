@@ -194,11 +194,18 @@ def options_rows(db: Session, symbols: list[str]) -> tuple[OptionsImportBatch | 
 
 
 def shariah_map(db: Session, symbols: set[str]) -> dict[str, str]:
+    """Colour status per ticker from the internal Shariah engine, for the methodology chosen in Settings;
+    tickers it has not screened yet fall back to the latest scan-time screen."""
     if not symbols:
         return {}
+    from app.services import shariah as shs
+    from app.services.engine import load_config
+
     rows = db.execute(select(ShariahScreen.ticker, ShariahScreen.status).where(ShariahScreen.ticker.in_(symbols))
                       .order_by(ShariahScreen.id)).all()
-    return {t: s for t, s in rows}
+    out = {t: s for t, s in rows}
+    out.update(shs.status_map(db, set(symbols), load_config(db).shariah.methodology))
+    return out
 
 
 # ------------------------------------------------------------------ stock side-panel

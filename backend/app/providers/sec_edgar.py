@@ -51,6 +51,19 @@ class SecEdgar:
     async def companyfacts(self, cik: str) -> dict:
         return await self.data.get_json(f"/api/xbrl/companyfacts/CIK{cik.zfill(10)}.json", cache_ttl=6 * 3600)
 
+    async def frame(self, taxonomy: str, tag: str, unit: str, period: str) -> list[dict]:
+        """One fact per company for a tag and calendar period (e.g. CY2026Q2I = balance sheets around
+        30 Jun 2026, CY2025 = fiscal years ~2025). Empty list when SEC has no frame."""
+        from app.providers.http import ProviderError
+
+        try:
+            j = await self.data.get_json(f"/api/xbrl/frames/{taxonomy}/{tag}/{unit}/{period}.json", cache_ttl=0)
+        except ProviderError as e:
+            if e.status == 404:
+                return []
+            raise
+        return (j or {}).get("data") or []
+
     async def form4_index(self, day: date) -> list[dict]:
         """Form 4 / 4/A filings accepted on ``day`` (EDGAR daily form index)."""
         q = (day.month - 1) // 3 + 1

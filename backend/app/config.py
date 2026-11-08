@@ -167,7 +167,11 @@ class Weights(BaseModel):
 
 
 class ShariahConfig(BaseModel):
-    methodology: Literal["AAOIFI", "DJIM", "MSCI", "SP", "FTSE"] = "AAOIFI"
+    # Methodology used for the Shariah colour across the app (internal engine: AAOIFI, DJIM, FTSE, SP).
+    # FTSE is the default because its rules are built in from the official ground rules; the others
+    # classify once their rules are entered from the official documents. "MSCI" is kept only so older
+    # saved settings still load (the internal engine marks it DOUBTFUL).
+    methodology: Literal["AAOIFI", "DJIM", "MSCI", "SP", "FTSE"] = "FTSE"
     max_financials_age_days: int = 456  # ~15 months; older -> Needs Review
 
 

@@ -471,3 +471,62 @@ class SeasonalitySymbol(Base):
     last_month: Mapped[date | None] = mapped_column(Date, nullable=True)
     provider: Mapped[str] = mapped_column(String(32))
     retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SecCompany(Base):
+    """SEC registrant profile (industry SIC code) from data.sec.gov submissions."""
+
+    __tablename__ = "sec_companies"
+    cik: Mapped[str] = mapped_column(String(10), primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(255))
+    sic: Mapped[str | None] = mapped_column(String(8))
+    sic_description: Mapped[str | None] = mapped_column(String(255))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SecFact(Base):
+    """One XBRL fact per company and tag from the SEC frames API (balance-sheet facts at the company's
+    latest balance-sheet date; annual facts from the latest fiscal year)."""
+
+    __tablename__ = "sec_facts"
+    cik: Mapped[str] = mapped_column(String(10), primary_key=True)
+    tag: Mapped[str] = mapped_column(String(128), primary_key=True)
+    end: Mapped[date] = mapped_column(Date)
+    start: Mapped[date | None] = mapped_column(Date)
+    val: Mapped[float] = mapped_column(Float)
+    accn: Mapped[str | None] = mapped_column(String(32))
+    frame: Mapped[str | None] = mapped_column(String(16))
+
+
+class SecFrameLoad(Base):
+    """SEC frames already downloaded (resumable loading)."""
+
+    __tablename__ = "sec_frames_loaded"
+    key: Mapped[str] = mapped_column(String(200), primary_key=True)
+    rows: Mapped[int] = mapped_column(Integer, default=0)
+    loaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ShariahResultRow(Base):
+    """Latest internal Shariah classification per stock, one status column per methodology."""
+
+    __tablename__ = "shariah_results"
+    symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
+    cik: Mapped[str | None] = mapped_column(String(10))
+    aaoifi: Mapped[str] = mapped_column(String(16), index=True)
+    djim: Mapped[str] = mapped_column(String(16), index=True)
+    ftse: Mapped[str] = mapped_column(String(16), index=True)
+    sp: Mapped[str] = mapped_column(String(16), index=True)
+    data: Mapped[dict] = mapped_column(Json)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ShariahRules(Base):
+    """Administrator-entered methodology rules (from the official documents). Each save is a new row."""
+
+    __tablename__ = "shariah_rules"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    methodology: Mapped[str] = mapped_column(String(16), index=True)
+    rules: Mapped[dict] = mapped_column(Json)
+    updated_by: Mapped[str] = mapped_column(String(255))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

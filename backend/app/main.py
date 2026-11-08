@@ -21,8 +21,8 @@ from app.config import ScreeningConfig, get_settings
 from app.db import SessionLocal, get_db
 from app.models import (AppSettings, BusinessReviewRow, DailyBar, InsiderTransaction, JournalDividend, JournalFill,
                         EarningsEvent, OptionsImportBatch, OptionsImportRow, ProviderHealth, Recommendation, RecommendationRevision,
-                        ScanResult, ScanRun, Security, ShariahScreen, User)
-from app.screening.shariah import METHODOLOGIES, purification
+                        ScanResult, ScanRun, Security, User)
+from app.screening.shariah import purification
 from app.services.engine import ScanEngine, load_config
 from app.tools.expectancy import ExpectancyInput, calculate_expectancy, scenario_grid
 from app.tools.pnl import Dividend, Fill, summarize
@@ -171,14 +171,20 @@ def _result_dict(r: ScanResult) -> dict:
             "shariah_status": r.shariah_status, "failures": r.failures, "criteria": r.criteria, "extra": r.extra}
 
 
+def _legacy_status(st: str | None) -> str | None:
+    """Colour status (Compliant / Non-Compliant / Needs Review) from an engine status; older stored
+    scan results already hold the colour status."""
+    from app.screening.shariah_engine import LEGACY
+
+    return LEGACY.get(st, st) if st else None
+
+
 # ------------------------------------------------------------------ dashboard
 def shariah_statuses(db: Session, tickers: set[str]) -> dict[str, str]:
     """Latest Shariah status per ticker — used only to colour tickers (green / red), never to filter."""
-    if not tickers:
-        return {}
-    rows = db.execute(select(ShariahScreen.ticker, ShariahScreen.status).where(ShariahScreen.ticker.in_(tickers))
-                      .order_by(ShariahScreen.id)).all()
-    return {t: st for t, st in rows}  # later rows overwrite earlier ones
+    from app.services import research as rs
+
+    return rs.shariah_map(db, set(tickers))
 
 
 def latest_insider_buys(db: Session, days: int, limit: int) -> list[dict]:
@@ -430,7 +436,7 @@ def rec_history(days: int = 90, db: Session = Depends(get_db), _: User = Depends
                    {"last_price": last.close if last else None, "last_session": last.session.isoformat() if last else None,
                     "return_pct": (last.close / r.price_at_rec - 1) * 100 if last and r.price_at_rec else None,
                     "hit_stop": hit_stop, "hit_target1": hit_t1,
-                    "shariah_status": ((e.get("extra") or {}).get("shariah") or {}).get("status")})
+                    "shariah_status": _legacy_status(((e.get("extra") or {}).get("shariah") or {}).get("status"))})
     return out
 
 
@@ -537,6 +543,13 @@ async def _do_scan(kind: str, by: str) -> dict:
 
             await load_shares(db, ds, [r["ticker"] for r in latest_insider_buys(db, 90, 500)
                                        if r["outstanding_shares"] is None], limit=80, max_seconds=40)
+            from app.services import shariah as shs
+
+            try:  # Shariah engine: refresh SEC figures weekly (continues on the Shariah page if not finished)
+                if shs.status(db)["results"] and shs.is_stale(db, 7):
+                    await shs.load(db, ds, max_seconds=60, refresh=True)
+            except Exception as e:  # noqa: BLE001
+                log.warning("shariah refresh skipped: %s", e)
             from app.services import seasonality as ss
 
             try:  # Seasonality: add the newest completed month once the API history is loaded
@@ -649,7 +662,7 @@ def scans(limit: int = 20, db: Session = Depends(get_db), _: User = Depends(curr
 def get_cfg(db: Session = Depends(get_db), _: User = Depends(current_user)):
     cfg = load_config(db)
     return {"config": cfg.model_dump(by_alias=True), "relaxed": cfg.relaxed_criteria(),
-            "methodologies": METHODOLOGIES, "defaults": ScreeningConfig().model_dump(by_alias=True)}
+            "methodologies": {m["key"]: m for m in _methods_info(db)}, "defaults": ScreeningConfig().model_dump(by_alias=True)}
 
 
 class SettingsUpdate(BaseModel):
@@ -1208,6 +1221,140 @@ async def seasonality(month: int | None = None, min_years: int = 5, rank_by: str
                   "indexes": [{"code": "all", "label": "All US stocks"}] +
                              [{"code": k, "label": v["label"]} for k, v in ix.INDEXES.items()],
                   "index_error": idx_error}
+
+
+# ------------------------------------------------------------------ internal Shariah screening engine
+class ShariahLoad(BaseModel):
+    max_seconds: float = Field(200, ge=20, le=270)
+    refresh: bool = False
+
+
+@app.post("/api/shariah/load")
+async def shariah_load(p: ShariahLoad, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    """Download SEC financial figures for every stock (resumable) and classify them."""
+    from app.services import shariah as shs
+
+    return await shs.load(db, make_datasource(), p.max_seconds, p.refresh)
+
+
+def _methods_info(db: Session) -> list[dict]:
+    from app.screening import shariah_engine as se
+    from app.services import shariah as shs
+
+    ms = se.methodologies(shs.rules_overrides(db))
+    return [{"key": k, "label": m["label"], "source": m["source"], "configured": bool(m["source"] and m["tests"]),
+             "business": m["business"], "business_tolerance_pct": m["business_tolerance_pct"], "tests": m["tests"],
+             "builtin": bool(se.BUILTIN[k]["source"])} for k, m in ms.items()]
+
+
+@app.get("/api/shariah")
+def shariah_list(methodology: str = "FTSE", status: str | None = None, q: str | None = None, limit: int = 500,
+                 offset: int = 0, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    from app.models import ShariahResultRow
+    from app.screening import shariah_engine as se
+    from app.services import shariah as shs
+    from app.services.engine import load_config
+
+    m = methodology.upper()
+    if m not in se.METHOD_KEYS:
+        raise HTTPException(422, f"methodology must be one of {', '.join(se.METHOD_KEYS)}")
+    col = getattr(ShariahResultRow, m.lower())
+    base = select(ShariahResultRow)
+    if q:
+        base = base.where(ShariahResultRow.symbol.like(q.upper().strip() + "%"))
+    counts = {k: 0 for k in (se.HALAL, se.NON_COMPLIANT, se.DOUBTFUL)}
+    sub = base.subquery()
+    for st, n in db.execute(select(sub.c[m.lower()], func.count()).group_by(sub.c[m.lower()])).all():
+        counts[st] = n
+    if status in counts:
+        base = base.where(col == status)
+    total = db.scalar(select(func.count()).select_from(base.subquery()))
+    rows = db.scalars(base.order_by(ShariahResultRow.symbol).offset(max(offset, 0)).limit(min(max(limit, 10), 2000))).all()
+    out = []
+    for r in rows:
+        x = r.data["methods"][m]
+        out.append({"symbol": r.symbol, "name": r.data.get("name"), "sic": r.data.get("sic"),
+                    "sic_description": r.data.get("sic_description"), "period_end": r.data.get("period_end"),
+                    "status": x["status"], "status_label": se.LABELS[x["status"]], "business": x["business"],
+                    "ratios": x["ratios"], "reasons": x["reasons"]})
+    return {"methodology": m, "rows": out, "total": total, "counts": counts, "labels": se.LABELS,
+            "methodologies": _methods_info(db), "load": shs.status(db), "primary": load_config(db).shariah.methodology,
+            "disclaimer": se.DISCLAIMER}
+
+
+@app.get("/api/shariah/rules")
+def shariah_rules(db: Session = Depends(get_db), _: User = Depends(current_user)):
+    from app.screening import shariah_engine as se
+
+    return {"methodologies": _methods_info(db), "numerators": se.NUMERATORS, "denominators": se.DENOMINATORS,
+            "ops": se.OPS, "categories": {k: v["label"] for k, v in se.CATEGORIES.items()}}
+
+
+class ShariahRuleTest(BaseModel):
+    key: str = Field(min_length=1, max_length=32)
+    label: str = Field(min_length=1, max_length=200)
+    numerator: str
+    denominator: str
+    op: str
+    limit: float
+
+
+class ShariahRulesIn(BaseModel):
+    source: str = Field("", max_length=500)
+    business: list[str]
+    business_tolerance_pct: float | None = None
+    tests: list[ShariahRuleTest]
+
+
+@app.put("/api/shariah/rules/{methodology}")
+def shariah_rules_save(methodology: str, p: ShariahRulesIn, db: Session = Depends(get_db), u: User = Depends(admin_user)):
+    """Enter a methodology's rules from its official document; results are recomputed."""
+    from app.models import ShariahRules
+    from app.screening import shariah_engine as se
+    from app.services import shariah as shs
+
+    m = methodology.upper()
+    if m not in se.METHOD_KEYS:
+        raise HTTPException(404, "unknown methodology")
+    rules = p.model_dump()
+    errs = se.validate_rules(rules)
+    if errs:
+        raise HTTPException(422, "; ".join(errs))
+    db.add(ShariahRules(methodology=m, rules=rules, updated_by=u.email))
+    db.commit()
+    if shs.status(db)["frames_done"]:
+        shs.compute_all(db)
+    return {"ok": True, "methodologies": _methods_info(db)}
+
+
+class ShariahPrimary(BaseModel):
+    methodology: str
+
+
+@app.put("/api/shariah/primary")
+def shariah_primary(p: ShariahPrimary, db: Session = Depends(get_db), u: User = Depends(admin_user)):
+    """Methodology used for the Shariah colour on tickers across the app (saved as a settings change)."""
+    from app.screening import shariah_engine as se
+
+    m = p.methodology.upper()
+    if m not in se.METHOD_KEYS:
+        raise HTTPException(422, f"methodology must be one of {', '.join(se.METHOD_KEYS)}")
+    cfg = load_config(db).model_dump(by_alias=True)
+    cfg["shariah"]["methodology"] = m
+    cfg = ScreeningConfig.model_validate(cfg)
+    db.add(AppSettings(config=cfg.model_dump(by_alias=True), updated_by=u.email, note=f"Shariah colours use {m}"))
+    db.commit()
+    return {"primary": m}
+
+
+@app.get("/api/shariah/{ticker}")
+def shariah_detail(ticker: str, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    from app.services import shariah as shs
+
+    d = shs.detail(db, ticker)
+    if d is None:
+        raise HTTPException(404, "unknown ticker")
+    return d | {"methodologies": _methods_info(db)}
 
 
 @app.get("/api/methodology")

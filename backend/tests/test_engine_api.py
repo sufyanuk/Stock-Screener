@@ -91,7 +91,7 @@ def test_api_dashboard_recommendations_revisions(client, db):
     run_scan(db)
     d = client.get("/api/dashboard", headers=admin).json()
     assert [t["ticker"] for t in d["top"]] == ["BANK", "GOOD"]
-    assert {t["ticker"]: t["extra"]["shariah"]["status"] for t in d["top"]} == {"BANK": "Non-Compliant", "GOOD": "Compliant"}
+    assert {t["ticker"]: t["extra"]["shariah"]["status"] for t in d["top"]} == {"BANK": "NON_COMPLIANT", "GOOD": "HALAL"}
     assert "near_support" not in d and "shariah_counts" not in d
     assert all("shariah_status" in o for o in d["unusual_options"])
     rec = next(t for t in d["top"] if t["ticker"] == "GOOD")

@@ -5,9 +5,9 @@ This page summarises them.
 
 ## Eligibility vs ranking
 
-**Shariah status does not filter or rank.** Each evaluated stock is still screened (AAOIFI by default) and
-its ticker is shown in **green** when compliant and **red** when non-compliant; tickers without a result
-(missing or stale data) keep the normal colour.
+**Shariah status does not filter or rank.** Each evaluated stock is still screened (with the methodology chosen on the Shariah tab, FTSE by default) and
+its ticker is shown in **green** when compliant, **red** when non-compliant and **amber** when doubtful /
+insufficient data; tickers not screened yet keep the normal (blue) colour.
 
 | Type | Rule | Configurable? |
 |---|---|---|
@@ -74,10 +74,48 @@ Call Vol, P/C Vol, Date). With a CSV:
 * Float ratio = float ÷ outstanding × 100. Very low < 10%, low < 20%, moderate ≤ 40%, high > 40%.
 * Flags: avg dollar volume < $1M, spread > 2%, recent halt, or very low float combined with a > 25% one-day move.
 
-## Shariah
-See the methodology table in `backend/app/screening/shariah.py` (AAOIFI default; DJIM, MSCI, S&P and FTSE are selectable).
-Missing inputs or financials older than about 15 months → **Needs Review** (excluded from the Top 5).
-Purification = income × non-compliant income %.
+## Shariah (internal engine)
+Code: `backend/app/screening/shariah_engine.py` (rules and classification) and `backend/app/services/shariah.py`
+(SEC data). No paid Shariah classification API is used. An analytical aid, not a fatwa.
+
+**Results.** Each stock gets one of: HALAL / SHARIAH COMPLIANT, NON-COMPLIANT, or DOUBTFUL / INSUFFICIENT DATA.
+A missing figure, missing industry code, stale balance sheet (> 456 days) or a business that needs review gives
+DOUBTFUL, never HALAL. Any failed test or prohibited primary business gives NON-COMPLIANT.
+
+**Methodologies are separate.** AAOIFI Std 21, DJIM, FTSE and S&P each have their own business exclusions,
+financial tests (numerator, denominator, threshold, < or ≤) and source. Nothing is shared between them.
+
+* **FTSE** is built in from the *FTSE Yasaar Global Equity Shariah Index Series Ground Rules v4.6 (Feb 2026)*,
+  rules 4.3.1–4.3.2: debt < 33.333% of total assets; cash and interest-bearing items < 33.333% of total assets;
+  accounts receivable and cash < 50% of total assets; total interest and non-compliant activities income ≤ 5% of
+  total revenue. Excluded sectors: conventional finance, alcohol, pork / non-halal food, entertainment (casinos,
+  gambling, cinema, music, pornography, hotels), tobacco, weapons/arms/defence (5% revenue tolerance).
+* **AAOIFI, DJIM, S&P** ship with **no thresholds**. Their official documents could not be retrieved
+  automatically (S&P DJI blocks automated downloads; AAOIFI's site refused the request), and S&P/DJIM changed
+  their rules in 2023 and August 2026, so values were not assumed. Enter them on the Shariah tab →
+  *Methodology rules* from the current official document (the document name is required and stored with an
+  audit trail). Until then these methodologies mark every stock DOUBTFUL except businesses that fail the
+  business screen.
+
+**Business screen.** Uses the company's SEC industry code (SIC) and name. Prohibited primary SIC codes
+(e.g. 6021/6022 banks, 6311/6331 insurers, 2082/2084/2085 alcohol, 2111 tobacco, 3482/3484 arms) → NON-COMPLIANT.
+Industries where the activity is often present (hotels, restaurants, meat packing, amusement/casinos, REITs,
+brokers, …) and name keywords (casino, brewery, bank, pork, adult entertainment, …) → DOUBTFUL until an
+administrator records a business review (with the share of revenue from prohibited activities).
+
+**Financial figures (SEC XBRL, frames API).** All balance-sheet lines are taken at the company's latest
+balance-sheet date (from the same filing date, never mixed); income lines from the latest fiscal year.
+* Interest-bearing debt = long-term debt incl. current portion (`LongTermDebt`, or non-current + current) +
+  short-term borrowings / commercial paper / notes payable + finance-lease liabilities. Operating leases excluded.
+* Cash + interest-bearing investments = cash & equivalents + short-term investments / current marketable or
+  debt securities + non-current marketable / debt securities (conservative: all cash treated as interest-bearing).
+* Accounts receivable = `AccountsReceivableNetCurrent` (or `ReceivablesNetCurrent`).
+* Non-permissible income = interest income (+ prohibited revenue from a business review). If only "interest and
+  other income" or "interest and dividend income" is reported, that larger figure is used (noted).
+* Market cap (only for tests that use it) = shares outstanding on the same balance sheet × latest price;
+  12/24/36-month averages = average of consecutive month-end closes × those shares (requires the full window).
+
+Refreshed weekly by the daily scan; the Shariah tab continues any unfinished load.
 
 ## Position sizing / expectancy
 See `backend/app/tools/position.py` and `expectancy.py`. The spreadsheet example

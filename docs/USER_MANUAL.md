@@ -58,6 +58,16 @@ in the years the month closed up. Every column can be sorted. Prices come from A
 already in the database are kept). Moves beyond ±200% in a month are ignored as data errors. Past
 seasonality does not guarantee future returns.
 
+**Shariah** — the internal Shariah screening engine. It reads actual figures from SEC filings for every
+listed US stock (loaded automatically the first time you open the tab; the daily scan refreshes it weekly)
+and classifies each stock as HALAL / SHARIAH COMPLIANT, NON-COMPLIANT or DOUBTFUL / INSUFFICIENT DATA under
+each methodology separately: AAOIFI, DJIM, FTSE and S&P. Pick a methodology, filter by result or ticker, and
+click a row for the business screen, every ratio (figures, threshold, pass/fail) and the exact SEC filing
+lines used. Missing data is never treated as compliant. FTSE's rules are built in from its official ground
+rules; AAOIFI, DJIM and S&P need their thresholds entered under **Methodology rules** from their current
+official documents (until then they mark stocks DOUBTFUL). "Use … instead" chooses which methodology colours
+tickers across the app (green = compliant, red = non-compliant, amber = doubtful, blue = not yet screened).
+
 **Stock page** — why the stock was or wasn't selected (pass/fail/missing per criterion, in plain
 English); a candlestick chart with SMAs, support/resistance, entry, stop and targets; options
 detail and largest contracts; insider purchases with joint-filing de-duplication; analyst
