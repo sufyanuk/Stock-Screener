@@ -1155,6 +1155,10 @@ async def seasonality(month: int | None = None, min_years: int = 5, rank_by: str
     if not 1 <= month <= 12:
         raise HTTPException(422, "month must be 1-12")
     min_years, limit = max(1, min_years), min(max(limit, 10), 2000)
+    from app.models import SeasonalityStat
+
+    if db.scalar(select(SeasonalityStat.symbol).where(SeasonalityStat.pos_years.is_(None)).limit(1)):
+        ss.recompute(db)  # statistics computed before the bullish/bearish columns existed
     symbols, names, idx_error = None, None, None
     if index in ix.INDEXES:
         from app.models import IndexMember

@@ -240,3 +240,15 @@ def test_seasonality_loads_from_alpaca_monthly_bars(client, db, monkeypatch):
     n = len(calls)
     again = client.post("/api/seasonality/load", headers=h, json={}).json()
     assert again["processed"] == 0 and len(calls) == n  # nothing new until next month
+
+
+def test_seasonality_backfills_bullish_bearish_columns(client, db):
+    from app.models import SeasonalityStat
+
+    h = _auth(client)
+    client.post("/api/seasonality/import", headers=h, json={"rows": _month_rows(), "replace_all": True})
+    client.post("/api/seasonality/import/finish", headers=h, json={"last_date": "2025-12-31"})
+    db.query(SeasonalityStat).update({"pos_years": None, "neg_years": None})
+    db.commit()
+    t = client.get("/api/seasonality?month=11&min_years=5&index=all", headers=h).json()
+    assert t["ranked"][0]["symbol"] == "GOOD" and t["ranked"][0]["count"] == 11
