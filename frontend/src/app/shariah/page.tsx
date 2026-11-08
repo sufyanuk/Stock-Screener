@@ -42,7 +42,7 @@ export default function ShariahPage() {
     setErr(null);
     setBusy("Loading SEC financial statements for all US stocks…");
     try {
-      for (let i = 0; i < 40; i++) {
+      for (let i = 0; i < 80; i++) {
         const r = await api<Load & { complete: boolean; processed: number; errors: string[] }>("/shariah/load", {
           method: "POST", body: JSON.stringify({ max_seconds: 200, refresh: refresh && i === 0 }) });
         setBusy(`SEC data: ${r.frames_done} of ${r.frames_total} statement tables · industry codes for ${r.companies_done.toLocaleString()} of ${r.companies_total.toLocaleString()} companies · prices for ${r.prices_done.toLocaleString()} of ${r.prices_total.toLocaleString()} stocks…`);

@@ -317,3 +317,32 @@ def test_loader_fetches_latest_prices_for_market_cap(client, db, monkeypatch):  
     asked.clear()
     client.post("/api/shariah/load", headers=h, json={"max_seconds": 120})
     assert asked == []  # prices are fresh for today: not asked again
+
+
+
+def test_one_bad_ticker_does_not_block_prices(db):
+    import asyncio
+
+    from app.models import PriceSnapshot, Security
+    from app.services import shariah as shs
+
+    for t in ["AAA", "BBB", "CCC", "BAD", "DDD", "EEE", "FFF", "GGG", "HHH", "III", "JJJ", "KKK"]:
+        db.add(Security(ticker=t, cik=None, name=t, exchange="Nasdaq"))
+    db.commit()
+
+    class Alp:
+        async def multi_snapshots(self, symbols):
+            if "BAD" in symbols:
+                raise RuntimeError("invalid symbol: BAD")
+            return {s: {"price": 10.0} for s in symbols}
+
+    class DS:
+        alpaca = Alp()
+
+    errors: list[str] = []
+    import time
+    n = asyncio.run(shs._load_prices(db, DS(), time.time() + 30, errors))
+    got = {p.symbol: p.close for p in db.query(PriceSnapshot).all()}
+    # the batch is split; only the small piece holding BAD (AAA, BAD, BBB, CCC, DDD, EEE) goes unpriced
+    assert n == 12 and got["BAD"] == 0.0 and all(got[t] == 10.0 for t in ["FFF", "GGG", "HHH", "III", "JJJ", "KKK"])
+    assert sum(1 for v in got.values() if v == 0.0) == 6

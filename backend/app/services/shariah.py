@@ -197,15 +197,23 @@ async def _load_prices(db: Session, ds, deadline: float, errors: list[str]) -> i
     today = _today()
     todo = [t for t in _price_universe(db) if t not in _prices_fresh(db, today)]
     done = 0
+    async def fetch(part: list[str]) -> dict:
+        """One batch; if the feed rejects it (e.g. one unknown symbol), retry in smaller pieces so a single
+        bad ticker cannot hold back the rest. Tickers that still fail get no price."""
+        try:
+            return await asyncio.wait_for(alp.multi_snapshots(part), max(5.0, deadline - time.time()))
+        except Exception as e:  # noqa: BLE001
+            if len(part) <= 10 or time.time() > deadline:
+                errors.append(f"prices ({part[0]}…): {str(e)[:120]}")
+                return {}
+            half = len(part) // 2
+            return (await fetch(part[:half])) | (await fetch(part[half:]))
+
     for i in range(0, len(todo), 1000):
         if time.time() > deadline:
             break
         part = todo[i:i + 1000]
-        try:
-            snaps = await asyncio.wait_for(alp.multi_snapshots(part), max(5.0, deadline - time.time()))
-        except Exception as e:  # noqa: BLE001 - prices are retried on the next call
-            errors.append(f"prices: {str(e)[:150]}")
-            break
+        snaps = await fetch(part)
         now = datetime.now(timezone.utc)
         upsert(db, PriceSnapshot, [{"symbol": t, "as_of": today, "close": float((snaps.get(t) or {}).get("price") or 0.0),
                                     "data": {}, "metrics": None, "source": PRICE_SOURCE, "imported_at": now}
@@ -297,7 +305,7 @@ async def load(db: Session, ds, max_seconds: float = 200.0, refresh: bool = Fals
     st = status(db)
     has_prices = hasattr(getattr(ds, "alpaca", None), "multi_snapshots")
     complete = (st["frames_done"] == st["frames_total"] and st["companies_done"] >= st["companies_total"]
-                and (st["prices_done"] >= st["prices_total"] or not has_prices))
+                and (st["prices_done"] >= st["prices_total"] * 0.99 or not has_prices))
     # only classify once every frame is in: a half-loaded balance sheet could understate debt or cash
     frames_complete = st["frames_done"] == st["frames_total"]
     if frames_complete and (complete or processed == 0 or not st["results"]):
