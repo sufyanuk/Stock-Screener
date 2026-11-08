@@ -322,18 +322,50 @@ async def insiders_source_check(_: User = Depends(current_user)):
         return {"ok": False, "error": str(e), "fetch": p.last}
 
 
+OPENINSIDER_URL = ("http://openinsider.com/screener?s=&o=&pl=&ph=&ll=&lh=&fd=730&fdr=&td=0&tdr=&fdlyl=&fdlyh=&daysago="
+                   "&xp=1&vl=&vh=&ocl=&och=&sic1=-1&sicl=100&sich=9999&grp=0&nfl=&nfh=&nil=&nih=&nol=&noh=&v2l=&v2h="
+                   "&oc2l=&oc2h=&sortcol=0&cnt=100&page=1")
+OPENINSIDER_MAX_AGE_HOURS = 6
+
+
+async def _refresh_openinsider(db: Session) -> str | None:
+    """Pull the screener's top 100 results (latest purchase filings) if the last pull is older than 6 hours."""
+    from app.models import ProviderHealth
+    from app.services.engine import ScanEngine
+
+    if get_settings().insider_source != "openinsider":
+        return None
+    h = db.get(ProviderHealth, "openinsider")
+    last = h.last_success_at if h else None
+    if last is not None and last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    if last and datetime.now(timezone.utc) - last < timedelta(hours=OPENINSIDER_MAX_AGE_HOURS):
+        return None
+    try:
+        ok = await ScanEngine(db, make_datasource())._ingest_openinsider()
+        return None if ok else "OpenInsider did not respond; showing the last pulled results"
+    except Exception as e:  # noqa: BLE001 - keep showing stored results
+        return f"OpenInsider refresh failed: {str(e)[:150]}"
+
+
 @app.get("/api/insiders")
-def insiders(days: int = 90, min_pct: float = 1.0, db: Session = Depends(get_db), _: User = Depends(current_user)):
-    """Purchases where shares bought / shares outstanding > ``min_pct`` (default 1%)."""
-    days = min(max(days, 1), 365)
-    rows = latest_insider_buys(db, days, 500)
+async def insiders(top: int = 100, min_pct: float = 0.0, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    """The OpenInsider screener's top results (latest open-market purchases, newest filing first), refreshed
+    at most every 6 hours. ``min_pct`` > 0 keeps purchases above that % of shares outstanding."""
+    refresh_error = await _refresh_openinsider(db)
+    rows = latest_insider_buys(db, 730, min(max(top, 1), 500))
     missing = sorted({r["ticker"] for r in rows if r["outstanding_shares"] is None})
-    shown = [r for r in rows if r["pct_outstanding"] is not None and r["pct_outstanding"] > min_pct]
+    shown = rows if min_pct <= 0 else [r for r in rows if r["pct_outstanding"] is not None and r["pct_outstanding"] > min_pct]
     last = db.scalar(select(func.max(InsiderTransaction.filing_date)))
     from app.services.research import shares_map
 
     unknown = [t for t in missing if t not in shares_map(db, set(missing))]
-    return {"days": days, "min_pct": min_pct, "rows": shown, "total_purchases": len(rows),
+    from app.models import ProviderHealth
+
+    h = db.get(ProviderHealth, "openinsider")
+    return {"top": top, "min_pct": min_pct, "rows": shown, "total_purchases": len(rows), "url": OPENINSIDER_URL,
+            "pulled_at": h.last_success_at.isoformat() if h and h.last_success_at else None,
+            "refresh_error": refresh_error,
             "shares_missing": len(unknown), "shares_unavailable": len(missing) - len(unknown),
             "latest_filing_date": last.isoformat() if last else None,
             "source": ("OpenInsider screener (SEC Form 4 open-market purchases, code P)"
@@ -341,11 +373,11 @@ def insiders(days: int = 90, min_pct: float = 1.0, db: Session = Depends(get_db)
 
 
 @app.post("/api/insiders/load-shares")
-async def insiders_load_shares(days: int = 90, db: Session = Depends(get_db), _: User = Depends(current_user)):
+async def insiders_load_shares(top: int = 100, db: Session = Depends(get_db), _: User = Depends(current_user)):
     """Look up shares outstanding for tickers on the Insider Buying list (cached 30 days)."""
     from app.services.research import load_shares
 
-    rows = latest_insider_buys(db, min(max(days, 1), 365), 500)
+    rows = latest_insider_buys(db, 730, min(max(top, 1), 500))
     return await load_shares(db, make_datasource(), [r["ticker"] for r in rows if r["outstanding_shares"] is None])
 
 

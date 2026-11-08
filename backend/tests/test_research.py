@@ -70,17 +70,19 @@ def test_dashboard_no_longer_has_low_float_or_health(client, db):
 def test_insiders_endpoint_and_options_rows(client, db):
     h = _auth(client)
     run_scan(db)
-    before = client.get("/api/insiders?days=30", headers=h).json()
-    assert before["rows"] == [] and before["shares_missing"] == 2 and before["total_purchases"] == 2  # BANK hidden
+    before = client.get("/api/insiders", headers=h).json()  # default: every purchase in the top 100
+    assert {x["ticker"] for x in before["rows"]} == {"GOOD", "PCR"} and before["total_purchases"] == 2  # BANK hidden
+    assert "openinsider.com/screener" in before["url"] and "cnt=100" in before["url"] and "fd=730" in before["url"]
+    assert client.get("/api/insiders?min_pct=1", headers=h).json()["rows"] == []  # no share counts yet
     ld = client.post("/api/insiders/load-shares", headers=h).json()
     assert ld["fetched"] == 2 and ld["remaining"] == 0
-    r = client.get("/api/insiders?days=30", headers=h).json()
+    r = client.get("/api/insiders?min_pct=1", headers=h).json()
     good = [x for x in r["rows"] if x["ticker"] == "GOOD"]
     assert len(good) == 1 and good[0]["co_reporters"] == ["Doe Trust"] and good[0]["shariah_status"] == "Compliant"
     assert good[0]["outstanding_shares"] == 100_000_000 and good[0]["pct_outstanding"] == pytest.approx(2.0)
     assert [x["ticker"] for x in r["rows"]] == ["GOOD"]  # PCR 0.5% hidden; BANK (non-compliant) hidden
     assert r["shares_unavailable"] == 0 and r["shares_missing"] == 0
-    assert len(client.get("/api/insiders?days=30&min_pct=0.1", headers=h).json()["rows"]) == 2
+    assert len(client.get("/api/insiders?min_pct=0.1", headers=h).json()["rows"]) == 2
     from tests.test_options_import import fake_csv
     client.post("/api/admin/options-import", headers=h, json={"filename": "u.csv", "csv": fake_csv()})
     bid = client.get("/api/options-imports", headers=h).json()[0]["id"]
@@ -331,3 +333,34 @@ def test_upsert_tolerates_existing_rows_and_analyst_budget(db):
     r = asyncio.run(rs.load_analyst_counts(db, DS(), [f"S{i}" for i in range(50)], limit=50, max_seconds=0.5))
     assert 1 <= r["fetched"] < 50 and r["remaining"] == 50 - r["fetched"]  # stopped on time, progress saved
     assert db.query(AnalystSnapshot).filter(AnalystSnapshot.symbol.like("S%")).count() == r["fetched"]
+
+
+
+def test_insiders_tab_pulls_openinsider_at_most_every_6_hours(client, db, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    import app.main as main
+    from app.models import ProviderHealth
+    from app.services.engine import ScanEngine
+
+    calls = []
+
+    async def fake_ingest(self):
+        calls.append(1)
+        h = self.db.get(ProviderHealth, "openinsider") or ProviderHealth(provider="openinsider", calls=0, failures=0)
+        h.last_success_at = datetime.now(timezone.utc)
+        self.db.merge(h)
+        self.db.commit()
+        return True
+
+    monkeypatch.setattr(ScanEngine, "_ingest_openinsider", fake_ingest)
+    monkeypatch.setattr(main.get_settings(), "insider_source", "openinsider")
+    h = _auth(client)
+    assert client.get("/api/insiders", headers=h).json()["pulled_at"] and len(calls) == 1
+    client.get("/api/insiders", headers=h)
+    assert len(calls) == 1  # fresh: not pulled again
+    row = db.get(ProviderHealth, "openinsider")
+    row.last_success_at = datetime.now(timezone.utc) - timedelta(hours=7)
+    db.commit()
+    client.get("/api/insiders", headers=h)
+    assert len(calls) == 2  # older than 6 hours: pulled again

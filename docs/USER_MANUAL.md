@@ -18,7 +18,9 @@ that meet the criteria (and price < $100) — "Passes rules only" is ticked by d
 imported stock — sorted by 1-month options volume change, with price,
 calls/puts, put/call and IV rank.
 
-**Insider Buying** — open-market purchases (SEC Form 4) filed in the last 90 days, shown only where the
+**Insider Buying** — the top 100 results of the OpenInsider screener (open-market purchases, SEC Form 4
+code P, filed in the last 2 years, newest first; link shown under the table), pulled when you open the tab
+and refreshed at most every 6 hours. Tick **Only above 1% of outstanding shares** to keep purchases where the
 shares bought are more than 1% of the company's shares outstanding. Columns include Outstanding shares
 and % of outstanding (shares bought ÷ shares outstanding). Share counts come from FMP (Finnhub /
 Alpha Vantage as fallback) and are looked up automatically, cached for 30 days. **Insider-buying
