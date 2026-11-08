@@ -5,8 +5,8 @@ earnings calendar, analyst and SentiSense ratings, bounce prices, outstanding sh
 progress. **Run scan now** is on the Dashboard and Unusual Options tabs for an extra scan (e.g. after
 importing today's options CSV). Every table column can be sorted by clicking its heading.
 
-**Dashboard** (opens first) — Top 5 (stocks meeting every rule), near-qualified stocks failing one or two
-rules (with reasons), and the top 5 from each tab: unusual options, insider buying (by % of outstanding
+**Dashboard** (opens first) — near-qualified stocks failing one or two rules (with reasons), and the top 5
+from each tab: unusual options, insider buying (by % of outstanding
 shares), upcoming earnings, seasonality for this month, 52-week-low bounces, 50-EMA bounces and your
 watchlist. "View all →" opens the full tab.
 

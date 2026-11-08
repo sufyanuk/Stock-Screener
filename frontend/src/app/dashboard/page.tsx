@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { ReactNode } from "react";
 import { ScanBar } from "@/components/scan-bar";
-import { Top5 } from "@/components/top5";
 import { Card, Empty, ErrorBox, SortTable, Ticker } from "@/components/ui";
 import { useApi } from "@/lib/api";
 import { compact, nf, pct, tone, usd } from "@/lib/format";
@@ -36,7 +35,6 @@ export default function DashboardPage() {
   const month = new Date().getMonth() + 1;
   const seas = useApi<{ month_name: string; ranked: any[] }>(`/seasonality?month=${month}&min_years=5&min_price=5&max_price=100&limit=5`);
   const watch = useApi<{ rows: any[] }>("/custom-watchlist");
-  const run = dash.data?.latest_run;
 
   const optRows = opts.data ? [...opts.data.data].sort((a, b) => (b.vol_change_1m_pct ?? -1e9) - (a.vol_change_1m_pct ?? -1e9)) : latest === undefined && imports.data ? [] : undefined;
   const insRows = ins.data ? [...ins.data.rows].sort((a, b) => (b.pct_outstanding ?? 0) - (a.pct_outstanding ?? 0)) : undefined;
@@ -49,9 +47,6 @@ export default function DashboardPage() {
       </div>
       <ErrorBox error={dash.error} />
 
-      <Card title="Top 5 — meets every rule" right={run && <span className="text-xs text-muted">Funnel: {run.funnel.stage1_evaluated ?? 0} under $100 → {run.funnel.stage1_options_pass ?? 0} options pass → {run.funnel.eligible ?? 0} fully eligible</span>}>
-        {run ? <Top5 rows={dash.data?.top ?? []} /> : <Empty>No completed scan yet — import today&apos;s options CSV on the Unusual Options tab and click “Run scan now”.</Empty>}
-      </Card>
       <Card title="Near-qualified — fails one or two rules">
         {dash.data?.watchlist.length ? (
           <SortTable rows={dash.data.watchlist} rowKey={(w) => w.ticker} initial="score"
