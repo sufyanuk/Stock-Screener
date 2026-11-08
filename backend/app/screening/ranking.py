@@ -29,7 +29,7 @@ class Candidate:
     company: str
     price: float | None
     day_change_pct: float | None
-    shariah_status: str  # display only (highlight colour)
+    shariah_status: str  # colour; NON-COMPLIANT stocks are excluded before ranking (engine.screen)
     criteria: dict[str, CriterionResult]
     extra: dict = field(default_factory=dict)
 

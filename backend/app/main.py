@@ -211,7 +211,10 @@ def latest_insider_buys(db: Session, days: int, limit: int) -> list[dict]:
     from app.services.research import shares_map
 
     rows = list(seen.values())[:limit]
+    from app.services.research import NON_COMPLIANT
+
     status = shariah_statuses(db, {r["ticker"] for r in rows})
+    rows = [r for r in rows if status.get(r["ticker"]) != NON_COMPLIANT]  # scan results hide non-compliant stocks
     so = shares_map(db, {r["ticker"] for r in rows})
     for r in rows:
         r["shariah_status"] = status.get(r["ticker"])
@@ -354,14 +357,18 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(current_user)):
                  "latest_run": _run_dict(run), "top": [], "watchlist": [], "unusual_options": [], "insider_buys": []}
     if run:
         recs = db.scalars(select(Recommendation).where(Recommendation.run_id == run.id).order_by(Recommendation.rank)).all()
-        out["top"] = [_effective(db, r) for r in recs]
+        from app.services.research import hide_non_compliant
+
+        out["top"] = hide_non_compliant(db, [_effective(db, r) for r in recs], "ticker")
         results = db.scalars(select(ScanResult).where(ScanResult.run_id == run.id)).all()
-        out["watchlist"] = [_result_dict(r) for r in results if (r.extra or {}).get("watchlist")]
+        out["watchlist"] = hide_non_compliant(db, [_result_dict(r) for r in results if (r.extra or {}).get("watchlist")],
+                                              "ticker")
         opt = [r for r in results if r.criteria.get("options", {}).get("outcome") == "pass"]
         out["unusual_options"] = [{"ticker": r.ticker, "company": r.company, "shariah_status": r.shariah_status,
                                    **{k: r.criteria["options"]["metrics"].get(k) for k in (
             "current_volume", "baseline_volume", "volume_change_pct", "iv_rank", "put_call_ratio", "call_volume", "put_volume",
-            "current_session")}} for r in sorted(opt, key=lambda r: -(r.criteria["options"]["metrics"].get("volume_change_pct") or 0))[:20]]
+            "current_session")}} for r in sorted(opt, key=lambda r: -(r.criteria["options"]["metrics"].get("volume_change_pct") or 0))]
+        out["unusual_options"] = hide_non_compliant(db, out["unusual_options"], "ticker")[:20]
     out["insider_buys"] = latest_insider_buys(db, 7, 25)
     out["options_source"] = _options_source(db)
     return out
@@ -416,7 +423,9 @@ def recommendations(session_date: date | None = None, db: Session = Depends(get_
         return {"run": None, "top": [], "message": "No completed scan for this date."}
     recs = db.scalars(select(Recommendation).where(Recommendation.run_id == run.id).order_by(Recommendation.rank)).all()
     msg = None if recs else "No stocks met all mandatory requirements in this scan."
-    return {"run": _run_dict(run), "top": [_effective(db, r) for r in recs], "message": msg}
+    from app.services.research import hide_non_compliant
+
+    return {"run": _run_dict(run), "top": hide_non_compliant(db, [_effective(db, r) for r in recs], "ticker"), "message": msg}
 
 
 @app.get("/api/recommendations/history")
@@ -772,7 +781,8 @@ def get_options_import(batch_id: int, db: Session = Depends(get_db), _: User = D
         "data": [{c: getattr(r, c) for c in (
             "symbol", "name", "price", "change", "pct_change", "iv_rank", "options_volume", "vol_change_1m_pct",
             "put_volume", "call_volume", "pc_ratio")} | {"shariah_status": status.get(r.symbol), "passes_rules": passes(r),
-                                                          "in_top5": r.symbol in top} for r in rows]}
+                                                          "in_top5": r.symbol in top} for r in rows
+                 if status.get(r.symbol) != "Non-Compliant"]}  # scan results hide non-compliant stocks
 
 
 @app.delete("/api/admin/options-import/{batch_id}")
@@ -925,6 +935,7 @@ async def earnings_upcoming(days: int = 7, db: Session = Depends(get_db), _: Use
                                                      "sell": a.sell, "strong_sell": a.strong_sell,
                                                      "retrieved_at": a.retrieved_at.isoformat()}})
     src = db.scalars(select(EarningsEvent.provider).limit(1)).first()
+    rows = rs.hide_non_compliant(db, rows)  # scan results hide non-compliant stocks
     return {"days": days, "rows": rows, "refresh": refresh, "earnings_source": src,
             "options_import": {"id": batch.id, "filename": batch.filename, "session_date": batch.session_date.isoformat()} if batch else None,
             "analysts_missing": sum(1 for s in syms if s not in an), "insider_window_days": 90}
@@ -1001,9 +1012,7 @@ def bounces(kind: str = "low52", max_price: float = 100.0, min_price: float | No
               "use_rsi": use_rsi, "rsi_low_min": rsi_low_min, "rsi_low_max": rsi_low_max,
               "rsi_ema_min": rsi_ema_min, "rsi_ema_max": rsi_ema_max, "limit": min(max(limit, 5), 2000)}
     out = bn.screen(db, kind, params)
-    sh = rs.shariah_map(db, {r["symbol"] for r in out["rows"]})
-    for r in out["rows"]:
-        r["shariah_status"] = sh.get(r["symbol"])
+    out["rows"] = rs.hide_non_compliant(db, out["rows"])  # scan results hide non-compliant stocks
     return out
 
 
@@ -1209,10 +1218,10 @@ async def seasonality(month: int | None = None, min_years: int = 5, rank_by: str
             idx_error = f"Could not load the {ix.INDEXES[index]['label']} constituents right now."
     out = ss.ranking(db, month, min_years, "avg" if rank_by == "avg" else "pct", limit, min_price, max_price, q,
                      "bearish" if mode == "bearish" else "bullish", symbols, names)
+    out["ranked"] = rs.hide_non_compliant(db, out["ranked"])  # scan results hide non-compliant stocks
+    for i, e in enumerate(out["ranked"], 1):
+        e["rank"] = i
     await _attach_prices(db, out["ranked"])
-    sh = rs.shariah_map(db, {e["symbol"] for e in out["ranked"]})
-    for e in out["ranked"]:
-        e["shariah_status"] = sh.get(e["symbol"])
     return out | {"coverage": ss.coverage(db), "load": ss.api_status(db), "index": index,
                   "indexes": [{"code": "all", "label": "All US stocks"}] +
                              [{"code": k, "label": v["label"]} for k, v in ix.INDEXES.items()],

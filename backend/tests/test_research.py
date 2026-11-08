@@ -36,7 +36,7 @@ def test_earnings_screen_columns_and_markers(client, db):
     run_scan(db)  # stores insider purchases + Shariah statuses for GOOD / BANK
     r = client.get("/api/earnings/upcoming?days=7", headers=h).json()
     syms = [x["symbol"] for x in r["rows"]]
-    assert syms == ["GOOD", "BANK"]  # LATE (10 days out) excluded
+    assert syms == ["GOOD"]  # LATE (10 days out) excluded; BANK is Shariah non-compliant: hidden
     good = r["rows"][0]
     assert good["time_of_day"] == "post-market" and good["shariah_status"] == "Compliant"
     assert good["insider"]["purchases"] == 1 and good["insider"]["shares"] == 2_000_000  # joint filing counted once
@@ -71,15 +71,15 @@ def test_insiders_endpoint_and_options_rows(client, db):
     h = _auth(client)
     run_scan(db)
     before = client.get("/api/insiders?days=30", headers=h).json()
-    assert before["rows"] == [] and before["shares_missing"] == 3 and before["total_purchases"] == 3
+    assert before["rows"] == [] and before["shares_missing"] == 2 and before["total_purchases"] == 2  # BANK hidden
     ld = client.post("/api/insiders/load-shares", headers=h).json()
     assert ld["fetched"] == 2 and ld["remaining"] == 0
     r = client.get("/api/insiders?days=30", headers=h).json()
     good = [x for x in r["rows"] if x["ticker"] == "GOOD"]
     assert len(good) == 1 and good[0]["co_reporters"] == ["Doe Trust"] and good[0]["shariah_status"] == "Compliant"
     assert good[0]["outstanding_shares"] == 100_000_000 and good[0]["pct_outstanding"] == pytest.approx(2.0)
-    assert [x["ticker"] for x in r["rows"]] == ["GOOD"]  # PCR 0.5% hidden, BANK has no share count
-    assert r["shares_unavailable"] == 1 and r["shares_missing"] == 0
+    assert [x["ticker"] for x in r["rows"]] == ["GOOD"]  # PCR 0.5% hidden; BANK (non-compliant) hidden
+    assert r["shares_unavailable"] == 0 and r["shares_missing"] == 0
     assert len(client.get("/api/insiders?days=30&min_pct=0.1", headers=h).json()["rows"]) == 2
     from tests.test_options_import import fake_csv
     client.post("/api/admin/options-import", headers=h, json={"filename": "u.csv", "csv": fake_csv()})
@@ -87,7 +87,7 @@ def test_insiders_endpoint_and_options_rows(client, db):
     d = client.get(f"/api/options-imports/{bid}", headers=h).json()
     rows = {x["symbol"]: x for x in d["data"]}
     assert rows["GOOD"]["passes_rules"] and not rows["PCR"]["passes_rules"] and not rows["PRICY"]["passes_rules"]
-    assert rows["GOOD"]["in_top5"] and rows["BANK"]["shariah_status"] == "Non-Compliant"
+    assert rows["GOOD"]["in_top5"] and "BANK" not in rows  # non-compliant stocks hidden from scan results
     assert d["thresholds"]["min_volume_change_pct"] == 300
 
 

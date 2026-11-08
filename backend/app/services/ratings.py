@@ -75,6 +75,9 @@ def analyst_rows(db: Session, min_strong_buy: int = 1) -> dict:
                      "provider": a.provider, "retrieved_at": _aware(a.retrieved_at).isoformat(),
                      "shariah_status": sh.get(a.symbol)})
     rows.sort(key=lambda r: (-(r["strong_buy"] or 0), r["symbol"]))
+    from app.services.research import hide_non_compliant
+
+    rows = hide_non_compliant(db, rows)
     uni = universe(db)
     have = set(db.scalars(select(AnalystSnapshot.symbol).where(AnalystSnapshot.symbol.in_(uni))).all()) if uni else set()
     return {"rows": rows, "universe": len(uni), "missing": len([s for s in uni if s not in have])}
@@ -97,6 +100,9 @@ def sentisense_rows(db: Session) -> dict:
             "analyst_favorable_pct": r.analyst_favorable_pct, "as_of": r.as_of.isoformat() if r.as_of else None,
             "reason": r.reason, "source": r.source, "shariah_status": sh.get(r.symbol)} for r in rows]
     out.sort(key=lambda r: (not r["rated"], -(r["score"] or -1), r["symbol"]))
+    from app.services.research import hide_non_compliant
+
+    out = hide_non_compliant(db, out)
     last = db.scalar(select(func.max(SentiSenseRatingRow.retrieved_at)))
     src = db.scalars(select(SentiSenseRatingRow.source).order_by(SentiSenseRatingRow.retrieved_at.desc()).limit(1)).first()
     return {"rows": out, "retrieved_at": _aware(last).isoformat() if last else None, "source": src}

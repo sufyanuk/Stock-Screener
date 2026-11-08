@@ -66,7 +66,9 @@ click a row for the business screen, every ratio (figures, threshold, pass/fail)
 lines used. Missing data is never treated as compliant. FTSE's rules are built in from its official ground
 rules; AAOIFI's from Shari'ah Standard No. 21 (borrowings and interest-bearing deposits each ≤ 30% of market
 capitalisation, prohibited income ≤ 5% of revenue). Both can be edited under **Methodology rules**. "Use … instead" chooses which methodology colours
-tickers across the app (green = compliant, red = non-compliant, amber = doubtful, blue = not yet screened).
+tickers across the app (green = compliant, red = non-compliant, amber = doubtful, blue = not yet screened). Stocks that are NON-COMPLIANT under that methodology are hidden from every scan result (Top 5, Dashboard,
+Unusual Options, Insider Buying, Earnings, Ratings, Bounces, Seasonality); they still appear on the Shariah tab,
+in stock lookups and in your custom watchlist.
 
 **Stock page** — why the stock was or wasn't selected (pass/fail/missing per criterion, in plain
 English); a candlestick chart with SMAs, support/resistance, entry, stop and targets; options

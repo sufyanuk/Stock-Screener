@@ -243,6 +243,23 @@ def options_rows(db: Session, symbols: list[str]) -> tuple[OptionsImportBatch | 
     return b, {r.symbol: r for r in rows}
 
 
+NON_COMPLIANT = "Non-Compliant"
+
+
+def hide_non_compliant(db: Session, rows: list[dict], key: str = "symbol") -> list[dict]:
+    """Scan results never show stocks that are NON-COMPLIANT under the chosen Shariah methodology
+    (doubtful and not-yet-screened stocks stay visible, coloured amber / blue)."""
+    sh = shariah_map(db, {r[key] for r in rows if r.get(key)})
+    out = []
+    for r in rows:
+        st = sh.get(r.get(key))
+        if st == NON_COMPLIANT:
+            continue
+        r["shariah_status"] = st
+        out.append(r)
+    return out
+
+
 def shariah_map(db: Session, symbols: set[str]) -> dict[str, str]:
     """Colour status per ticker from the internal Shariah engine, for the methodology chosen in Settings;
     tickers it has not screened yet fall back to the latest scan-time screen."""

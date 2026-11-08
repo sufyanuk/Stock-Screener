@@ -402,7 +402,8 @@ class ScanEngine:
                         snap.contracts, snap.spot = contracts, spot or snap.spot
                         c.criteria["options"] = op.evaluate_options(snap, cfg.options)
             cands.append(c)
-        top, watch = rank(cands, cfg)
+        # Stocks NON-COMPLIANT under the chosen Shariah methodology never enter the Top 5 or the watchlist.
+        top, watch = rank([c for c in cands if c.shariah_status != "Non-Compliant"], cfg)
         return cands, top, watch, funnel
 
     # ------------------------------------------------------------ run

@@ -27,12 +27,12 @@ def test_end_to_end_scan_selects_only_fully_qualified(db):
     assert run.status == "ok", run.errors
     assert run.funnel["price_filtered_out"] == 1  # PRICY ($150)
     recs = db.scalars(select(Recommendation).where(Recommendation.run_id == run.id)).all()
-    # BANK is a bank (Shariah non-compliant) but Shariah no longer filters: it qualifies and is highlighted red
-    assert [r.ticker for r in recs] == ["BANK", "GOOD"]
+    # BANK is a bank (Shariah NON-COMPLIANT): it meets the rules but non-compliant stocks never enter the Top 5
+    assert [r.ticker for r in recs] == ["GOOD"]
     rec = next(r for r in recs if r.ticker == "GOOD")
     assert rec.is_final and rec.stop < rec.entry and rec.target1 > rec.entry
     res = {r.ticker: r for r in db.scalars(select(ScanResult).where(ScanResult.run_id == run.id)).all()}
-    assert res["BANK"].shariah_status == "Non-Compliant" and res["BANK"].eligible
+    assert res["BANK"].shariah_status == "Non-Compliant" and not res["BANK"].eligible  # excluded before ranking
     assert res["GOOD"].shariah_status == "Compliant"
     assert "PCR" not in res  # failed hard options filter at stage 1 (P/C = 0.33)
     good = res["GOOD"].criteria
@@ -90,8 +90,10 @@ def test_api_dashboard_recommendations_revisions(client, db):
     admin, _ = _auth(client)
     run_scan(db)
     d = client.get("/api/dashboard", headers=admin).json()
-    assert [t["ticker"] for t in d["top"]] == ["BANK", "GOOD"]
-    assert {t["ticker"]: t["extra"]["shariah"]["status"] for t in d["top"]} == {"BANK": "NON_COMPLIANT", "GOOD": "HALAL"}
+    assert [t["ticker"] for t in d["top"]] == ["GOOD"]  # BANK (non-compliant) hidden
+    assert {t["ticker"]: t["extra"]["shariah"]["status"] for t in d["top"]} == {"GOOD": "HALAL"}
+    assert all(o["shariah_status"] != "Non-Compliant" for o in d["unusual_options"])
+    assert all(b["ticker"] != "BANK" for b in d["insider_buys"])
     assert "near_support" not in d and "shariah_counts" not in d
     assert all("shariah_status" in o for o in d["unusual_options"])
     rec = next(t for t in d["top"] if t["ticker"] == "GOOD")
@@ -107,7 +109,7 @@ def test_api_dashboard_recommendations_revisions(client, db):
     ext = client.get("/api/stocks/GOOD/external", headers=admin).json()
     assert len(ext["news"]) == 1 and "filings_error" in ext  # fake source has no SEC client -> explicit error
     h = client.get("/api/recommendations/history", headers=admin).json()
-    assert {x["ticker"]: x["shariah_status"] for x in h} == {"BANK": "Non-Compliant", "GOOD": "Compliant"}
+    assert {x["ticker"]: x["shariah_status"] for x in h} == {"GOOD": "Compliant"}
 
 
 def test_cookie_session_and_csrf(client):

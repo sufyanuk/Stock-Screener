@@ -93,7 +93,7 @@ def test_import_api_and_scan_from_csv(client, db):
     assert run.status == "ok", run.errors
     assert run.funnel["options_source"]["type"] == "csv" and run.funnel["price_filtered_out"] == 1
     recs = db.scalars(select(Recommendation).where(Recommendation.run_id == run.id)).all()
-    assert [x.ticker for x in recs] == ["BANK", "GOOD"]  # Shariah is highlight-only now
+    assert [x.ticker for x in recs] == ["GOOD"]  # BANK is Shariah non-compliant: never in the Top 5
     good = db.scalars(select(ScanResult).where(ScanResult.run_id == run.id, ScanResult.ticker == "GOOD")).first()
     m = good.criteria["options"]["metrics"]
     assert m["volume_change_pct"] == pytest.approx(830) and m["iv_rank"] == pytest.approx(62.5)
