@@ -7,8 +7,8 @@ importing today's options CSV). Every table column can be sorted by clicking its
 
 **Dashboard** (opens first) — near-qualified stocks failing one or two rules (with reasons), and the top 5
 from each tab: unusual options, insider buying (by % of outstanding
-shares), upcoming earnings, seasonality for this month, 52-week-low bounces, 50-EMA bounces and your
-watchlist. "View all →" opens the full tab.
+shares), upcoming earnings, seasonality for this month, 52-week-low bounces and 50-EMA bounces.
+"View all →" opens the full tab.
 
 **Unusual Options** — import the day's unusual-options CSV at the top of this tab
 (choose the file, click **Preview** to check how it was read, e.g. +1,639% and IV rank 3.3, then

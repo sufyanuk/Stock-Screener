@@ -34,7 +34,6 @@ export default function DashboardPage() {
   const ema = useApi<{ rows: any[] }>("/bounces?kind=ema50&limit=5");
   const month = new Date().getMonth() + 1;
   const seas = useApi<{ month_name: string; ranked: any[] }>(`/seasonality?month=${month}&min_years=5&min_price=5&max_price=100&limit=5`);
-  const watch = useApi<{ rows: any[] }>("/custom-watchlist");
 
   const optRows = opts.data ? [...opts.data.data].sort((a, b) => (b.vol_change_1m_pct ?? -1e9) - (a.vol_change_1m_pct ?? -1e9)) : latest === undefined && imports.data ? [] : undefined;
   const insRows = ins.data ? [...ins.data.rows].sort((a, b) => (b.pct_outstanding ?? 0) - (a.pct_outstanding ?? 0)) : undefined;
@@ -82,10 +81,6 @@ export default function DashboardPage() {
         <Mini title="Bouncing from 50 EMA — top 5" href="/bounces" rows={ema.data?.rows} empty="No 50-EMA bounces (or price history not loaded on the Bounces tab)."
           cols={[{ label: "Price", cell: (r) => usd(r.price), sort: (r) => r.price }, { label: "Close vs EMA", sort: (r) => r.vs_ema50_pct, cell: (r) => <span className="text-bull">{pct(r.vs_ema50_pct, 2, true)}</span> },
             { label: "Volume ×", cell: (r) => `${nf(r.vol_ratio, 1)}×`, sort: (r) => r.vol_ratio }, { label: "RSI", cell: (r) => nf(r.rsi, 0), sort: (r) => r.rsi }]} />
-        <Mini title="My watchlist — first 5" href="/watchlist" rows={watch.data?.rows} empty="Your watchlist is empty."
-          cols={[{ label: "Close", cell: (r) => usd(r.bars?.at(-1)?.close ?? r.price), sort: (r) => r.bars?.at(-1)?.close ?? r.price },
-            { label: "Change", sort: (r) => r.day_change_pct, cell: (r) => <span className={tone(r.day_change_pct)}>{pct(r.day_change_pct, 2, true)}</span> },
-            { label: "Volume", cell: (r) => compact(r.bars?.at(-1)?.volume), sort: (r) => r.bars?.at(-1)?.volume }]} />
       </div>
     </div>
   );
