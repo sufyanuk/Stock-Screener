@@ -21,6 +21,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import delete, insert, select
 from sqlalchemy.orm import Session
 
+from app.db import upsert
 from app.models import (BusinessReviewRow, MonthlyClose, PriceSnapshot, SecCompany, SecFact, SecFrameLoad, Security,
                         ShariahResultRow, ShariahRules)
 from app.screening import shariah_engine as se
@@ -93,10 +94,10 @@ def _store_frame(db: Session, tag: str, period: str, rows: list[dict], ciks: set
     rows = [r for r in rows if _cik(r.get("cik")) in ciks and r.get("val") is not None and r.get("end")]
     if not rows:
         return 0
-    have = {(f.cik): f for f in db.scalars(select(SecFact).where(SecFact.tag == tag)).all()}
+    have = {f.cik: f for f in db.scalars(select(SecFact).where(SecFact.tag == tag)).all()}
     anchors = None if tag == ASSETS else dict(db.execute(select(SecFact.cik, SecFact.end).where(SecFact.tag == ASSETS)).all())
     duration = period.count("Q") == 0
-    n = 0
+    out: dict[str, dict] = {}
     for r in rows:
         c, end = _cik(r["cik"]), date.fromisoformat(r["end"])
         start = date.fromisoformat(r["start"]) if r.get("start") else None
@@ -105,15 +106,12 @@ def _store_frame(db: Session, tag: str, period: str, rows: list[dict], ciks: set
         if not duration and tag != ASSETS and anchors.get(c) != end:
             continue
         cur = have.get(c)
-        if cur is not None and cur.end > end:
+        if (cur is not None and cur.end > end) or (c in out and out[c]["end"] > end):
             continue
-        if cur is None:
-            cur = SecFact(cik=c, tag=tag)
-            db.add(cur)
-            have[c] = cur
-        cur.end, cur.start, cur.val, cur.accn, cur.frame = end, start, float(r["val"]), r.get("accn"), period
-        n += 1
-    return n
+        out[c] = {"cik": c, "tag": tag, "end": end, "start": start, "val": float(r["val"]), "accn": r.get("accn"),
+                  "frame": period}
+    upsert(db, SecFact, list(out.values()))
+    return len(out)
 
 
 def status(db: Session) -> dict:
@@ -153,13 +151,17 @@ async def load(db: Session, ds, max_seconds: float = 200.0, refresh: bool = Fals
         if any(g[1] == ASSETS for g in group):  # Assets fixes each company's balance-sheet date: store it first
             group = [g for g in group if g[1] == ASSETS]
         i += len(group)
-        res = await asyncio.gather(*(sec.frame("us-gaap", t, u, p) for _, t, u, p in group), return_exceptions=True)
+        try:
+            res = await asyncio.wait_for(asyncio.gather(*(sec.frame("us-gaap", t, u, p) for _, t, u, p in group),
+                                                        return_exceptions=True), max(5.0, budget - (time.time() - started)))
+        except asyncio.TimeoutError:
+            break  # out of time: the next call continues with these frames
         for (key, tag, _, period), rows in zip(group, res):
             if isinstance(rows, Exception):
                 errors.append(f"{key}: {str(rows)[:160]}")
                 continue
             n = _store_frame(db, tag, period, rows, ciks)
-            db.merge(SecFrameLoad(key=key, rows=n, loaded_at=datetime.now(timezone.utc)))
+            upsert(db, SecFrameLoad, [{"key": key, "rows": n, "loaded_at": datetime.now(timezone.utc)}])
             processed += 1
         db.commit()
     # industry codes (SIC) for the business screen
@@ -168,16 +170,23 @@ async def load(db: Session, ds, max_seconds: float = 200.0, refresh: bool = Fals
         if time.time() - started > budget or len(errors) > 20:
             break
         part = need[j:j + SIC_BATCH]
-        res = await asyncio.gather(*(sec.submissions(c) for c in part), return_exceptions=True)
+        try:
+            res = await asyncio.wait_for(asyncio.gather(*(sec.submissions(c) for c in part), return_exceptions=True),
+                                         max(5.0, budget - (time.time() - started)))
+        except asyncio.TimeoutError:
+            break
+        comp_rows = []
         for c, sub in zip(part, res):
             if isinstance(sub, ProviderError) and sub.status == 404:
                 sub = {}  # not on EDGAR: recorded without an industry code (business screen → DOUBTFUL)
             if isinstance(sub, Exception):
                 errors.append(f"submissions {c}: {str(sub)[:120]}")
                 continue
-            db.merge(SecCompany(cik=c, name=(sub.get("name") or "")[:255] or None, sic=(sub.get("sic") or None),
-                                sic_description=(sub.get("sicDescription") or None), fetched_at=datetime.now(timezone.utc)))
+            comp_rows.append({"cik": c, "name": (sub.get("name") or "")[:255] or None, "sic": sub.get("sic") or None,
+                              "sic_description": sub.get("sicDescription") or None,
+                              "fetched_at": datetime.now(timezone.utc)})
             processed += 1
+        upsert(db, SecCompany, comp_rows)
         db.commit()
     st = status(db)
     complete = st["frames_done"] == st["frames_total"] and st["companies_done"] >= st["companies_total"]

@@ -300,3 +300,34 @@ def test_shares_lookup_uses_sec_and_does_not_cache_timeouts(db):
     assert r["fetched"] == 1 and r["remaining"] == 1
     rs._save_shares(db, {"SECX": (6e7, "sec")})  # saving an existing ticker again is fine
     assert db.get(SharesOutstanding, "SECX").shares == 6e7
+
+
+def test_upsert_tolerates_existing_rows_and_analyst_budget(db):
+    import asyncio
+    from datetime import datetime, timezone
+
+    from app.db import upsert
+    from app.models import AnalystSnapshot
+    from app.services import research as rs
+
+    now = datetime.now(timezone.utc)
+    row = {"symbol": "AAA", "strong_buy": 1, "buy": 0, "hold": 0, "sell": 0, "strong_sell": 0, "provider": "x", "retrieved_at": now}
+    upsert(db, AnalystSnapshot, [row])
+    upsert(db, AnalystSnapshot, [row | {"strong_buy": 5}])  # same key again: updated, no duplicate-key error
+    db.commit()
+    assert db.get(AnalystSnapshot, "AAA").strong_buy == 5
+
+    class Prov:
+        provider = "fake"
+
+    class Ad:
+        counts = {"strong_buy": 2}
+
+    class DS:
+        async def analyst(self, s):
+            await asyncio.sleep(0.2)
+            return Ad(), Prov()
+
+    r = asyncio.run(rs.load_analyst_counts(db, DS(), [f"S{i}" for i in range(50)], limit=50, max_seconds=0.5))
+    assert 1 <= r["fetched"] < 50 and r["remaining"] == 50 - r["fetched"]  # stopped on time, progress saved
+    assert db.query(AnalystSnapshot).filter(AnalystSnapshot.symbol.like("S%")).count() == r["fetched"]

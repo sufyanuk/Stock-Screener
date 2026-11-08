@@ -243,8 +243,9 @@ def recompute(db: Session) -> int:
              "pos_avg": opt(r.pos_avg), "neg_years": opt(r.neg_years, int) or 0, "neg_max": opt(r.neg_max),
              "neg_min": opt(r.neg_min), "neg_avg": opt(r.neg_avg),
              "computed_at": now} for r in stats.itertuples(index=False)]
-    for i in range(0, len(rows), 20_000):
-        db.execute(insert(SeasonalityStat), rows[i:i + 20_000])
+    from app.db import upsert
+
+    upsert(db, SeasonalityStat, rows)  # another request may be recomputing at the same moment
     db.commit()
     return len(rows)
 

@@ -90,26 +90,38 @@ def analyst_counts(db: Session, symbols: list[str]) -> dict[str, AnalystSnapshot
     return {a.symbol: a for a in db.scalars(select(AnalystSnapshot).where(AnalystSnapshot.symbol.in_(symbols))).all()}
 
 
-async def load_analyst_counts(db: Session, ds, symbols: list[str], limit: int = 100) -> dict:
+async def load_analyst_counts(db: Session, ds, symbols: list[str], limit: int = 100, max_seconds: float = 120) -> dict:
+    """Analyst rating counts for stocks not fetched in the last day. Stops after ``max_seconds`` (the
+    provider is rate-limited) and saves every 20 stocks, so a batch never runs into the request limit."""
+    import time
+
+    from app.db import upsert
+
+    started = time.time()
     have = analyst_counts(db, symbols)
     cutoff = _now() - timedelta(hours=ANALYST_TTL_HOURS)
     todo = [s for s in symbols if s not in have or _aware(have[s].retrieved_at) < cutoff][:limit]
-    done, errors = 0, []
+    done, errors, rows = 0, [], []
     for s in todo:
+        if time.time() - started > max_seconds:
+            break
         try:
-            ad, prov = await ds.analyst(s)
-        except ProviderError as e:
-            errors.append(str(e))
+            ad, prov = await asyncio.wait_for(ds.analyst(s), 20)
+        except (ProviderError, asyncio.TimeoutError) as e:
+            errors.append(f"{s}: {str(e) or 'timed out'}")
             if "not configured" in str(e):
                 break
             continue
         c = ad.counts or {}
-        db.merge(AnalystSnapshot(symbol=s, strong_buy=c.get("strong_buy"), buy=c.get("buy"), hold=c.get("hold"),
-                                 sell=c.get("sell"), strong_sell=c.get("strong_sell"), provider=prov.provider,
-                                 retrieved_at=_now()))
+        rows.append({"symbol": s, "strong_buy": c.get("strong_buy"), "buy": c.get("buy"), "hold": c.get("hold"),
+                     "sell": c.get("sell"), "strong_sell": c.get("strong_sell"), "provider": prov.provider,
+                     "retrieved_at": _now()})
         done += 1
-        if done % 20 == 0:
-            db.commit()  # keep progress if the batch is interrupted
+        if len(rows) >= 20:
+            upsert(db, AnalystSnapshot, rows)
+            db.commit()
+            rows = []
+    upsert(db, AnalystSnapshot, rows)
     db.commit()
     remaining = len([s for s in symbols if s not in have]) - done
     return {"fetched": done, "remaining": max(0, remaining), "errors": errors[:5]}
@@ -145,18 +157,12 @@ def _sec_shares(db: Session, tickers: list[str]) -> dict[str, float]:
 
 
 def _save_shares(db: Session, found: dict[str, tuple[float | None, str | None]]) -> None:
-    from sqlalchemy.exc import IntegrityError
-
+    from app.db import upsert
     from app.models import SharesOutstanding
 
-    for _ in range(2):  # another request may insert the same ticker at the same moment
-        try:
-            for t, (n, src) in found.items():
-                db.merge(SharesOutstanding(ticker=t, shares=n, source=src, retrieved_at=_now()))
-            db.commit()
-            return
-        except IntegrityError:
-            db.rollback()
+    upsert(db, SharesOutstanding, [{"ticker": t, "shares": n, "source": src, "retrieved_at": _now()}
+                                   for t, (n, src) in found.items()])
+    db.commit()
 
 
 async def load_shares(db: Session, ds, tickers: list[str], limit: int = 60, max_seconds: float = 50) -> dict:
