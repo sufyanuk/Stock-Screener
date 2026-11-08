@@ -113,8 +113,19 @@ CORE = ["conventional_finance", "conventional_insurance", "alcohol", "gambling",
 # financial tests and no source: they are fully configurable but classify nothing until configured.
 BUILTIN: dict[str, dict] = {
     "AAOIFI": {
-        "label": "AAOIFI Shari'ah Standard No. 21", "source": None, "business": list(CORE),
-        "business_tolerance_pct": None, "tests": [],
+        "label": "AAOIFI Shari'ah Standard No. 21",
+        # Clause text as widely quoted (AAOIFI's own copy could not be retrieved here; editable on the Shariah tab).
+        "source": "AAOIFI Shari'ah Standard No. 21 (Financial Papers: Shares and Bonds), clauses 3/4/2-3/4/4",
+        "business": list(CORE),
+        "business_tolerance_pct": 5.0,  # 3/4/4: revenue from prohibited components should not exceed 5%
+        "tests": [
+            {"key": "debt", "label": "Interest-bearing borrowings / market capitalisation", "numerator": "debt",
+             "denominator": "market_cap", "op": "le", "limit": 30.0},
+            {"key": "cash", "label": "Interest-bearing deposits / market capitalisation", "numerator": "cash_ib",
+             "denominator": "market_cap", "op": "le", "limit": 30.0},
+            {"key": "income", "label": "Prohibited income / total revenue", "numerator": "nonpermissible_income",
+             "denominator": "revenue", "op": "le", "limit": 5.0},
+        ],
     },
     "FTSE": {
         "label": "FTSE Shariah (FTSE Yasaar Global Equity Shariah Index Series)",

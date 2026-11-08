@@ -90,11 +90,13 @@ financial tests (numerator, denominator, threshold, < or ≤) and source. Nothin
   accounts receivable and cash < 50% of total assets; total interest and non-compliant activities income ≤ 5% of
   total revenue. Excluded sectors: conventional finance, alcohol, pork / non-halal food, entertainment (casinos,
   gambling, cinema, music, pornography, hotels), tobacco, weapons/arms/defence (5% revenue tolerance).
-* **AAOIFI** ships with **no thresholds**: the official standard could not be retrieved automatically
-  (AAOIFI's site refused the request), so values were not assumed. Enter them on the Shariah tab →
-  *Methodology rules* from the official AAOIFI Shari'ah Standard No. 21 (the document name is required and
-  stored with an audit trail). Until then AAOIFI marks every stock DOUBTFUL except businesses that fail the
-  business screen.
+* **AAOIFI** Shari'ah Standard No. 21, clauses 3/4/2–3/4/4 (built in, 8 Nov 2026): interest-bearing borrowings
+  ≤ 30% of market capitalisation; interest-bearing deposits ≤ 30% of market capitalisation; revenue from
+  prohibited components ≤ 5% of total revenue ("should not exceed"). Business exclusions: conventional finance
+  and insurance, alcohol, gambling, pork, tobacco, adult entertainment. Market cap = latest price × shares
+  outstanding (balance sheet, else the filing's cover page). The clause text is as widely quoted — AAOIFI's own
+  copy could not be retrieved in this environment; the rules stay editable on the Shariah tab → *Methodology
+  rules* (changes are stored with an audit trail). Cash is conservatively treated as interest-bearing deposits.
 * Dow Jones Islamic Market and S&P Shariah were removed (8 Nov 2026) at the owner's request.
 
 **Business screen.** Uses the company's SEC industry code (SIC) and name. Prohibited primary SIC codes
@@ -123,7 +125,10 @@ balance-sheet date (from the same filing date, never mixed); income lines from t
   used (noted). If only net interest is reported, gross interest income = net interest income + interest expense
   for the same fiscal year (both from the filing).
 * REITs are not excluded by industry; mortgage REITs fail the debt / interest-income tests.
-* Market cap (only for tests that use it) = shares outstanding on the same balance sheet × latest price;
+* Market cap (only for tests that use it) = shares outstanding on the same balance sheet (else the filing's
+  cover-page count within ~6 months; one share class if several — conservative) × latest price (daily close,
+  else the last month-end close). IFRS filers have no market cap (statements and share prices may differ in
+  currency or be ADRs), so market-cap tests are DOUBTFUL for them;
   12/24/36-month averages = average of consecutive month-end closes × those shares (requires the full window).
 
 Refreshed weekly by the daily scan; the Shariah tab continues any unfinished load.

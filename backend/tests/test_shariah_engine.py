@@ -85,14 +85,28 @@ def test_only_aaoifi_and_ftse_are_offered():
     assert se.METHOD_KEYS == ["AAOIFI", "FTSE"]
 
 
-@pytest.mark.parametrize("m", ["AAOIFI"])
-def test_unconfigured_methodology_assumes_no_thresholds(m):
-    rules = se.methodologies()[m]
-    assert rules["source"] is None and rules["tests"] == []
-    r = se.screen(m, rules, _inp(), TODAY)
+def test_unconfigured_methodology_assumes_no_thresholds():
+    rules = {"label": "Unconfigured", "source": None, "business": list(se.CORE), "business_tolerance_pct": None, "tests": []}
+    r = se.screen("X", rules, _inp(), TODAY)
     assert r["status"] == se.DOUBTFUL and "not configured" in r["reasons"][0]
-    # business screen still applies
-    assert se.screen(m, rules, _inp(sic="6022"), TODAY)["status"] == se.NON_COMPLIANT
+    assert se.screen("X", rules, _inp(sic="6022"), TODAY)["status"] == se.NON_COMPLIANT  # business screen still applies
+
+
+def test_aaoifi_standard_21_rules():
+    aa = se.methodologies()["AAOIFI"]
+    assert "Standard No. 21" in aa["source"] and "3/4/2" in aa["source"]
+    assert {t["key"]: (t["numerator"], t["denominator"], t["op"], t["limit"]) for t in aa["tests"]} == {
+        "debt": ("debt", "market_cap", "le", 30.0), "cash": ("cash_ib", "market_cap", "le", 30.0),
+        "income": ("nonpermissible_income", "revenue", "le", 5.0)}
+    # market cap 2000: debt 600 = 30% ("should not exceed") passes, 601 fails; deposits likewise; income 5% passes
+    assert se.screen("AAOIFI", aa, _inp(debt=600.0, cash_ib=600.0, interest_income=25.0), TODAY)["status"] == se.HALAL
+    assert se.screen("AAOIFI", aa, _inp(debt=601.0), TODAY)["status"] == se.NON_COMPLIANT
+    assert se.screen("AAOIFI", aa, _inp(cash_ib=601.0, receivables=0.0), TODAY)["status"] == se.NON_COMPLIANT
+    assert se.screen("AAOIFI", aa, _inp(interest_income=26.0), TODAY)["status"] == se.NON_COMPLIANT
+    assert se.screen("AAOIFI", aa, _inp(market_cap=None), TODAY)["status"] == se.DOUBTFUL  # never HALAL without it
+    # AAOIFI and FTSE stay separate: 34% of total assets fails FTSE but is 17% of market cap for AAOIFI
+    assert se.screen("AAOIFI", aa, _inp(debt=340.0), TODAY)["status"] == se.HALAL
+    assert se.screen("FTSE", FTSE, _inp(debt=340.0), TODAY)["status"] == se.NON_COMPLIANT
 
 
 def test_configured_methodologies_stay_separate():
@@ -126,7 +140,7 @@ class FakeSec:
             "CashAndCashEquivalentsAtCarryingValue": {1: 100, 2: 900, 3: 50, 4: 100},
             "ShortTermInvestments": {1: 50},
             "AccountsReceivableNetCurrent": {1: 100, 2: 10, 3: 100, 4: 100},
-            "CommonStockSharesOutstanding": {1: 100, 3: 100, 4: 100},
+            "CommonStockSharesOutstanding": {1: 100, 4: 100},
         }
         # 5 = SPAC (trust account), 6 = debt only as component lines + net interest, 7 = REIT
         self.inst["Assets"] |= {5: 100, 6: 1000, 7: 1000}
@@ -145,6 +159,8 @@ class FakeSec:
 
     async def frame(self, taxonomy, tag, unit, period):
         self.calls.append((tag, period))
+        if taxonomy == "dei":  # cover-page share count (DEBTY reports shares only there)
+            return [{"cik": 3, "end": "2026-10-25", "val": 100, "accn": "c3"}] if period == "CY2026Q3I" else []
         if taxonomy == "ifrs-full":
             if unit != "EUR":
                 return []
@@ -185,6 +201,11 @@ def test_loader_and_api(client, db, monkeypatch):  # noqa: F811
     for c, t in fake.names.items():
         db.add(Security(ticker=t, cik=str(c).zfill(10), name=t.title() + " Inc", exchange="Nasdaq"))
     assert len(fake.names) == 8
+    from datetime import date as _d
+
+    from app.models import PriceSnapshot
+    for t in ("GOOD", "DEBTY"):
+        db.add(PriceSnapshot(symbol=t, as_of=_d(2026, 11, 6), close=50.0, data={}, source="alpaca"))
     db.add(Security(ticker="NOCIK", cik=None, name="No Cik Co", exchange="Nasdaq"))
     db.add(Security(ticker="SPACW", cik="0000000005", name="Spac warrant", exchange="Nasdaq"))  # warrant: not screened
     db.add(Security(ticker="REIT-PA", cik="0000000007", name="Reit preferred", exchange="NYSE"))  # preferred: not screened
@@ -216,14 +237,17 @@ def test_loader_and_api(client, db, monkeypatch):  # noqa: F811
     assert {x["key"]: x["value"] for x in good["ratios"]} == {"debt": 10.0, "cash": 15.0, "recv_cash": 25.0, "income": 1.0}
     assert client.get("/api/shariah?methodology=FTSE&status=HALAL", headers=h).json()["total"] == 3
 
-    # AAOIFI has no rules yet: everything DOUBTFUL except the bank (business screen)
+    # AAOIFI (market cap): GOOD has a price and shares -> classified; NOINT has no price -> DOUBTFUL
     aa = {x["symbol"]: x["status"] for x in client.get("/api/shariah?methodology=AAOIFI", headers=h).json()["rows"]}
-    assert aa["GOOD"] == "DOUBTFUL" and aa["BANK"] == "NON_COMPLIANT"
+    assert aa["GOOD"] == "HALAL" and aa["BANK"] == "NON_COMPLIANT" and aa["NOINT"] == "DOUBTFUL"
+    assert aa["DEBTY"] == "HALAL"  # 350 debt vs market cap 100 x 50 = 5000: 7% (FTSE fails it on total assets)
+    aad = client.get("/api/shariah/DEBTY", headers=h).json()
+    assert aad["methods"]["AAOIFI"]["inputs"]["market_cap"] == 5000 and aad["sources"]["shares_outstanding"][0]["tag"] == "dei:EntityCommonStockSharesOutstanding"
 
     d = client.get("/api/shariah/GOOD", headers=h).json()
     assert d["sic"] == "3571" and d["period_end"] == "2026-09-30"
     assert d["sources"]["debt"][0]["tag"] == "LongTermDebtNoncurrent" and d["methods"]["FTSE"]["status"] == "HALAL"
-    assert d["methods"]["FTSE"]["inputs"]["debt"] == 100 and d["methods"]["FTSE"]["inputs"]["market_cap"] is None
+    assert d["methods"]["FTSE"]["inputs"]["debt"] == 100 and d["methods"]["FTSE"]["inputs"]["market_cap"] == 5000
 
     # colours across the app follow the methodology chosen in Settings (FTSE by default)
     from app.services import research as rs

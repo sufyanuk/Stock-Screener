@@ -253,8 +253,9 @@ function RulesEditor({ onSaved }: { onSaved: () => void }) {
     <Card title="Methodology rules">
       <p className="mb-2 text-xs text-muted">
         Rules are used only as entered here, each methodology on its own. FTSE comes from the FTSE Yasaar Global Equity Shariah
-        Index Series Ground Rules. Enter AAOIFI thresholds from the current official AAOIFI Shari&apos;ah Standard No. 21 — until then
-        AAOIFI classifies nothing as HALAL.
+        Index Series Ground Rules; AAOIFI from Shari&apos;ah Standard No. 21, clauses 3/4/2–3/4/4 (borrowings and
+        interest-bearing deposits each ≤ 30% of market capitalisation, prohibited income ≤ 5% of revenue). Edit them here
+        if your copy of a standard differs.
       </p>
       <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
         {data.methodologies.map((m) => (

@@ -55,6 +55,7 @@ INSTANT_TAGS = list(dict.fromkeys(DEBT_TOTAL + DEBT_ALL_IN + DEBT_NC_AGG + DEBT_
                                   + DEBT_ST_PARTS + ["DebtCurrent"] + DEBT_UNCLASSIFIED + FIN_LEASE + CASH + CASH_ST
                                   + CASH_LT + TRUST + RECEIVABLES))
 SHARES_TAG = "CommonStockSharesOutstanding"  # unit "shares", same balance-sheet date
+DEI_SHARES = "EntityCommonStockSharesOutstanding"  # cover page of every 10-K / 10-Q (dei taxonomy)
 REVENUE_TAGS = ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax",
                 "RevenueFromContractWithCustomerIncludingAssessedTax", "SalesRevenueNet"]
 INTEREST_TAGS = ["InvestmentIncomeInterest", "InterestIncomeOther", "InterestIncomeOperating", "InterestAndOtherIncome",
@@ -111,6 +112,7 @@ def frame_plan(today: date) -> list[tuple[str, str, str, str, str]]:
     plan += [(f"ifrs-full/{ASSETS}/{u}/{p}", "ifrs-full", ASSETS, u, p) for u in IFRS_UNITS for p in iq]
     plan += [(f"{t}/{p}", "us-gaap", t, "USD", p) for t in INSTANT_TAGS for p in qs]
     plan += [(f"{SHARES_TAG}/{p}", "us-gaap", SHARES_TAG, "shares", p) for p in qs]
+    plan += [(f"dei/{DEI_SHARES}/{p}", "dei", DEI_SHARES, "shares", p) for p in qs]
     plan += [(f"{t}/{p}", "us-gaap", t, "USD", p) for t in DURATION_TAGS for p in ys]
     plan += [(f"ifrs-full/{t}/{u}/{p}", "ifrs-full", t, u, p) for t in IFRS_INSTANT for u in IFRS_UNITS for p in iq]
     plan += [(f"ifrs-full/{t}/{u}/{p}", "ifrs-full", t, u, p) for t in IFRS_DURATION for u in IFRS_UNITS for p in ys]
@@ -128,8 +130,9 @@ def _cik(v) -> str:
 def _store_frame(db: Session, taxonomy: str, tag: str, unit: str, period: str, rows: list[dict], ciks: set[str]) -> int:
     """Keep the facts we need: Assets = latest date per company; other balance-sheet lines only at that
     date (and, for IFRS, in the same currency); annual lines = latest fiscal year (about 12 months)."""
-    ifrs = taxonomy != "us-gaap"
-    key = ("ifrs:" + tag) if ifrs else tag
+    ifrs = taxonomy == "ifrs-full"
+    dei = taxonomy == "dei"  # cover-page facts: latest per company, not tied to the balance-sheet date
+    key = ("ifrs:" + tag) if ifrs else ("dei:" + tag) if dei else tag
     anchor_tag = "ifrs:" + ASSETS if ifrs else ASSETS
     label = f"{period}|{unit}" if ifrs else period
     rows = [r for r in rows if _cik(r.get("cik")) in ciks and r.get("val") is not None and r.get("end")]
@@ -146,7 +149,7 @@ def _store_frame(db: Session, taxonomy: str, tag: str, unit: str, period: str, r
         start = date.fromisoformat(r["start"]) if r.get("start") else None
         if duration and (start is None or not 340 <= (end - start).days <= 390):
             continue
-        if not duration and key != anchor_tag:
+        if not duration and key != anchor_tag and not dei:
             a = anchors.get(c)
             if a is None or a[0] != end or (ifrs and a[1] != unit):
                 continue
@@ -328,7 +331,13 @@ def build_inputs(sec: Security, comp: SecCompany | None, facts: dict[str, SecFac
         if trust:
             notes.append("Includes assets held in trust (SPAC trust accounts hold Treasury bills / money-market funds).")
         recv = first("receivables", RECEIVABLES)
-        shares = bs[SHARES_TAG].val if SHARES_TAG in bs else None
+        shares_fact, shares_tag = (bs[SHARES_TAG], SHARES_TAG) if SHARES_TAG in bs else (None, None)
+        cover = facts.get("dei:" + DEI_SHARES)
+        if shares_fact is None and cover is not None and end and abs((cover.end - end).days) <= 200:
+            shares_fact, shares_tag = cover, "dei:" + DEI_SHARES  # cover-page count near the balance-sheet date
+            notes.append("Shares outstanding from the filing's cover page (one share class if the company has several: "
+                         "conservative).")
+        shares = shares_fact.val if shares_fact is not None else None
         rev_tags, int_tags, int_notes = REVENUE_TAGS, INTEREST_TAGS, INTEREST_NOTES
 
     def latest(tags: list[str]):
@@ -368,7 +377,8 @@ def build_inputs(sec: Security, comp: SecCompany | None, facts: dict[str, SecFac
         return sum(closes[-n:]) / n * shares
 
     if shares:
-        rec("shares_outstanding", SHARES_TAG, bs[SHARES_TAG])
+        used.setdefault("shares_outstanding", []).append({"tag": shares_tag, "value": shares_fact.val,
+                                                          "end": shares_fact.end.isoformat(), "accn": shares_fact.accn})
         notes.append("Average market cap = average month-end close (split/dividend-adjusted) × shares outstanding "
                      "on the latest SEC balance sheet.")
     if rev is not None and end and (end - rev.end).days > 400:
