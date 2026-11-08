@@ -46,17 +46,18 @@ the newest day, and a stock with a split-sized jump has its history reloaded. **
   above the EMA; volume at least 1.5× the 20-day average; optional RSI(14) 40–60.
 All thresholds can be changed on the tab. Latest completed session only.
 
-**Seasonality** — based on your own price-history CSV (daily, weekly or monthly OHLCV). On the
-Seasonality tab choose the file (one file with a Symbol/Ticker column for all stocks, or one file per
-stock named by ticker, e.g. AAPL.csv), check the preview (stocks, date range, close column), then
-**Import**. The file is read in your browser and only each stock's month-end close is uploaded, so
-large files are fine. "Replace all existing price history" starts fresh; untick it to add or update
-only the stocks in the file. "Adj Close" is used when present; use split-adjusted prices. Pick a month
-to rank stocks by average return in that month (or % of years positive), with median, best/worst
-year, years of data, latest price and a 12-month heatmap. Filter by price range, minimum years and
-ticker prefix. "Top 5 for each month" shows the leaders for every month. A month the file only
-partly covers is left out, and moves beyond ±200% in a month are ignored as data errors. Past
-seasonality does not guarantee future returns.
+**Seasonality** — choose **Select Index** (S&P 500, Nasdaq-100, Dow Jones 30 or All US stocks),
+**Select Month**, and **Bullish** or **Bearish**. Bullish lists, for every stock, the total years of
+data, how many years that month closed up, % positive, and the largest, smallest and average gain in
+those up years. Bearish shows the same for the down years (largest, smallest and average fall). The
+table is sorted by % positive (or % negative) and every column can be sorted. Prices come from Alpaca
+monthly bars (10 years, adjusted for splits and dividends) and load automatically the first time you
+open the tab (a progress line shows "Loaded X of Y stocks"); after that the daily scan adds each new
+month, or click **Update prices**. Index members come from FMP, with Wikipedia as a fallback, and are
+refreshed weekly. "More filters" adds minimum years, price range and ticker prefix. You can still
+import your own price-history CSV at the bottom of the page (months already in the database are kept).
+Moves beyond ±200% in a month are ignored as data errors. Past seasonality does not guarantee future
+returns.
 
 **Stock page** — why the stock was or wasn't selected (pass/fail/missing per criterion, in plain
 English); a candlestick chart with SMAs, support/resistance, entry, stop and targets; options

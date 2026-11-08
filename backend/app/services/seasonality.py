@@ -92,6 +92,103 @@ def finish_import(db: Session, source: str, last_date: date | None) -> dict:
     return {"stats": stats, "partial_month_dropped": dropped}
 
 
+API_TICKER_RE = re.compile(r"^[A-Z]{1,5}(\.[A-Z])?$")
+API_YEARS = 10
+API_BATCH = 200
+
+
+def _rebuild_market_months(db: Session, source: str) -> None:
+    db.execute(delete(MarketMonth))
+    now = datetime.now(timezone.utc)
+    counts = db.execute(select(MonthlyClose.month, func.count()).group_by(MonthlyClose.month)).all()
+    if counts:
+        db.execute(insert(MarketMonth), [{"month": m, "session": month_last_session(m), "symbols": n,
+                                          "provider": source[:32], "retrieved_at": now} for m, n in counts])
+    db.commit()
+
+
+def _last_complete_month() -> date:
+    t = _today()
+    return date(t.year - 1, 12, 1) if t.month == 1 else date(t.year, t.month - 1, 1)
+
+
+def api_status(db: Session) -> dict:
+    from app.models import Security, SeasonalitySymbol
+
+    uni = {t for t in db.scalars(select(Security.ticker)).all() if t and API_TICKER_RE.match(t)}
+    rows = db.execute(select(SeasonalitySymbol.symbol, SeasonalitySymbol.last_month)).all()
+    loaded = {r.symbol for r in rows}
+    target = _last_complete_month()
+    return {"universe": len(uni), "loaded": len(loaded & uni) if uni else len(loaded),
+            "remaining": len(uni - loaded),
+            "stale": sum(1 for r in rows if r.last_month and r.last_month < target), "target_month": target.isoformat()[:7]}
+
+
+async def load_api(db: Session, ds, max_seconds: float = 200.0, rebuild: bool = False) -> dict:
+    """Month-end closes for every listed US common stock from Alpaca monthly bars (200 stocks per
+    request, adjusted for splits and dividends, ~10 years). Resumable within a time budget; months that
+    already exist for a stock (e.g. from an imported CSV) are kept. Rebuilds the statistics at the end."""
+    import asyncio
+    import time
+
+    from app.models import Security, SeasonalitySymbol
+
+    started = time.time()
+    alp = getattr(ds, "alpaca", None)
+    if alp is None or not hasattr(alp, "multi_daily_bars"):
+        return {"processed": 0, "errors": ["Alpaca keys are not set"]} | api_status(db) | {"coverage": coverage(db)}
+    if rebuild:
+        db.execute(delete(SeasonalitySymbol))
+        db.execute(delete(MonthlyClose).where(MonthlyClose.provider == "alpaca"))
+        db.commit()
+    target = _last_complete_month()
+    end = date(target.year + (target.month == 12), 1 if target.month == 12 else target.month + 1, 1) - timedelta(days=1)
+    uni = sorted({t for t in db.scalars(select(Security.ticker)).all() if t and API_TICKER_RE.match(t)})
+    done = {r.symbol: r for r in db.scalars(select(SeasonalitySymbol)).all()}
+    todo = [(s, date(target.year - API_YEARS, target.month, 1)) for s in uni if s not in done]
+    todo += [(s, r.last_month) for s, r in done.items() if r.last_month and r.last_month < target]
+    errors: list[str] = []
+    processed = 0
+    batches = [todo[i:i + API_BATCH] for i in range(0, len(todo), API_BATCH)]
+    budget = max(10.0, max_seconds - 45)  # keep time to rebuild the statistics
+    for i in range(0, len(batches), 4):
+        if time.time() - started > budget:
+            break
+        group = batches[i:i + 4]
+        res = await asyncio.gather(*(alp.multi_daily_bars([s for s, _ in b], min(f for _, f in b), end, "1Month")
+                                     for b in group), return_exceptions=True)
+        now = datetime.now(timezone.utc)
+        for b, bars in zip(group, res):
+            if isinstance(bars, Exception):
+                errors.append(str(bars)[:200])
+                continue
+            syms = [s for s, _ in b]
+            have = set(db.execute(select(MonthlyClose.symbol, MonthlyClose.month)
+                                  .where(MonthlyClose.symbol.in_(syms))).all())
+            new_rows = []
+            for s in syms:
+                for d, o, h, lo, c, v in bars.get(s, []):
+                    m = date.fromisoformat(d[:7] + "-01")
+                    if m > target or not c or c <= 0 or (s, m) in have:
+                        continue
+                    new_rows.append({"symbol": s, "month": m, "close": float(c), "provider": "alpaca", "retrieved_at": now})
+                    have.add((s, m))
+            if new_rows:
+                db.execute(insert(MonthlyClose), new_rows)
+            for s in syms:
+                months = [m for (sym, m) in have if sym == s]
+                db.merge(SeasonalitySymbol(symbol=s, months=len(months), last_month=max(months) if months else target,
+                                           provider="alpaca", retrieved_at=now))
+            db.commit()
+            processed += len(syms)
+        if errors and not processed:
+            break
+    if processed:
+        _rebuild_market_months(db, "alpaca (monthly bars)")
+        recompute(db)
+    return {"processed": processed, "errors": errors[:3]} | api_status(db) | {"coverage": coverage(db)}
+
+
 def months_loaded(db: Session) -> set[date]:
     return set(db.scalars(select(MarketMonth.month)).all())
 
@@ -125,12 +222,25 @@ def recompute(db: Session) -> int:
     worst_idx = g.idxmin()
     stats["best_year"] = long.loc[best_idx.values, "year"].values
     stats["worst_year"] = long.loc[worst_idx.values, "year"].values
+    pos = long[long["ret"] > 0].groupby(["symbol", "cal"])["ret"]
+    neg = long[long["ret"] < 0].groupby(["symbol", "cal"])["ret"]
+    stats = stats.join(pd.DataFrame({"pos_years": pos.count(), "pos_max": pos.max(), "pos_min": pos.min(),
+                                     "pos_avg": pos.mean()}))
+    stats = stats.join(pd.DataFrame({"neg_years": neg.count(), "neg_max": neg.min(), "neg_min": neg.max(),
+                                     "neg_avg": neg.mean()}))
     stats = stats.reset_index()
     now = datetime.now(timezone.utc)
+
+    def opt(v, cast=float):
+        return cast(v) if pd.notna(v) else None
+
     rows = [{"symbol": r.symbol, "month": int(r.cal), "years": int(r.years), "avg": float(r.avg),
              "median": float(r.median), "win_rate": float(r.win_rate), "best": float(r.best),
              "best_year": int(r.best_year), "worst": float(r.worst), "worst_year": int(r.worst_year),
              "last_close": float(last_close.get(r.symbol)) if pd.notna(last_close.get(r.symbol)) else None,
+             "pos_years": opt(r.pos_years, int) or 0, "pos_max": opt(r.pos_max), "pos_min": opt(r.pos_min),
+             "pos_avg": opt(r.pos_avg), "neg_years": opt(r.neg_years, int) or 0, "neg_max": opt(r.neg_max),
+             "neg_min": opt(r.neg_min), "neg_avg": opt(r.neg_avg),
              "computed_at": now} for r in stats.itertuples(index=False)]
     for i in range(0, len(rows), 20_000):
         db.execute(insert(SeasonalityStat), rows[i:i + 20_000])
@@ -149,7 +259,8 @@ def coverage(db: Session) -> dict:
             "computed_at": computed.isoformat() if computed else None}
 
 
-def _filtered(month: int, min_years: int, min_price: float | None, max_price: float | None, q: str | None):
+def _filtered(month: int, min_years: int, min_price: float | None, max_price: float | None, q: str | None,
+              symbols: set[str] | None = None):
     s = select(SeasonalityStat).where(SeasonalityStat.month == month, SeasonalityStat.years >= min_years)
     if min_price is not None:
         s = s.where(SeasonalityStat.last_close >= min_price)
@@ -157,28 +268,46 @@ def _filtered(month: int, min_years: int, min_price: float | None, max_price: fl
         s = s.where(SeasonalityStat.last_close < max_price)
     if q:
         s = s.where(SeasonalityStat.symbol.like(q.upper().strip() + "%"))
+    if symbols is not None:
+        s = s.where(SeasonalityStat.symbol.in_(symbols or {"__none__"}))
     return s
 
 
-def ranking(db: Session, month: int, min_years: int = 5, rank_by: str = "avg", limit: int = 200,
-            min_price: float | None = None, max_price: float | None = None, q: str | None = None) -> dict:
-    order = ((SeasonalityStat.win_rate.desc(), SeasonalityStat.avg.desc()) if rank_by == "win"
-             else (SeasonalityStat.avg.desc(), SeasonalityStat.win_rate.desc()))
-    base = _filtered(month, min_years, min_price, max_price, q)
+def ranking(db: Session, month: int, min_years: int = 5, rank_by: str = "pct", limit: int = 500,
+            min_price: float | None = None, max_price: float | None = None, q: str | None = None,
+            mode: str = "bullish", symbols: set[str] | None = None, names: dict[str, str] | None = None) -> dict:
+    """Bullish: years the month closed up (count, %, max / min / average gain).
+    Bearish: years it closed down (count, %, largest / smallest / average fall).
+    Sorted by % of years in the chosen direction, then the average move."""
+    from app.models import Security
+
+    bear = mode == "bearish"
+    cnt = SeasonalityStat.neg_years if bear else SeasonalityStat.pos_years
+    pct_expr = (func.coalesce(cnt, 0) * 100.0 / SeasonalityStat.years)
+    avg_col = SeasonalityStat.neg_avg if bear else SeasonalityStat.pos_avg
+    if rank_by == "avg":
+        order = (avg_col.asc() if bear else avg_col.desc(), pct_expr.desc())
+    else:
+        order = (pct_expr.desc(), avg_col.asc() if bear else avg_col.desc())
+    base = _filtered(month, min_years, min_price, max_price, q, symbols)
     total = db.scalar(select(func.count()).select_from(base.subquery()))
     rows = db.scalars(base.order_by(*order, SeasonalityStat.symbol).limit(limit)).all()
-    syms = [r.symbol for r in rows]
-    heat: dict[str, list] = {s: [None] * 12 for s in syms}
-    if syms:
-        for st in db.scalars(select(SeasonalityStat).where(SeasonalityStat.symbol.in_(syms))).all():
-            heat[st.symbol][st.month - 1] = round(st.avg, 2)
-    ranked = [{"rank": i, "symbol": r.symbol, "years": r.years, "avg": r.avg, "median": r.median,
-               "win_rate": r.win_rate, "best": r.best, "best_year": r.best_year, "worst": r.worst,
-               "worst_year": r.worst_year, "last_close": r.last_close, "heatmap": heat[r.symbol]}
-              for i, r in enumerate(rows, 1)]
-    return {"month": month, "month_name": MONTHS[month - 1], "rank_by": rank_by, "min_years": min_years,
-            "total_matching": total, "ranked": ranked,
-            "note": "Average return in this calendar month over past years, from the imported price history. "
+    syms = {r.symbol for r in rows}
+    nm = dict(db.execute(select(Security.ticker, Security.name).where(Security.ticker.in_(syms))).all()) if syms else {}
+    nm.update({k: v for k, v in (names or {}).items() if v})
+    ranked = []
+    for i, r in enumerate(rows, 1):
+        n = (r.neg_years if bear else r.pos_years) or 0
+        ranked.append({"rank": i, "symbol": r.symbol, "name": nm.get(r.symbol), "years": r.years,
+                       "count": n, "pct": n / r.years * 100 if r.years else None,
+                       "max": r.neg_max if bear else r.pos_max, "min": r.neg_min if bear else r.pos_min,
+                       "avg_dir": r.neg_avg if bear else r.pos_avg,
+                       "avg": r.avg, "median": r.median, "win_rate": r.win_rate, "best": r.best,
+                       "best_year": r.best_year, "worst": r.worst, "worst_year": r.worst_year,
+                       "last_close": r.last_close})
+    return {"month": month, "month_name": MONTHS[month - 1], "mode": "bearish" if bear else "bullish",
+            "rank_by": rank_by, "min_years": min_years, "total_matching": total, "ranked": ranked,
+            "note": "Month-end to month-end price change in this calendar month over past years. "
                     "Past seasonality does not guarantee future returns."}
 
 

@@ -365,6 +365,15 @@ class SeasonalityStat(Base):
     worst: Mapped[float] = mapped_column(Float)
     worst_year: Mapped[int] = mapped_column(Integer)
     last_close: Mapped[float | None] = mapped_column(Float)
+    # bullish view: years the month closed up; bearish view: years it closed down (changes in %)
+    pos_years: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pos_max: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pos_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pos_avg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    neg_years: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    neg_max: Mapped[float | None] = mapped_column(Float, nullable=True)  # largest fall (most negative)
+    neg_min: Mapped[float | None] = mapped_column(Float, nullable=True)  # smallest fall
+    neg_avg: Mapped[float | None] = mapped_column(Float, nullable=True)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -439,4 +448,26 @@ class SentiSenseRatingRow(Base):
     as_of: Mapped[date | None] = mapped_column(Date, nullable=True)
     reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     source: Mapped[str] = mapped_column(String(16))  # "screener" | "rating"
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class IndexMember(Base):
+    """Index constituents (S&P 500, Nasdaq-100, Dow 30) for the Seasonality index filter; refreshed weekly."""
+
+    __tablename__ = "index_members"
+    index_code: Mapped[str] = mapped_column(String(16), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source: Mapped[str] = mapped_column(String(32))
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SeasonalitySymbol(Base):
+    """Stocks whose monthly history was loaded from the price API (resumable whole-market load)."""
+
+    __tablename__ = "seasonality_symbols"
+    symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
+    months: Mapped[int] = mapped_column(Integer)
+    last_month: Mapped[date | None] = mapped_column(Date, nullable=True)
+    provider: Mapped[str] = mapped_column(String(32))
     retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

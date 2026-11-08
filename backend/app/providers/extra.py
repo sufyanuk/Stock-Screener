@@ -59,7 +59,7 @@ class Alpaca:
         j = await self.http.get_json(f"/v2/stocks/{ticker}/snapshot", {"feed": self.feed})
         return parse_alpaca_snapshot(j)
 
-    async def multi_daily_bars(self, symbols: list[str], start: date, end: date) -> dict[str, list[tuple]]:
+    async def multi_daily_bars(self, symbols: list[str], start: date, end: date, timeframe: str = "1Day") -> dict[str, list[tuple]]:
         """Daily bars for many symbols in one paginated request (up to 10,000 bars a page):
         symbol -> [(YYYY-MM-DD, open, high, low, close, volume), ...] oldest first, split/dividend adjusted.
         Uses the consolidated SIP feed (free for history older than 15 minutes), else the configured feed."""
@@ -69,7 +69,7 @@ class Alpaca:
             token, out = None, {}
             try:
                 for _ in range(200):
-                    params = {"symbols": ",".join(symbols), "timeframe": "1Day", "start": start.isoformat(),
+                    params = {"symbols": ",".join(symbols), "timeframe": timeframe, "start": start.isoformat(),
                               "end": end.isoformat(), "adjustment": "all", "feed": feed, "limit": 10000, "sort": "asc"}
                     if token:
                         params["page_token"] = token

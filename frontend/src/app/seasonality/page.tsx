@@ -1,38 +1,74 @@
 "use client";
-import { useState } from "react";
-import { Card, Empty, ErrorBox, Field, ShariahLegend, SortTable, Ticker } from "@/components/ui";
-import { useApi } from "@/lib/api";
-import { nf, pct, tone, usd } from "@/lib/format";
+import { useEffect, useRef, useState } from "react";
+import { Button, Card, Empty, ErrorBox, Field, ShariahLegend, SortTable, Ticker } from "@/components/ui";
+import { api, useApi } from "@/lib/api";
+import { nf, pct, tone } from "@/lib/format";
 import { PriceImport } from "@/components/price-import";
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-type Entry = { rank: number; symbol: string; years: number; avg: number; median: number; win_rate: number; best: number; best_year: number;
-  worst: number; worst_year: number; last_close: number | null; heatmap: (number | null)[]; shariah_status: string | null };
+type Mode = "bullish" | "bearish";
+type Entry = { rank: number; symbol: string; name: string | null; years: number; count: number; pct: number | null;
+  max: number | null; min: number | null; avg_dir: number | null; avg: number; last_close: number | null; shariah_status: string | null };
 type Coverage = { first_month: string | null; last_month: string | null; months: number; symbols: number; provider: string | null; computed_at: string | null };
-type Resp = { month: number; month_name: string; ranked: Entry[]; total_matching: number; note: string; coverage: Coverage;
+type Load = { universe: number; loaded: number; remaining: number; stale: number; target_month: string };
+type Resp = { month: number; month_name: string; mode: Mode; ranked: Entry[]; total_matching: number; note: string; coverage: Coverage; load: Load;
+  index: string; indexes: { code: string; label: string }[]; index_error: string | null;
   best_by_month: { month: number; month_name: string; top: { symbol: string; avg: number; win_rate: number; years: number; shariah_status?: string | null }[] }[] };
 
-function heat(v: number | null) {
-  if (v === null || Math.abs(v) < 0.05) return "bg-panel-2 text-muted";
-  const a = Math.min(Math.abs(v) / 6, 1);
-  return v >= 0 ? (a > 0.66 ? "bg-bull/60" : a > 0.33 ? "bg-bull/35" : "bg-bull/15") : (a > 0.66 ? "bg-bear/60" : a > 0.33 ? "bg-bear/35" : "bg-bear/15");
-}
+const num = (v: string) => v.replace(/[^0-9.]/g, "");
 
 export default function SeasonalityPage() {
   const [month, setMonth] = useState(new Date().getMonth() + 1);
+  const [index, setIndex] = useState("sp500");
+  const [mode, setMode] = useState<Mode>("bullish");
   const [minYears, setMinYears] = useState(5);
-  const [rankBy, setRankBy] = useState("avg");
-  const [minPrice, setMinPrice] = useState("5");
-  const [maxPrice, setMaxPrice] = useState("100");
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
   const [q, setQ] = useState("");
-  const qs = new URLSearchParams({ month: String(month), min_years: String(minYears), rank_by: rankBy, limit: "200" });
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const qs = new URLSearchParams({ month: String(month), index, mode, min_years: String(minYears), limit: "1000" });
   if (minPrice) qs.set("min_price", minPrice);
   if (maxPrice) qs.set("max_price", maxPrice);
   if (q) qs.set("q", q);
-  const { data, error, reload } = useApi<Resp>(`/seasonality?${qs}`);
+  const { data, error, reload, loading } = useApi<Resp>(`/seasonality?${qs}`);
   const cov = data?.coverage;
+  const ld = data?.load;
+  const bear = mode === "bearish";
+  const word = bear ? "Negative" : "Positive";
 
+  async function load(rebuild = false) {
+    setErr(null);
+    setBusy("Loading 10 years of monthly prices for all US stocks…");
+    try {
+      for (let i = 0; i < 30; i++) {
+        const r = await api<Load & { processed: number; errors: string[] }>("/seasonality/load", {
+          method: "POST", body: JSON.stringify({ max_seconds: 200, rebuild: rebuild && i === 0 }) });
+        setBusy(`Loaded ${(r.universe - r.remaining).toLocaleString()} of ${r.universe.toLocaleString()} stocks…`);
+        if (r.errors.length) setErr(r.errors[0]);
+        if ((r.remaining <= 0 && r.stale <= 0) || r.processed === 0) break;
+      }
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+    setBusy(null);
+    reload();
+  }
+
+  // Load automatically when the monthly history is missing or a month behind (once per page visit).
+  const auto = useRef(false);
+  useEffect(() => {
+    if (!ld || auto.current) return;
+    if (ld.remaining > 0 || ld.stale > 0) {
+      auto.current = true;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time automatic load when history is missing or stale
+      load();
+    }
+  }, [ld]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const label = data?.indexes.find((i) => i.code === index)?.label ?? "";
+  const bg = bear ? "bg-bear/10" : "bg-bull/10";
 
   return (
     <div className="space-y-4">
@@ -40,55 +76,71 @@ export default function SeasonalityPage() {
         <div>
           <h1 className="text-xl font-semibold">Seasonality</h1>
           <p className="text-sm text-muted">
-            Ranked by how each stock performed in the chosen calendar month over past years, from your imported price-history CSV.
-            {cov && cov.months > 0 && <> Data: {cov.symbols.toLocaleString()} stocks · {cov.first_month?.slice(0, 7)} → {cov.last_month?.slice(0, 7)} ({cov.months} months) · {cov.provider}</>}
+            How often each stock rose (or fell) in a calendar month over the past years, month-end to month-end (Alpaca monthly bars, adjusted for splits and dividends).
+            {cov && cov.months > 0 && <> Data: {cov.symbols.toLocaleString()} stocks · {cov.first_month?.slice(0, 7)} → {cov.last_month?.slice(0, 7)}</>}
           </p>
         </div>
         <ShariahLegend />
       </div>
 
-      {(data || error) && <PriceImport open={!cov?.months} onDone={reload} />}
-
       <Card>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-          <Field label="Rank by"><select value={rankBy} onChange={(e) => setRankBy(e.target.value)}><option value="avg">Average return</option><option value="win">% of years positive</option></select></Field>
-          <Field label="Minimum years of history"><input type="number" min={1} max={20} value={minYears} onChange={(e) => setMinYears(Number(e.target.value) || 1)} /></Field>
-          <Field label="Price from ($)"><input value={minPrice} onChange={(e) => setMinPrice(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="any" /></Field>
-          <Field label="Price below ($)"><input value={maxPrice} onChange={(e) => setMaxPrice(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="any" /></Field>
-          <Field label="Ticker starts with"><input value={q} onChange={(e) => setQ(e.target.value.toUpperCase())} placeholder="e.g. AA" /></Field>
+        <div className="flex flex-wrap items-end gap-4">
+          <Field label="Select Index">
+            <select value={index} onChange={(e) => setIndex(e.target.value)}>
+              {(data?.indexes ?? [{ code: "sp500", label: "S&P 500" }]).map((i) => <option key={i.code} value={i.code}>{i.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Select Month">
+            <select value={month} onChange={(e) => setMonth(Number(e.target.value))}>
+              {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+            </select>
+          </Field>
+          <div className="flex items-center gap-4 pb-2 text-sm">
+            {(["bullish", "bearish"] as Mode[]).map((m) => (
+              <label key={m} className="flex cursor-pointer items-center gap-1.5">
+                <input type="radio" name="mode" checked={mode === m} onChange={() => setMode(m)} />
+                <span className={m === "bullish" ? "text-bull" : "text-bear"}>{m === "bullish" ? "Bullish" : "Bearish"}</span>
+              </label>
+            ))}
+          </div>
         </div>
-        <div className="mt-3"><ErrorBox error={error} /></div>
-        <div className="mt-3 flex flex-wrap gap-1">
-          {MONTHS.map((m, i) => (
-            <button key={m} onClick={() => setMonth(i + 1)}
-              className={`rounded-md px-3 py-1.5 text-sm ${month === i + 1 ? "bg-accent text-bg" : "border border-line text-muted hover:text-ink"}`}>{m}</button>
-          ))}
+        <details className="mt-3 text-sm">
+          <summary className="cursor-pointer text-muted">More filters</summary>
+          <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-4">
+            <Field label="Minimum years of history"><input type="number" min={1} max={20} value={minYears} onChange={(e) => setMinYears(Number(e.target.value) || 1)} /></Field>
+            <Field label="Price from ($)"><input value={minPrice} onChange={(e) => setMinPrice(num(e.target.value))} placeholder="any" /></Field>
+            <Field label="Price below ($)"><input value={maxPrice} onChange={(e) => setMaxPrice(num(e.target.value))} placeholder="any" /></Field>
+            <Field label="Ticker starts with"><input value={q} onChange={(e) => setQ(e.target.value.toUpperCase())} placeholder="e.g. AA" /></Field>
+          </div>
+        </details>
+        <div className="mt-3 space-y-2">
+          <ErrorBox error={error} />
+          {data?.index_error && <div className="text-sm text-warn">{data.index_error}</div>}
+          {err && <div className="text-sm text-bear">{err}</div>}
+          {busy && <div className="text-sm text-accent">{busy}</div>}
         </div>
       </Card>
 
-      <Card title={data ? `Best stocks in ${data.month_name} — top ${data.ranked.length} of ${data.total_matching.toLocaleString()}` : "Ranking"}>
+      <Card title={data ? `${label} · ${MONTHS[data.month - 1]} · ${bear ? "Bearish" : "Bullish"} — ${data.total_matching.toLocaleString()} stocks` : "Seasonality"}
+        right={ld && <Button onClick={() => load()} disabled={!!busy}>{busy ? "Loading…" : "Update prices"}</Button>}>
         {data?.ranked.length ? (
-          <SortTable rows={data.ranked} rowKey={(e) => e.symbol} initial="rank" desc={false}
+          <SortTable rows={data.ranked} rowKey={(e) => e.symbol} initial="pct" limit={500}
             cols={[
-              { key: "rank", label: "#", cell: (e) => e.rank, className: "num" },
-              { key: "symbol", label: "Ticker", cell: (e) => <Ticker symbol={e.symbol} status={e.shariah_status} /> },
-              { key: "last_close", label: "Price", cell: (e) => usd(e.last_close), className: "num" },
-              { key: "avg", label: "Avg return", cell: (e) => <span className={`font-semibold ${tone(e.avg)}`}>{pct(e.avg, 2, true)}</span>, className: "num" },
-              { key: "median", label: "Median", cell: (e) => <span className={tone(e.median)}>{pct(e.median, 2, true)}</span>, className: "num" },
-              { key: "win_rate", label: "% years up", cell: (e) => `${nf(e.win_rate, 0)}%`, className: "num" },
-              { key: "years", label: "Years", cell: (e) => e.years, className: "num" },
-              { key: "best", label: "Best", cell: (e) => <><span className={tone(e.best)}>{pct(e.best, 1, true)}</span> <span className="text-xs text-muted">{e.best_year}</span></>, className: "num" },
-              { key: "worst", label: "Worst", cell: (e) => <><span className={tone(e.worst)}>{pct(e.worst, 1, true)}</span> <span className="text-xs text-muted">{e.worst_year}</span></>, className: "num" },
-              { key: "heat", label: "Avg return by month (Jan → Dec)", sort: (e) => e.heatmap[month - 1], cell: (e) => (
-                <div className="flex gap-0.5">{e.heatmap.map((v, i) => (
-                  <span key={i} title={`${MONTHS[i]}: ${v === null ? "no data" : pct(v, 2, true)}`}
-                    className={`grid h-5 w-7 place-items-center rounded text-[9px] ${heat(v)} ${i + 1 === month ? "ring-1 ring-accent" : ""}`}>{MONTHS[i][0]}</span>))}</div>) },
+              { key: "symbol", label: "Stock Name", cell: (e) => (
+                <div className="flex flex-col"><Ticker symbol={e.symbol} status={e.shariah_status} />
+                  {e.name && <span className="max-w-[16rem] truncate text-xs text-muted" title={e.name}>{e.name}</span>}</div>) },
+              { key: "years", label: "Total Years", cell: (e) => e.years, className: "num" },
+              { key: "count", label: `Total ${word} Years`, cell: (e) => e.count, className: "num" },
+              { key: "pct", label: `% ${word}`, cell: (e) => <span className={`rounded px-1.5 py-0.5 font-semibold ${bg}`}>{e.pct === null ? "—" : `${nf(e.pct, 2)}%`}</span>, className: "num" },
+              { key: "max", label: `Max ${word} Change (%)`, sort: (e) => (e.max === null ? null : Math.abs(e.max)), cell: (e) => <span className={tone(e.max)}>{pct(e.max, 2)}</span>, className: "num" },
+              { key: "min", label: `Min ${word} Change (%)`, sort: (e) => (e.min === null ? null : Math.abs(e.min)), cell: (e) => <span className={tone(e.min)}>{pct(e.min, 2)}</span>, className: "num" },
+              { key: "avg_dir", label: `Average ${word} Change (%)`, sort: (e) => (e.avg_dir === null ? null : Math.abs(e.avg_dir)), cell: (e) => <span className={`font-semibold ${tone(e.avg_dir)}`}>{pct(e.avg_dir, 2)}</span>, className: "num" },
             ]} />
-        ) : <Empty>{cov?.months ? "No stocks match these filters." : "No price history yet — import your historical OHLCV CSV above."}</Empty>}
-        <p className="mt-2 text-xs text-muted">{data?.note} Monthly moves beyond ±200% are treated as data errors and ignored.</p>
+        ) : <Empty>{loading ? "Loading…" : busy ? "Loading price history — results appear when it finishes." : cov?.months ? "No stocks match these filters." : "No price history yet."}</Empty>}
+        <p className="mt-2 text-xs text-muted">{data?.note} Max/Min/Average are over the {bear ? "down" : "up"} years only. Monthly moves beyond ±200% are treated as data errors and ignored.</p>
       </Card>
 
-      <Card title="Top 5 for each month">
+      <Card title="Top 5 for each month (average return, all US stocks)">
         {data?.best_by_month.some((m) => m.top.length) ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
             {data.best_by_month.map((m) => (
@@ -101,8 +153,10 @@ export default function SeasonalityPage() {
               </div>
             ))}
           </div>
-        ) : <Empty>Import the price history CSV to see the monthly leaders.</Empty>}
+        ) : <Empty>Appears once the price history is loaded.</Empty>}
       </Card>
+
+      {data && <PriceImport open={false} onDone={reload} />}
     </div>
   );
 }

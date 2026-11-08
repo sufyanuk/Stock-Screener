@@ -537,6 +537,14 @@ async def _do_scan(kind: str, by: str) -> dict:
 
             await load_shares(db, ds, [r["ticker"] for r in latest_insider_buys(db, 90, 500)
                                        if r["outstanding_shares"] is None], limit=80, max_seconds=40)
+            from app.services import seasonality as ss
+
+            try:  # Seasonality: add the newest completed month once the API history is loaded
+                st = ss.api_status(db)
+                if st["loaded"] and st["stale"]:
+                    await ss.load_api(db, ds, max_seconds=60)
+            except Exception as e:  # noqa: BLE001
+                log.warning("seasonality refresh skipped: %s", e)
             from app.services import ratings
 
             try:  # Ratings tab: SentiSense screener (once a day) and analyst counts for the followed stocks
@@ -1120,18 +1128,43 @@ def custom_watchlist_remove(symbol: str, db: Session = Depends(get_db), u: User 
     return {"ok": True}
 
 
+class SeasonalityLoad(BaseModel):
+    max_seconds: float = Field(200, ge=20, le=270)
+    rebuild: bool = False
+
+
+@app.post("/api/seasonality/load")
+async def seasonality_load(p: SeasonalityLoad, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    """Load ~10 years of month-end closes for every US stock from the price API (resumable)."""
+    from app.services import seasonality as ss
+
+    return await ss.load_api(db, make_datasource(), p.max_seconds, p.rebuild)
+
+
 @app.get("/api/seasonality")
-def seasonality(month: int | None = None, min_years: int = 5, rank_by: str = "avg", limit: int = 200,
-                min_price: float | None = None, max_price: float | None = None, q: str | None = None,
-                db: Session = Depends(get_db), _: User = Depends(current_user)):
+async def seasonality(month: int | None = None, min_years: int = 5, rank_by: str = "pct", limit: int = 500,
+                      min_price: float | None = None, max_price: float | None = None, q: str | None = None,
+                      mode: str = "bullish", index: str = "all",
+                      db: Session = Depends(get_db), _: User = Depends(current_user)):
+    """Stocks ranked by how often (and how much) they rose — or fell — in a calendar month."""
+    from app.services import indexes as ix
     from app.services import research as rs
     from app.services import seasonality as ss
 
     month = rs.today_ny().month if month is None else month
     if not 1 <= month <= 12:
         raise HTTPException(422, "month must be 1-12")
-    min_years, limit = max(1, min_years), min(max(limit, 10), 500)
-    out = ss.ranking(db, month, min_years, "win" if rank_by == "win" else "avg", limit, min_price, max_price, q)
+    min_years, limit = max(1, min_years), min(max(limit, 10), 2000)
+    symbols, names, idx_error = None, None, None
+    if index in ix.INDEXES:
+        from app.models import IndexMember
+
+        symbols = await ix.members(db, make_datasource(), index)
+        names = dict(db.execute(select(IndexMember.symbol, IndexMember.name).where(IndexMember.index_code == index)).all())
+        if not symbols:
+            idx_error = f"Could not load the {ix.INDEXES[index]['label']} constituents right now."
+    out = ss.ranking(db, month, min_years, "avg" if rank_by == "avg" else "pct", limit, min_price, max_price, q,
+                     "bearish" if mode == "bearish" else "bullish", symbols, names)
     best = ss.best_by_month(db, min_years, 5, min_price, max_price)
     sh = rs.shariah_map(db, {e["symbol"] for e in out["ranked"]} | {t["symbol"] for m in best for t in m["top"]})
     for e in out["ranked"]:
@@ -1139,7 +1172,10 @@ def seasonality(month: int | None = None, min_years: int = 5, rank_by: str = "av
     for m in best:
         for t in m["top"]:
             t["shariah_status"] = sh.get(t["symbol"])
-    return out | {"best_by_month": best, "coverage": ss.coverage(db)}
+    return out | {"best_by_month": best, "coverage": ss.coverage(db), "load": ss.api_status(db), "index": index,
+                  "indexes": [{"code": "all", "label": "All US stocks"}] +
+                             [{"code": k, "label": v["label"]} for k, v in ix.INDEXES.items()],
+                  "index_error": idx_error}
 
 
 @app.get("/api/methodology")

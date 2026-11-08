@@ -123,8 +123,15 @@ def test_cookie_session_and_csrf(client):
 
 
 def test_dashboard_dedupes_joint_insider_reports_and_so_date(client, db):
+    from datetime import date as _d
+
+    from app.models import InsiderTransaction
+
     admin, _ = _auth(client)
     run_scan(db)
+    for t in db.query(InsiderTransaction).all():  # the dashboard shows the last 7 days of filings
+        t.filing_date = _d.today()
+    db.commit()
     d = client.get("/api/dashboard", headers=admin).json()
     good = [b for b in d["insider_buys"] if b["ticker"] == "GOOD"]
     assert len(good) == 1 and good[0]["owner"] == "Jane Doe" and good[0]["co_reporters"] == ["Doe Trust"]

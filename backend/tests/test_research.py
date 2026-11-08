@@ -119,12 +119,16 @@ def test_seasonality_from_imported_csv(client, db):
     assert f["coverage"]["provider"] == "prices.csv"
 
     t = client.get("/api/seasonality?month=11&min_years=5", headers=h).json()
-    syms = [e["symbol"] for e in t["ranked"]]
-    assert syms[0] == "GOOD" and syms[-1] == "BANK"
+    assert t["mode"] == "bullish" and t["ranked"][0]["symbol"] == "GOOD"
     good = t["ranked"][0]
     assert good["avg"] == pytest.approx(10.0) and good["win_rate"] == 100 and good["years"] == 11
-    assert good["heatmap"][10] == pytest.approx(10.0) and good["heatmap"][0] == pytest.approx(0.0)
-    assert t["ranked"][-1]["avg"] == pytest.approx(-5.0)
+    assert (good["count"], good["pct"]) == (11, 100.0)
+    assert good["max"] == pytest.approx(10.0) and good["min"] == pytest.approx(10.0) and good["avg_dir"] == pytest.approx(10.0)
+    bear = client.get("/api/seasonality?month=11&min_years=5&mode=bearish", headers=h).json()
+    b = bear["ranked"][0]
+    assert bear["mode"] == "bearish" and b["symbol"] == "BANK" and (b["count"], b["pct"]) == (11, 100.0)
+    assert b["max"] == pytest.approx(-5.0) and b["avg_dir"] == pytest.approx(-5.0)
+    assert [x["symbol"] for x in t["ranked"]][-1] in ("BANK", "FLAT", "PENNY")
     t2 = client.get("/api/seasonality?month=11&min_price=1", headers=h).json()
     assert "PENNY" not in [e["symbol"] for e in t2["ranked"]]
     assert [e["symbol"] for e in client.get("/api/seasonality?month=11&q=go", headers=h).json()["ranked"]] == ["GOOD"]
@@ -166,3 +170,73 @@ def test_alpha_vantage_overview_counts():
                            "AnalystRatingStrongSell": "None"})
     assert o["counts"] == {"strong_buy": 3, "buy": 7, "hold": 9, "sell": 1} and o["target"] == 250.5
     assert parse_av_overview({"Information": "rate limit"}) is None
+
+
+
+def test_seasonality_index_filter(client, db, monkeypatch):
+    from app.services import indexes as ix
+
+    async def fake_fetch(ds, code):
+        return [("GOOD", "Good Widgets Inc"), ("FLAT", "Flat Co")], "wikipedia"
+
+    monkeypatch.setattr(ix, "_fetch", fake_fetch)
+    h = _auth(client)
+    client.post("/api/seasonality/import", headers=h, json={"rows": _month_rows(), "replace_all": True})
+    client.post("/api/seasonality/import/finish", headers=h, json={"last_date": "2025-12-31"})
+    r = client.get("/api/seasonality?month=11&index=sp500", headers=h).json()
+    assert [x["symbol"] for x in r["ranked"]] == ["GOOD", "FLAT"] and r["ranked"][0]["name"] == "Good Widgets Inc"
+    assert {i["code"] for i in r["indexes"]} == {"all", "sp500", "ndx", "dji"}
+
+
+def test_wikipedia_constituent_parser():
+    from app.services.indexes import parse_wiki
+
+    html = ("<table><tr><th>Symbol</th><th>Security</th></tr>"
+            + "".join(f"<tr><td>T{i}</td><td>Co {i}</td></tr>" for i in range(30))
+            + "<tr><td>BRK.B</td><td>Berkshire</td></tr></table>")
+    rows = parse_wiki(html, 25)
+    assert len(rows) == 31 and rows[-1] == ("BRK.B", "Berkshire")
+    assert parse_wiki(html, 100) == []
+
+
+def test_seasonality_loads_from_alpaca_monthly_bars(client, db, monkeypatch):
+    from datetime import date as d
+
+    import app.main as main
+    from app.models import Security
+    from app.services import seasonality as ss
+    from tests.conftest import FakeDataSource
+
+    calls = []
+
+    class Alp:
+        async def multi_daily_bars(self, symbols, start, end, timeframe="1Day"):
+            calls.append((tuple(symbols), timeframe))
+            out = {}
+            for s in symbols:
+                px, rows = 100.0, []
+                y, m = start.year, start.month
+                while d(y, m, 1) <= end:
+                    if m == 3 and s == "UPMAR":
+                        px *= 1.08
+                    rows.append((f"{y}-{m:02d}-01", px, px, px, px, 1.0))
+                    y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+                out[s] = rows
+            return out
+
+    class DS(FakeDataSource):
+        alpaca = Alp()
+
+    monkeypatch.setattr(main, "make_datasource", lambda: DS())
+    monkeypatch.setattr(ss, "_today", lambda: d(2026, 11, 8))
+    for t in ["UPMAR", "FLAT"]:
+        db.add(Security(ticker=t, cik="1", name=t, exchange="Nasdaq"))
+    db.commit()
+    h = _auth(client)
+    r = client.post("/api/seasonality/load", headers=h, json={"max_seconds": 120}).json()
+    assert r["remaining"] == 0 and r["loaded"] == 2 and calls[0][1] == "1Month" and r["coverage"]["symbols"] == 2
+    mar = client.get("/api/seasonality?month=3&min_years=5", headers=h).json()
+    assert mar["ranked"][0]["symbol"] == "UPMAR" and mar["ranked"][0]["pct"] == 100.0 and mar["ranked"][0]["years"] == 10
+    n = len(calls)
+    again = client.post("/api/seasonality/load", headers=h, json={}).json()
+    assert again["processed"] == 0 and len(calls) == n  # nothing new until next month
