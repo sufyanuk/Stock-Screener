@@ -1210,14 +1210,10 @@ async def seasonality(month: int | None = None, min_years: int = 5, rank_by: str
     out = ss.ranking(db, month, min_years, "avg" if rank_by == "avg" else "pct", limit, min_price, max_price, q,
                      "bearish" if mode == "bearish" else "bullish", symbols, names)
     await _attach_prices(db, out["ranked"])
-    best = ss.best_by_month(db, min_years, 5, min_price, max_price)
-    sh = rs.shariah_map(db, {e["symbol"] for e in out["ranked"]} | {t["symbol"] for m in best for t in m["top"]})
+    sh = rs.shariah_map(db, {e["symbol"] for e in out["ranked"]})
     for e in out["ranked"]:
         e["shariah_status"] = sh.get(e["symbol"])
-    for m in best:
-        for t in m["top"]:
-            t["shariah_status"] = sh.get(t["symbol"])
-    return out | {"best_by_month": best, "coverage": ss.coverage(db), "load": ss.api_status(db), "index": index,
+    return out | {"coverage": ss.coverage(db), "load": ss.api_status(db), "index": index,
                   "indexes": [{"code": "all", "label": "All US stocks"}] +
                              [{"code": k, "label": v["label"]} for k, v in ix.INDEXES.items()],
                   "index_error": idx_error}

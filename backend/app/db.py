@@ -40,10 +40,11 @@ def _make(url: str, pooled: bool = True):
         from sqlalchemy.pool import NullPool
 
         return create_engine("postgresql+psycopg://", creator=_retrying_creator(url), poolclass=NullPool)
-    # Small pool for serverless instances; prepare_threshold=None keeps psycopg compatible with
-    # transaction-mode poolers (Neon's pooled endpoint).
+    # One instance serves many requests at once (long loaders hold a connection for minutes), so the
+    # pool must be roomy; Neon's pooled endpoint (PgBouncer) accepts many client connections.
+    # prepare_threshold=None keeps psycopg compatible with transaction-mode poolers.
     return create_engine("postgresql+psycopg://", creator=_retrying_creator(url), pool_pre_ping=True,
-                         pool_size=3, max_overflow=2, pool_recycle=300)
+                         pool_size=10, max_overflow=10, pool_timeout=20, pool_recycle=300)
 
 
 def engine():

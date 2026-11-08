@@ -27,9 +27,11 @@ export default function InsidersPage() {
     (async () => {
       setBusy(`Looking up shares outstanding for ${data.shares_missing} stocks…`);
       try {
-        for (let i = 0; i < 6; i++) {
+        let idle = 0;
+        for (let i = 0; i < 10; i++) {
           const r = await api<{ fetched: number; remaining: number }>("/insiders/load-shares", { method: "POST" });
-          if (r.remaining === 0 || r.fetched === 0) break;
+          idle = r.fetched === 0 ? idle + 1 : 0;
+          if (r.remaining === 0 || idle >= 2) break;
         }
       } catch { /* shown as missing */ }
       setBusy(null);

@@ -132,8 +132,7 @@ def test_seasonality_from_imported_csv(client, db):
     t2 = client.get("/api/seasonality?month=11&min_price=1", headers=h).json()
     assert "PENNY" not in [e["symbol"] for e in t2["ranked"]]
     assert [e["symbol"] for e in client.get("/api/seasonality?month=11&q=go", headers=h).json()["ranked"]] == ["GOOD"]
-    nov = next(m for m in t["best_by_month"] if m["month"] == 11)
-    assert nov["top"][0]["symbol"] == "GOOD"
+    assert "best_by_month" not in t  # Top-5-per-month card removed
     assert client.get("/api/seasonality?month=0", headers=h).status_code == 422
 
     # merge mode: re-importing one symbol replaces only that symbol's history
@@ -272,3 +271,32 @@ def test_seasonality_price_column_uses_live_snapshot(client, db, monkeypatch):
     r = {x["symbol"]: x for x in client.get("/api/seasonality?month=11&min_years=5", headers=h).json()["ranked"]}
     assert r["GOOD"]["price"] == 123.45 and r["GOOD"]["price_live"] is True
     assert r["BANK"]["price"] == r["BANK"]["last_close"] and r["BANK"]["price_live"] is False
+
+
+def test_shares_lookup_uses_sec_and_does_not_cache_timeouts(db):
+    import asyncio
+    from datetime import date as d
+
+    from app.models import SecFact, Security, SharesOutstanding
+    from app.services import research as rs
+    from app.providers.http import ProviderError
+
+    db.add_all([Security(ticker="SECX", cik="0000000009", name="Sec X", exchange="Nasdaq"),
+                Security(ticker="SLOW", cik="0000000008", name="Slow", exchange="Nasdaq"),
+                Security(ticker="NONE", cik="0000000007", name="None", exchange="Nasdaq"),
+                SecFact(cik="0000000009", tag="Assets", end=d(2026, 9, 30), val=1e9),
+                SecFact(cik="0000000009", tag="CommonStockSharesOutstanding", end=d(2026, 9, 30), val=5e7)])
+    db.commit()
+
+    class DS:
+        async def shares_outstanding(self, t):
+            if t == "SLOW":
+                await asyncio.sleep(60)
+            raise ProviderError("all", "no data")
+
+    r = asyncio.run(rs.load_shares(db, DS(), ["SECX", "SLOW", "NONE"], max_seconds=0.5))
+    got = {x.ticker: (x.shares, x.source) for x in db.query(SharesOutstanding).all()}
+    assert got == {"SECX": (5e7, "sec"), "NONE": (None, None)}  # SLOW timed out: not cached, tried next batch
+    assert r["fetched"] == 1 and r["remaining"] == 1
+    rs._save_shares(db, {"SECX": (6e7, "sec")})  # saving an existing ticker again is fine
+    assert db.get(SharesOutstanding, "SECX").shares == 6e7

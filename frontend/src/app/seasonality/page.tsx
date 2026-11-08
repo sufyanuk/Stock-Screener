@@ -12,8 +12,7 @@ type Entry = { rank: number; symbol: string; name: string | null; years: number;
   price: number | null; price_as_of: string | null; price_live: boolean; shariah_status: string | null };
 type Coverage = { first_month: string | null; last_month: string | null; months: number; symbols: number; provider: string | null; computed_at: string | null };
 type Load = { universe: number; loaded: number; remaining: number; stale: number; target_month: string };
-type Resp = { month: number; month_name: string; ranked: Entry[]; total_matching: number; note: string; coverage: Coverage; load: Load;
-  best_by_month: { month: number; month_name: string; top: { symbol: string; avg: number; win_rate: number; years: number; shariah_status?: string | null }[] }[] };
+type Resp = { month: number; month_name: string; ranked: Entry[]; total_matching: number; note: string; coverage: Coverage; load: Load };
 
 const num = (v: string) => v.replace(/[^0-9.]/g, "");
 
@@ -77,6 +76,8 @@ export default function SeasonalityPage() {
         <ShariahLegend />
       </div>
 
+      {(data || error) && <PriceImport open={!cov?.months} onDone={reload} />}
+
       <Card>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
           <Field label="Rank by"><select value={rankBy} onChange={(e) => setRankBy(e.target.value)}><option value="pct">% of years positive</option><option value="avg">Average positive change</option></select></Field>
@@ -117,23 +118,6 @@ export default function SeasonalityPage() {
         <p className="mt-2 text-xs text-muted">{data?.note} Max/Min/Average are over the up years only. Monthly moves beyond ±200% are treated as data errors and ignored.</p>
       </Card>
 
-      <Card title="Top 5 for each month (average return, all US stocks)">
-        {data?.best_by_month.some((m) => m.top.length) ? (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
-            {data.best_by_month.map((m) => (
-              <div key={m.month} className={`rounded-lg border p-2 ${m.month === month ? "border-accent" : "border-line"}`}>
-                <button className="mb-1 text-sm font-semibold hover:text-accent" onClick={() => setMonth(m.month)}>{m.month_name}</button>
-                {m.top.length ? m.top.map((t) => (
-                  <div key={t.symbol} className="flex justify-between text-xs"><Ticker symbol={t.symbol} status={t.shariah_status} />
-                    <span className={`num ${tone(t.avg)}`}>{pct(t.avg, 1, true)} <span className="text-muted">{nf(t.win_rate, 0)}%</span></span></div>
-                )) : <div className="text-xs text-muted">—</div>}
-              </div>
-            ))}
-          </div>
-        ) : <Empty>Appears once the price history is loaded.</Empty>}
-      </Card>
-
-      {data && <PriceImport open={false} onDone={reload} />}
     </div>
   );
 }

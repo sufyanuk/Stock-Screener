@@ -125,35 +125,77 @@ def shares_map(db: Session, tickers: set[str]) -> dict[str, float | None]:
     return {r.ticker: r.shares for r in db.scalars(select(SharesOutstanding).where(SharesOutstanding.ticker.in_(tickers))).all()}
 
 
-async def load_shares(db: Session, ds, tickers: list[str], limit: int = 60, max_seconds: float = 50) -> dict:
-    """Look up shares outstanding for tickers not cached (or older than 30 days), concurrently."""
+SHARES_RETRY_HOURS = 1  # a lookup that found nothing is retried after an hour (providers fail temporarily)
+
+
+def _sec_shares(db: Session, tickers: list[str]) -> dict[str, float]:
+    """Shares outstanding from the latest SEC balance sheet already downloaded by the Shariah loader."""
+    from app.models import SecFact, Security
+
+    ciks = {s.cik.zfill(10): s.ticker for s in db.scalars(select(Security).where(Security.ticker.in_(tickers),
+                                                                               Security.cik.is_not(None))).all()}
+    if not ciks:
+        return {}
+    facts = db.scalars(select(SecFact).where(SecFact.cik.in_(list(ciks)), SecFact.tag.in_(["Assets", "CommonStockSharesOutstanding"]))).all()
+    anchor = {f.cik: f.end for f in facts if f.tag == "Assets"}
+    return {ciks[f.cik]: f.val for f in facts
+            if f.tag == "CommonStockSharesOutstanding" and f.val and anchor.get(f.cik) == f.end}
+
+
+def _save_shares(db: Session, found: dict[str, tuple[float | None, str | None]]) -> None:
+    from sqlalchemy.exc import IntegrityError
+
     from app.models import SharesOutstanding
 
-    if not hasattr(ds, "shares_outstanding"):
-        return {"fetched": 0, "remaining": 0, "errors": []}
+    for _ in range(2):  # another request may insert the same ticker at the same moment
+        try:
+            for t, (n, src) in found.items():
+                db.merge(SharesOutstanding(ticker=t, shares=n, source=src, retrieved_at=_now()))
+            db.commit()
+            return
+        except IntegrityError:
+            db.rollback()
+
+
+async def load_shares(db: Session, ds, tickers: list[str], limit: int = 60, max_seconds: float = 50) -> dict:
+    """Shares outstanding for tickers not cached: SEC filings first (already stored), then providers
+    concurrently. Found values are kept 30 days; a lookup that found nothing is retried after an hour and a
+    lookup that timed out (rate-limited provider queue) is not recorded, so the next batch continues it."""
+    from app.models import SharesOutstanding
+
     have = {r.ticker: r for r in db.scalars(select(SharesOutstanding).where(SharesOutstanding.ticker.in_(tickers))).all()}
-    cutoff = _now() - timedelta(days=SHARES_TTL_DAYS)
-    todo = [t for t in dict.fromkeys(tickers) if t not in have or _aware(have[t].retrieved_at) < cutoff]
-    batch = todo[:limit]
-    sem = asyncio.Semaphore(6)
-    found: dict[str, tuple[float | None, str | None]] = {}
+    now = _now()
+
+    def due(t):
+        r = have.get(t)
+        if r is None:
+            return True
+        ttl = timedelta(days=SHARES_TTL_DAYS) if r.shares else timedelta(hours=SHARES_RETRY_HOURS)
+        return _aware(r.retrieved_at) < now - ttl
+
+    todo = [t for t in dict.fromkeys(tickers) if due(t)]
+    sec = _sec_shares(db, todo)
+    found: dict[str, tuple[float | None, str | None]] = {t: (n, "sec") for t, n in sec.items()}
+    rest = [t for t in todo if t not in found]
     errors: list[str] = []
+    if rest and hasattr(ds, "shares_outstanding"):
+        sem = asyncio.Semaphore(6)
 
-    async def one(t):
-        async with sem:
-            try:
-                found[t] = await asyncio.wait_for(ds.shares_outstanding(t), 15)
-            except (ProviderError, asyncio.TimeoutError) as e:
-                errors.append(f"{t}: {str(e) or 'timed out'}")
-                found[t] = (None, None)
+        async def one(t):
+            async with sem:
+                try:
+                    found[t] = await asyncio.wait_for(ds.shares_outstanding(t), 30)
+                except ProviderError as e:  # every provider answered: no figure
+                    errors.append(f"{t}: {e}")
+                    found[t] = (None, None)
+                except asyncio.TimeoutError:  # still queued behind the provider rate limit: try next batch
+                    errors.append(f"{t}: timed out")
 
-    try:
-        await asyncio.wait_for(asyncio.gather(*(one(t) for t in batch)), max_seconds)
-    except asyncio.TimeoutError:
-        pass
-    for t, (n, src) in found.items():
-        db.merge(SharesOutstanding(ticker=t, shares=n, source=src, retrieved_at=_now()))
-    db.commit()
+        try:
+            await asyncio.wait_for(asyncio.gather(*(one(t) for t in rest[:limit])), max_seconds)  # unfinished: next batch
+        except asyncio.TimeoutError:
+            pass
+    _save_shares(db, found)
     return {"fetched": sum(1 for n, _ in found.values() if n), "remaining": max(0, len(todo) - len(found)),
             "errors": errors[:5]}
 
