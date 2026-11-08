@@ -159,6 +159,8 @@ class FakeSec:
 
     async def frame(self, taxonomy, tag, unit, period):
         self.calls.append((tag, period))
+        if tag == "WeightedAverageNumberOfSharesOutstandingBasic":  # PARTS: only the EPS share count
+            return [{"cik": 6, "start": "2026-07-01", "end": "2026-09-30", "val": 200, "accn": "q6"}] if period == "CY2026Q3" else []
         if taxonomy == "dei":  # cover-page share count (DEBTY reports shares only there)
             return [{"cik": 3, "end": "2026-10-25", "val": 100, "accn": "c3"}] if period == "CY2026Q3I" else []
         if taxonomy == "ifrs-full":
@@ -204,7 +206,7 @@ def test_loader_and_api(client, db, monkeypatch):  # noqa: F811
     from datetime import date as _d
 
     from app.models import PriceSnapshot
-    for t in ("GOOD", "DEBTY"):
+    for t in ("GOOD", "DEBTY", "PARTS"):
         db.add(PriceSnapshot(symbol=t, as_of=_d(2026, 11, 6), close=50.0, data={}, source="alpaca"))
     db.add(Security(ticker="NOCIK", cik=None, name="No Cik Co", exchange="Nasdaq"))
     db.add(Security(ticker="SPACW", cik="0000000005", name="Spac warrant", exchange="Nasdaq"))  # warrant: not screened
@@ -241,6 +243,9 @@ def test_loader_and_api(client, db, monkeypatch):  # noqa: F811
     aa = {x["symbol"]: x["status"] for x in client.get("/api/shariah?methodology=AAOIFI", headers=h).json()["rows"]}
     assert aa["GOOD"] == "HALAL" and aa["BANK"] == "NON_COMPLIANT" and aa["NOINT"] == "DOUBTFUL"
     assert aa["DEBTY"] == "HALAL"  # 350 debt vs market cap 100 x 50 = 5000: 7% (FTSE fails it on total assets)
+    pd_ = client.get("/api/shariah/PARTS", headers=h).json()
+    assert pd_["methods"]["AAOIFI"]["inputs"]["market_cap"] == 10000  # 200 weighted-average shares x $50
+    assert pd_["sources"]["shares_outstanding"][0]["tag"] == "WeightedAverageNumberOfSharesOutstandingBasic"
     aad = client.get("/api/shariah/DEBTY", headers=h).json()
     assert aad["methods"]["AAOIFI"]["inputs"]["market_cap"] == 5000 and aad["sources"]["shares_outstanding"][0]["tag"] == "dei:EntityCommonStockSharesOutstanding"
 

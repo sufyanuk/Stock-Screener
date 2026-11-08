@@ -56,6 +56,8 @@ INSTANT_TAGS = list(dict.fromkeys(DEBT_TOTAL + DEBT_ALL_IN + DEBT_NC_AGG + DEBT_
                                   + CASH_LT + TRUST + RECEIVABLES))
 SHARES_TAG = "CommonStockSharesOutstanding"  # unit "shares", same balance-sheet date
 DEI_SHARES = "EntityCommonStockSharesOutstanding"  # cover page of every 10-K / 10-Q (dei taxonomy)
+# Weighted-average basic shares (EPS denominator): one total across share classes, reported every quarter.
+WEIGHTED_SHARES = "WeightedAverageNumberOfSharesOutstandingBasic"
 REVENUE_TAGS = ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax",
                 "RevenueFromContractWithCustomerIncludingAssessedTax", "SalesRevenueNet"]
 INTEREST_TAGS = ["InvestmentIncomeInterest", "InterestIncomeOther", "InterestIncomeOperating", "InterestAndOtherIncome",
@@ -97,7 +99,13 @@ def _quarters(today: date, n: int = 5) -> list[str]:
 
 
 def _years(today: date) -> list[str]:
-    return [f"CY{today.year - 1}", f"CY{today.year - 2}"]
+    """Fiscal years: the current calendar year too (fiscal years ending mid-year are already filed)."""
+    return [f"CY{today.year}", f"CY{today.year - 1}", f"CY{today.year - 2}"]
+
+
+def _quarter_durations(today: date) -> list[str]:
+    """Quarter-long periods (CY2026Q3, ...) for figures reported per quarter."""
+    return [q[:-1] for q in _quarters(today, 4)]
 
 
 def _ifrs_quarters(today: date) -> list[str]:
@@ -113,6 +121,7 @@ def frame_plan(today: date) -> list[tuple[str, str, str, str, str]]:
     plan += [(f"{t}/{p}", "us-gaap", t, "USD", p) for t in INSTANT_TAGS for p in qs]
     plan += [(f"{SHARES_TAG}/{p}", "us-gaap", SHARES_TAG, "shares", p) for p in qs]
     plan += [(f"dei/{DEI_SHARES}/{p}", "dei", DEI_SHARES, "shares", p) for p in qs]
+    plan += [(f"{WEIGHTED_SHARES}/{p}", "us-gaap", WEIGHTED_SHARES, "shares", p) for p in _quarter_durations(today)]
     plan += [(f"{t}/{p}", "us-gaap", t, "USD", p) for t in DURATION_TAGS for p in ys]
     plan += [(f"ifrs-full/{t}/{u}/{p}", "ifrs-full", t, u, p) for t in IFRS_INSTANT for u in IFRS_UNITS for p in iq]
     plan += [(f"ifrs-full/{t}/{u}/{p}", "ifrs-full", t, u, p) for t in IFRS_DURATION for u in IFRS_UNITS for p in ys]
@@ -142,12 +151,14 @@ def _store_frame(db: Session, taxonomy: str, tag: str, unit: str, period: str, r
     anchors = {} if key == anchor_tag else {
         c: (e, (fr or "").split("|")[-1]) for c, e, fr in db.execute(
             select(SecFact.cik, SecFact.end, SecFact.frame).where(SecFact.tag == anchor_tag)).all()}
-    duration = period.count("Q") == 0
+    duration = not period.endswith("I")
+    quarterly = duration and "Q" in period
     out: dict[str, dict] = {}
     for r in rows:
         c, end = _cik(r["cik"]), date.fromisoformat(r["end"])
         start = date.fromisoformat(r["start"]) if r.get("start") else None
-        if duration and (start is None or not 340 <= (end - start).days <= 390):
+        if duration and (start is None or not ((80 <= (end - start).days <= 100) if quarterly
+                                                else (340 <= (end - start).days <= 390))):
             continue
         if not duration and key != anchor_tag and not dei:
             a = anchors.get(c)
@@ -337,6 +348,11 @@ def build_inputs(sec: Security, comp: SecCompany | None, facts: dict[str, SecFac
             shares_fact, shares_tag = cover, "dei:" + DEI_SHARES  # cover-page count near the balance-sheet date
             notes.append("Shares outstanding from the filing's cover page (one share class if the company has several: "
                          "conservative).")
+        wavg = facts.get(WEIGHTED_SHARES)
+        if shares_fact is None and wavg is not None and end and abs((wavg.end - end).days) <= 200:
+            shares_fact, shares_tag = wavg, WEIGHTED_SHARES
+            notes.append(f"Shares = weighted-average basic shares for the quarter to {wavg.end} (all share classes; "
+                         "no single point-in-time total is reported).")
         shares = shares_fact.val if shares_fact is not None else None
         rev_tags, int_tags, int_notes = REVENUE_TAGS, INTEREST_TAGS, INTEREST_NOTES
 

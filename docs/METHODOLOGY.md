@@ -126,7 +126,8 @@ balance-sheet date (from the same filing date, never mixed); income lines from t
   for the same fiscal year (both from the filing).
 * REITs are not excluded by industry; mortgage REITs fail the debt / interest-income tests.
 * Market cap (only for tests that use it) = shares outstanding on the same balance sheet (else the filing's
-  cover-page count within ~6 months; one share class if several — conservative) × latest price (daily close,
+  cover-page count within ~6 months; else the weighted-average basic shares of the latest quarter, which
+  totals all share classes) × latest price (daily close,
   else the last month-end close). IFRS filers have no market cap (statements and share prices may differ in
   currency or be ADRs), so market-cap tests are DOUBTFUL for them;
   12/24/36-month averages = average of consecutive month-end closes × those shares (requires the full window).
