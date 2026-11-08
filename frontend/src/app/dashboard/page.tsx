@@ -24,7 +24,7 @@ function Mini({ title, href, rows, cols, empty, loading }: { title: string; href
 }
 
 export default function DashboardPage() {
-  const dash = useApi<Dashboard>("/dashboard", 300_000);
+  const dash = useApi<Dashboard>("/dashboard");
   const imports = useApi<{ id: number }[]>("/options-imports");
   const latest = imports.data?.[0];
   const opts = useApi<{ data: any[] }>(latest ? `/options-imports/${latest.id}` : null);

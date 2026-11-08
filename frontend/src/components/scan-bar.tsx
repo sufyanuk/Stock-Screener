@@ -9,7 +9,7 @@ import type { Dashboard } from "@/lib/types";
 /** Page title + last scan, options-CSV status and scan warnings (shared by the tabs). The "Run scan now"
  *  button is shown only where asked (Dashboard, Unusual Options); elsewhere the daily auto-scan applies. */
 export function ScanBar({ title, subtitle, onScanned, showButton = false }: { title: string; subtitle?: ReactNode; onScanned?: () => void; showButton?: boolean }) {
-  const { data, error, reload } = useApi<Dashboard>("/dashboard", 300_000);
+  const { data, error, reload } = useApi<Dashboard>("/dashboard");
   const [msg, setMsg] = useState<string | null>(null);
   async function scan() {
     setMsg("Scanning… this can take a few minutes.");

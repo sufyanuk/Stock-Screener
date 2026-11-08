@@ -85,4 +85,10 @@ SentiSense Rating (A–F letter, 0–100 score and rank, risk adjustments; a res
 and its top AI-generated insights. Keys are set in
 Vercel → Settings → Environment Variables (see docs/SETUP.md).
 
+**Data loading** — data is fetched once per trading day (New York date) and kept in your browser: opening a
+page again, or going back to filters you already used today, shows the saved results without contacting the
+server. Changing a filter or criterion fetches that view once. Any change you make (running a scan, imports,
+settings, Shariah rules) clears the saved results so the next view is fresh; "Refresh"/"Update" buttons always
+fetch new data.
+
 Disclaimer: research tool only, not investment advice. Shariah screening is not a fatwa.
