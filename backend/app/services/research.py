@@ -142,18 +142,67 @@ def shares_map(db: Session, tickers: set[str]) -> dict[str, float | None]:
 SHARES_RETRY_HOURS = 1  # a lookup that found nothing is retried after an hour (providers fail temporarily)
 
 
-def _sec_shares(db: Session, tickers: list[str]) -> dict[str, float]:
-    """Shares outstanding from the latest SEC balance sheet already downloaded by the Shariah loader."""
+def _sec_shares(db: Session, tickers: list[str]) -> dict[str, tuple[float, str]]:
+    """Shares outstanding from SEC figures already downloaded by the Shariah loader: the latest balance
+    sheet, else the filing's cover page, else the quarter's weighted-average basic shares."""
     from app.models import SecFact, Security
 
-    ciks = {s.cik.zfill(10): s.ticker for s in db.scalars(select(Security).where(Security.ticker.in_(tickers),
-                                                                               Security.cik.is_not(None))).all()}
-    if not ciks:
+    by_cik: dict[str, list[str]] = {}
+    for s in db.scalars(select(Security).where(Security.ticker.in_(tickers), Security.cik.is_not(None))).all():
+        by_cik.setdefault(s.cik.zfill(10), []).append(s.ticker)
+    if not by_cik:
         return {}
-    facts = db.scalars(select(SecFact).where(SecFact.cik.in_(list(ciks)), SecFact.tag.in_(["Assets", "CommonStockSharesOutstanding"]))).all()
-    anchor = {f.cik: f.end for f in facts if f.tag == "Assets"}
-    return {ciks[f.cik]: f.val for f in facts
-            if f.tag == "CommonStockSharesOutstanding" and f.val and anchor.get(f.cik) == f.end}
+    tags = ["Assets", "CommonStockSharesOutstanding", "dei:EntityCommonStockSharesOutstanding",
+            "WeightedAverageNumberOfSharesOutstandingBasic"]
+    facts: dict[str, dict] = {}
+    for f in db.scalars(select(SecFact).where(SecFact.cik.in_(list(by_cik)), SecFact.tag.in_(tags))).all():
+        facts.setdefault(f.cik, {})[f.tag] = f
+    out = {}
+    for cik, f in facts.items():
+        end = f["Assets"].end if "Assets" in f else None
+        bs, cover, wavg = f.get("CommonStockSharesOutstanding"), f.get("dei:EntityCommonStockSharesOutstanding"), \
+            f.get("WeightedAverageNumberOfSharesOutstandingBasic")
+        pick = None
+        if bs and bs.val and end and bs.end == end:
+            pick = (bs.val, "sec")
+        elif cover and cover.val:
+            pick = (cover.val, "sec (cover page)")
+        elif wavg and wavg.val:
+            pick = (wavg.val, "sec (weighted average)")
+        if pick:
+            for t in by_cik[cik]:
+                out[t] = pick
+    return out
+
+
+async def _sec_filing_shares(db: Session, ds, tickers: list[str], max_seconds: float) -> dict[str, tuple[float, str]]:
+    """Shares outstanding from each company's SEC filings (cover page, all share classes added up)."""
+    from app.models import Security
+    from app.providers.sec_edgar import shares_outstanding as cover_shares
+
+    sec = getattr(ds, "sec", None)
+    if sec is None or not tickers:
+        return {}
+    ciks = {s.ticker: s.cik for s in db.scalars(select(Security).where(Security.ticker.in_(tickers),
+                                                                      Security.cik.is_not(None))).all()}
+    sem = asyncio.Semaphore(6)
+    out: dict[str, tuple[float, str]] = {}
+
+    async def one(t):
+        async with sem:
+            try:
+                cf = await asyncio.wait_for(sec.companyfacts(ciks[t]), 20)
+                n, _ = cover_shares(cf, today_ny())
+                if n:
+                    out[t] = (n, "sec (filings)")
+            except Exception:  # noqa: BLE001 - try the next source
+                pass
+
+    try:
+        await asyncio.wait_for(asyncio.gather(*(one(t) for t in tickers if t in ciks)), max_seconds)
+    except asyncio.TimeoutError:
+        pass
+    return out
 
 
 def _save_shares(db: Session, found: dict[str, tuple[float | None, str | None]]) -> None:
@@ -182,9 +231,11 @@ async def load_shares(db: Session, ds, tickers: list[str], limit: int = 60, max_
         return _aware(r.retrieved_at) < now - ttl
 
     todo = [t for t in dict.fromkeys(tickers) if due(t)]
-    sec = _sec_shares(db, todo)
-    found: dict[str, tuple[float | None, str | None]] = {t: (n, "sec") for t, n in sec.items()}
+    found: dict[str, tuple[float | None, str | None]] = dict(_sec_shares(db, todo))
     rest = [t for t in todo if t not in found]
+    if rest:  # each company's own SEC filings (free, every SEC filer)
+        found |= await _sec_filing_shares(db, ds, rest[:limit], max_seconds / 2)
+        rest = [t for t in todo if t not in found]
     errors: list[str] = []
     if rest and hasattr(ds, "shares_outstanding"):
         sem = asyncio.Semaphore(6)

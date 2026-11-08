@@ -366,3 +366,32 @@ def test_insiders_tab_pulls_openinsider_at_most_every_6_hours(client, db, monkey
     db.commit()
     client.get("/api/insiders", headers=h)
     assert len(calls) == 2  # older than 6 hours: pulled again
+
+
+def test_shares_from_cover_page_and_sec_filings(db):
+    import asyncio
+    from datetime import date as d
+
+    from app.models import SecFact, Security, SharesOutstanding
+    from app.services import research as rs
+
+    db.add_all([Security(ticker="COVR", cik="0000000011", name="Cover", exchange="Nasdaq"),
+                Security(ticker="FILE", cik="0000000012", name="Filings", exchange="Nasdaq"),
+                SecFact(cik="0000000011", tag="dei:EntityCommonStockSharesOutstanding", end=d(2026, 10, 25), val=7e7)])
+    db.commit()
+
+    class Sec:
+        async def companyfacts(self, cik):  # two share classes on the cover page: added up
+            f = [{"end": "2026-10-20", "val": 3e7, "accn": "a", "filed": "2026-10-30"},
+                 {"end": "2026-10-20", "val": 2e7, "accn": "a", "filed": "2026-10-30"}]
+            return {"facts": {"dei": {"EntityCommonStockSharesOutstanding": {"units": {"shares": f}}}}}
+
+    class DS:
+        sec = Sec()
+
+        async def shares_outstanding(self, t):
+            raise AssertionError("SEC sources should have answered first")
+
+    r = asyncio.run(rs.load_shares(db, DS(), ["COVR", "FILE"]))
+    got = {x.ticker: (x.shares, x.source) for x in db.query(SharesOutstanding).all()}
+    assert got == {"COVR": (7e7, "sec (cover page)"), "FILE": (5e7, "sec (filings)")} and r["fetched"] == 2

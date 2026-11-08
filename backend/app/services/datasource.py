@@ -387,7 +387,13 @@ class LiveDataSource:
                                                  endpoint="earnings calendars")
 
     async def shares_outstanding(self, ticker):
-        """Shares outstanding: FMP shares-float → Finnhub profile → Alpha Vantage OVERVIEW."""
+        """Shares outstanding: Massive ticker details → FMP shares-float → Finnhub profile → Alpha Vantage OVERVIEW."""
+        async def massive(p):
+            n = await p.shares_outstanding(ticker)
+            if not n:
+                raise ProviderError("massive", f"no shares outstanding for {ticker}")
+            return n, "massive"
+
         async def fmp(f):
             r = await f.shares_float(ticker) or {}
             n = r.get("outstanding_shares")
@@ -409,7 +415,8 @@ class LiveDataSource:
             except (TypeError, ValueError):
                 raise ProviderError("alphavantage", f"no shares outstanding for {ticker}") from None
 
-        return await self._first("shares outstanding", [(self.fmp, fmp), (self.finnhub, finnhub), (self.av, av)])
+        return await self._first("shares outstanding", [(self.massive, massive), (self.fmp, fmp), (self.finnhub, finnhub),
+                                                        (self.av, av)])
 
     async def market_bars(self, day):
         """Daily OHLCV of every US stock for one session (one request): Massive grouped daily → FMP bulk."""

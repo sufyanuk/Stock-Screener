@@ -22,8 +22,9 @@ calls/puts, put/call and IV rank.
 code P, filed in the last 2 years, newest first; link shown under the table), pulled when you open the tab
 and refreshed at most every 6 hours. Tick **Only above 1% of outstanding shares** to keep purchases where the
 shares bought are more than 1% of the company's shares outstanding. Columns include Outstanding shares
-and % of outstanding (shares bought ÷ shares outstanding). Share counts come from FMP (Finnhub /
-Alpha Vantage as fallback) and are looked up automatically, cached for 30 days. **Insider-buying
+and % of outstanding (shares bought ÷ shares outstanding). Share counts are looked up automatically and cached for 30 days, from (in order) the SEC figures already
+loaded by the Shariah engine (balance sheet, filing cover page, quarterly weighted-average shares), Massive
+ticker details, each company's SEC filings, then FMP / Finnhub / Alpha Vantage; a stock not found is retried. **Insider-buying
 criteria** sets the % of shares outstanding, look-back and basis used for the Top 5.
 
 **Watchlist** — your custom watchlist: add any tickers (with an optional note); each shows its latest

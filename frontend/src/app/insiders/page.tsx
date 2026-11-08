@@ -24,10 +24,11 @@ export default function InsidersPage() {
   // Shares outstanding are looked up automatically (cached 30 days) for purchases that lack them.
   const tried = useRef(false);
   useEffect(() => {
-    if (!data || data.shares_missing === 0 || tried.current) return;
+    const need = data ? data.shares_missing + data.shares_unavailable : 0;  // never looked up, or not found last time
+    if (!data || need === 0 || tried.current) return;
     tried.current = true;
     (async () => {
-      setBusy(`Looking up shares outstanding for ${data.shares_missing} stocks…`);
+      setBusy(`Looking up shares outstanding for ${need} stocks…`);
       try {
         let idle = 0;
         for (let i = 0; i < 10; i++) {

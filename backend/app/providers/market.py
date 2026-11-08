@@ -114,6 +114,12 @@ class Massive:
         return df.rename(columns={"o": "open", "h": "high", "l": "low", "c": "close", "v": "volume"})[
             ["open", "high", "low", "close", "volume"]]
 
+    async def shares_outstanding(self, ticker: str) -> float | None:
+        """Shares outstanding of the traded share class (ticker details), else the company's weighted total."""
+        r = (await self._get(f"/v3/reference/tickers/{ticker}")).get("results") or {}
+        n = r.get("share_class_shares_outstanding") or r.get("weighted_shares_outstanding")
+        return float(n) if n else None
+
     async def snapshot(self, ticker: str) -> dict:
         j = await self._get(f"/v2/snapshot/locale/us/markets/stocks/tickers/{ticker}")
         t = j.get("ticker", {}) or {}
