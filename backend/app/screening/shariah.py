@@ -1,7 +1,7 @@
 """Shariah data structures shared with the SEC provider, and dividend purification.
 
-Classification is done by the internal engine in ``app/screening/shariah_engine.py`` (AAOIFI, DJIM,
-FTSE and S&P kept separate; thresholds only from the official documents; missing data → DOUBTFUL).
+Classification is done by the internal engine in ``app/screening/shariah_engine.py`` (AAOIFI and
+FTSE kept separate; thresholds only from the official documents; missing data → DOUBTFUL).
 This module only keeps the per-company SEC figures used by the scan and the purification calculator.
 """
 from __future__ import annotations

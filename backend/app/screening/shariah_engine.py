@@ -1,7 +1,7 @@
 """Internal Shariah screening engine — an analytical aid, NOT a religious certification or fatwa.
 
-Four methodologies are supported and kept fully separate: AAOIFI Shari'ah Standard No. 21, Dow Jones
-Islamic Market (DJIM), FTSE Shariah and S&P Shariah. Each has its own business-activity exclusions and
+Two methodologies are supported and kept fully separate: AAOIFI Shari'ah Standard No. 21 and FTSE
+Shariah. Each has its own business-activity exclusions and
 its own financial tests (numerator, denominator, threshold and comparison). Thresholds are never mixed
 between methodologies and are never guessed:
 
@@ -116,10 +116,6 @@ BUILTIN: dict[str, dict] = {
         "label": "AAOIFI Shari'ah Standard No. 21", "source": None, "business": list(CORE),
         "business_tolerance_pct": None, "tests": [],
     },
-    "DJIM": {
-        "label": "Dow Jones Islamic Market Indices", "source": None, "business": list(CORE),
-        "business_tolerance_pct": None, "tests": [],
-    },
     "FTSE": {
         "label": "FTSE Shariah (FTSE Yasaar Global Equity Shariah Index Series)",
         "source": "FTSE Yasaar Global Equity Shariah Index Series Ground Rules v4.6 (February 2026), rules 4.3.1-4.3.2",
@@ -135,10 +131,6 @@ BUILTIN: dict[str, dict] = {
             {"key": "income", "label": "Interest and non-compliant activities income / total revenue",
              "numerator": "nonpermissible_income", "denominator": "revenue", "op": "le", "limit": 5.0},
         ],
-    },
-    "SP": {
-        "label": "S&P Shariah Indices", "source": None, "business": list(CORE),
-        "business_tolerance_pct": None, "tests": [],
     },
 }
 METHOD_KEYS = list(BUILTIN)

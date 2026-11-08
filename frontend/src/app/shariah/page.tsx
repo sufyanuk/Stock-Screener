@@ -19,7 +19,7 @@ type Rules = { methodologies: Method[]; numerators: Record<string, string>; deno
   ops: Record<string, string>; categories: Record<string, string> };
 
 const TONE: Record<Status, "bull" | "bear" | "warn"> = { HALAL: "bull", NON_COMPLIANT: "bear", DOUBTFUL: "warn" };
-const SHORT: Record<string, string> = { AAOIFI: "AAOIFI", DJIM: "DJIM", FTSE: "FTSE", SP: "S&P" };
+const SHORT: Record<string, string> = { AAOIFI: "AAOIFI", FTSE: "FTSE" };
 
 export default function ShariahPage() {
   const [method, setMethod] = useState("FTSE");
@@ -253,8 +253,8 @@ function RulesEditor({ onSaved }: { onSaved: () => void }) {
     <Card title="Methodology rules">
       <p className="mb-2 text-xs text-muted">
         Rules are used only as entered here, each methodology on its own. FTSE comes from the FTSE Yasaar Global Equity Shariah
-        Index Series Ground Rules. Enter AAOIFI, DJIM and S&P thresholds from their current official documents — until then
-        those methodologies classify nothing as HALAL.
+        Index Series Ground Rules. Enter AAOIFI thresholds from the current official AAOIFI Shari&apos;ah Standard No. 21 — until then
+        AAOIFI classifies nothing as HALAL.
       </p>
       <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
         {data.methodologies.map((m) => (
@@ -276,7 +276,7 @@ function RulesEditor({ onSaved }: { onSaved: () => void }) {
       {draft && key && (
         <div className="mt-3 space-y-2 rounded-lg border border-accent/40 p-3 text-sm">
           <b>Edit {draft.label}</b>
-          <Field label="Official source (document name and version)"><input value={draft.source ?? ""} onChange={(e) => setDraft({ ...draft, source: e.target.value })} placeholder="e.g. S&P Shariah Indices Methodology, <month year>" /></Field>
+          <Field label="Official source (document name and version)"><input value={draft.source ?? ""} onChange={(e) => setDraft({ ...draft, source: e.target.value })} placeholder="e.g. AAOIFI Shari’ah Standard No. 21, edition" /></Field>
           <div className="flex flex-wrap gap-3 text-xs">
             {Object.entries(data.categories).map(([c, label]) => (
               <label key={c} className="flex items-center gap-1">

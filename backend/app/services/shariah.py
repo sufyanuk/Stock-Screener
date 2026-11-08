@@ -506,8 +506,7 @@ def detail(db: Session, symbol: str) -> dict | None:
 
 def status_map(db: Session, symbols: set[str], methodology: str) -> dict[str, str]:
     """Legacy colour statuses (Compliant / Non-Compliant / Needs Review) for one methodology."""
-    col = {"AAOIFI": ShariahResultRow.aaoifi, "DJIM": ShariahResultRow.djim, "FTSE": ShariahResultRow.ftse,
-           "SP": ShariahResultRow.sp}.get(methodology)
+    col = {"AAOIFI": ShariahResultRow.aaoifi, "FTSE": ShariahResultRow.ftse}.get(methodology)
     if col is None or not symbols:
         return {}
     return {s: se.LEGACY[v] for s, v in db.execute(select(ShariahResultRow.symbol, col)

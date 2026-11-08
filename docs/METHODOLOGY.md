@@ -82,7 +82,7 @@ Code: `backend/app/screening/shariah_engine.py` (rules and classification) and `
 A missing figure, missing industry code, stale balance sheet (> 456 days) or a business that needs review gives
 DOUBTFUL, never HALAL. Any failed test or prohibited primary business gives NON-COMPLIANT.
 
-**Methodologies are separate.** AAOIFI Std 21, DJIM, FTSE and S&P each have their own business exclusions,
+**Methodologies are separate.** AAOIFI Std 21 and FTSE each have their own business exclusions,
 financial tests (numerator, denominator, threshold, < or ≤) and source. Nothing is shared between them.
 
 * **FTSE** is built in from the *FTSE Yasaar Global Equity Shariah Index Series Ground Rules v4.6 (Feb 2026)*,
@@ -90,12 +90,12 @@ financial tests (numerator, denominator, threshold, < or ≤) and source. Nothin
   accounts receivable and cash < 50% of total assets; total interest and non-compliant activities income ≤ 5% of
   total revenue. Excluded sectors: conventional finance, alcohol, pork / non-halal food, entertainment (casinos,
   gambling, cinema, music, pornography, hotels), tobacco, weapons/arms/defence (5% revenue tolerance).
-* **AAOIFI, DJIM, S&P** ship with **no thresholds**. Their official documents could not be retrieved
-  automatically (S&P DJI blocks automated downloads; AAOIFI's site refused the request), and S&P/DJIM changed
-  their rules in 2023 and August 2026, so values were not assumed. Enter them on the Shariah tab →
-  *Methodology rules* from the current official document (the document name is required and stored with an
-  audit trail). Until then these methodologies mark every stock DOUBTFUL except businesses that fail the
+* **AAOIFI** ships with **no thresholds**: the official standard could not be retrieved automatically
+  (AAOIFI's site refused the request), so values were not assumed. Enter them on the Shariah tab →
+  *Methodology rules* from the official AAOIFI Shari'ah Standard No. 21 (the document name is required and
+  stored with an audit trail). Until then AAOIFI marks every stock DOUBTFUL except businesses that fail the
   business screen.
+* Dow Jones Islamic Market and S&P Shariah were removed (8 Nov 2026) at the owner's request.
 
 **Business screen.** Uses the company's SEC industry code (SIC) and name. Prohibited primary SIC codes
 (e.g. 6021/6022 banks, 6311/6331 insurers, 2082/2084/2085 alcohol, 2111 tobacco, 3482/3484 arms) → NON-COMPLIANT.

@@ -81,7 +81,11 @@ def test_business_review_and_tolerance():
 
 
 # ---------------------------------------------------------------- unverified methodologies
-@pytest.mark.parametrize("m", ["AAOIFI", "DJIM", "SP"])
+def test_only_aaoifi_and_ftse_are_offered():
+    assert se.METHOD_KEYS == ["AAOIFI", "FTSE"]
+
+
+@pytest.mark.parametrize("m", ["AAOIFI"])
 def test_unconfigured_methodology_assumes_no_thresholds(m):
     rules = se.methodologies()[m]
     assert rules["source"] is None and rules["tests"] == []
@@ -98,7 +102,7 @@ def test_configured_methodologies_stay_separate():
     inp = _inp(debt=340.0)  # 17% of market cap, 34% of total assets
     assert se.screen("AAOIFI", ms["AAOIFI"], inp, TODAY)["status"] == se.HALAL
     assert se.screen("FTSE", ms["FTSE"], inp, TODAY)["status"] == se.NON_COMPLIANT
-    assert ms["DJIM"]["tests"] == [] and ms["SP"]["tests"] == []  # nothing borrowed from other methodologies
+    assert ms["FTSE"]["tests"] == FTSE["tests"]  # AAOIFI's rules don't leak into FTSE
     # a market-cap test with no market cap is DOUBTFUL, not HALAL
     assert se.screen("AAOIFI", ms["AAOIFI"], _inp(market_cap=None), TODAY)["status"] == se.DOUBTFUL
 
@@ -212,7 +216,7 @@ def test_loader_and_api(client, db, monkeypatch):  # noqa: F811
     assert {x["key"]: x["value"] for x in good["ratios"]} == {"debt": 10.0, "cash": 15.0, "recv_cash": 25.0, "income": 1.0}
     assert client.get("/api/shariah?methodology=FTSE&status=HALAL", headers=h).json()["total"] == 3
 
-    # AAOIFI / DJIM / S&P have no rules yet: everything DOUBTFUL except the bank (business screen)
+    # AAOIFI has no rules yet: everything DOUBTFUL except the bank (business screen)
     aa = {x["symbol"]: x["status"] for x in client.get("/api/shariah?methodology=AAOIFI", headers=h).json()["rows"]}
     assert aa["GOOD"] == "DOUBTFUL" and aa["BANK"] == "NON_COMPLIANT"
 
@@ -237,7 +241,9 @@ def test_loader_and_api(client, db, monkeypatch):  # noqa: F811
     assert aa["GOOD"] == "HALAL" and aa["DEBTY"] == "NON_COMPLIANT"
     rules = client.get("/api/shariah/rules", headers=h).json()
     assert next(m for m in rules["methodologies"] if m["key"] == "AAOIFI")["configured"] is True
-    assert next(m for m in rules["methodologies"] if m["key"] == "SP")["configured"] is False
+    assert [m["key"] for m in rules["methodologies"]] == ["AAOIFI", "FTSE"]
+    assert client.get("/api/shariah?methodology=SP", headers=h).status_code == 422
+    assert client.put("/api/shariah/rules/DJIM", headers=h, json=body).status_code == 404
 
     # ticker colours can follow another methodology
     assert client.put("/api/shariah/primary", headers=h, json={"methodology": "nope"}).status_code == 422

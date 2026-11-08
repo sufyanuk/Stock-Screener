@@ -514,9 +514,7 @@ class ShariahResultRow(Base):
     symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
     cik: Mapped[str | None] = mapped_column(String(10))
     aaoifi: Mapped[str] = mapped_column(String(16), index=True)
-    djim: Mapped[str] = mapped_column(String(16), index=True)
     ftse: Mapped[str] = mapped_column(String(16), index=True)
-    sp: Mapped[str] = mapped_column(String(16), index=True)
     data: Mapped[dict] = mapped_column(Json)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
