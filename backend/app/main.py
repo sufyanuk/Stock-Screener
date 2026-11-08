@@ -1091,7 +1091,7 @@ async def custom_watchlist(live: bool = True, db: Session = Depends(get_db), u: 
             try:
                 df, prov = await asyncio.wait_for(ds.bars(s, end - timedelta(days=30), end), 10)
                 bars = [{"date": ts.date().isoformat(), "open": float(r.open), "high": float(r.high), "low": float(r.low),
-                         "close": float(r.close), "volume": float(r.volume)} for ts, r in df.tail(15).iterrows()]
+                         "close": float(r.close), "volume": float(r.volume)} for ts, r in df.tail(2).iterrows()]
                 src = prov.provider
             except Exception:  # noqa: BLE001
                 pass
@@ -1106,7 +1106,7 @@ async def custom_watchlist(live: bool = True, db: Session = Depends(get_db), u: 
             except Exception:  # noqa: BLE001
                 pass
             if bars:
-                api_bars[s] = (bars[-15:], src)
+                api_bars[s] = (bars[-2:], src)  # today's bar + the previous close (for the change)
 
         await asyncio.gather(*(one(s) for s in syms[:60]))
     rows = []

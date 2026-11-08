@@ -27,9 +27,9 @@ loaded by the Shariah engine (balance sheet, filing cover page, quarterly weight
 ticker details, each company's SEC filings, then FMP / Finnhub / Alpha Vantage; a stock not found is retried. **Insider-buying
 criteria** sets the % of shares outstanding, look-back and basis used for the Top 5.
 
-**Watchlist** — your custom watchlist: add any tickers (with an optional note); each shows its latest
-daily open, high, low, close, change and volume. Pick a stock in "Select stock" (or click its row) for the
-last 15 sessions. Prices come from your price APIs.
+**Watchlist** — your custom watchlist: add any tickers (with an optional note); each shows the current
+trading day's open, high, low, close, change (vs the previous close) and volume only. Prices come from your
+price APIs.
 
 **Ratings** — two sub-tabs for the stocks the app follows (your watchlist, the latest options CSV, insider
 purchases of the last 90 days, and earnings this week):

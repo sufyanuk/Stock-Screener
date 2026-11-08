@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, Empty, ErrorBox, Field, SortTable, Ticker, useSort } from "@/components/ui";
+import { Button, Card, Empty, ErrorBox, Field, Ticker, useSort } from "@/components/ui";
 import { api, useApi } from "@/lib/api";
 import { compact, pct, tone, usd } from "@/lib/format";
 
@@ -20,7 +20,6 @@ function CustomWatchlist() {
   const { data, error, reload, loading } = useApi<{ rows: Item[] }>("/custom-watchlist");  // live prices from the APIs
   const [symbols, setSymbols] = useState("");
   const [note, setNote] = useState("");
-  const [sel, setSel] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -29,13 +28,11 @@ function CustomWatchlist() {
     try {
       const r = await api<{ added: string[]; already: string[] }>("/custom-watchlist", { method: "POST", body: JSON.stringify({ symbols, note: note || null }) });
       setMsg([r.added.length ? `Added ${r.added.join(", ")}` : "", r.already.length ? `already listed: ${r.already.join(", ")}` : ""].filter(Boolean).join(" · "));
-      if (r.added.length) setSel(r.added[0]);
       setSymbols(""); setNote(""); reload();
     } catch (e) { setErr((e as Error).message); }
   }
   async function remove(s: string) {
     await api(`/custom-watchlist/${encodeURIComponent(s)}`, { method: "DELETE" });
-    if (sel === s) setSel(null);
     reload();
   }
 
@@ -45,7 +42,6 @@ function CustomWatchlist() {
       volume: b?.volume ?? null, change: b && p ? (b.close / p.close - 1) * 100 : null };
   });
   const { sorted, th } = useSort(rows, null);
-  const chosen = rows.find((r) => r.symbol === sel) ?? null;
 
   return (
     <Card title="Custom watchlist">
@@ -54,14 +50,6 @@ function CustomWatchlist() {
           onKeyDown={(e) => { if (e.key === "Enter" && symbols.trim()) add(); }} placeholder="e.g. AAPL, MSFT, NVDA" /></Field>
         <Field label="Note (optional)"><input className="w-56" value={note} onChange={(e) => setNote(e.target.value)} placeholder="why you're watching" /></Field>
         <Button onClick={add} disabled={!symbols.trim()}>Add</Button>
-        {rows.length > 0 && (
-          <Field label="Select stock">
-            <select value={sel ?? ""} onChange={(e) => setSel(e.target.value || null)}>
-              <option value="">— choose —</option>
-              {rows.map((r) => <option key={r.symbol} value={r.symbol}>{r.symbol}</option>)}
-            </select>
-          </Field>
-        )}
         {msg && <span className="text-sm text-bull">{msg}</span>}
       </div>
       <div className="mt-2"><ErrorBox error={err || error} /></div>
@@ -74,7 +62,7 @@ function CustomWatchlist() {
               {th("close", "Close")}{th("change", "Change")}{th("volume", "Volume")}{th("note", "Note")}<th></th>
             </tr></thead>
             <tbody>{sorted.map((r) => (
-              <tr key={r.symbol} onClick={() => setSel(r.symbol)} className={`cursor-pointer ${sel === r.symbol ? "bg-panel-2" : ""}`}>
+              <tr key={r.symbol}>
                 <td><Ticker symbol={r.symbol} status={r.shariah_status} /></td>
                 <td className="max-w-44 truncate text-muted">{r.name ?? "—"}</td>
                 <td className="text-xs text-muted" title={r.bars_source ?? undefined}>{r.date ?? "—"}</td>
@@ -83,33 +71,13 @@ function CustomWatchlist() {
                 <td className={`num ${tone(r.change)}`}>{pct(r.change, 2, true)}</td>
                 <td className="num">{compact(r.volume)}</td>
                 <td className="max-w-48 truncate text-xs text-muted" title={r.note ?? undefined}>{r.note}</td>
-                <td><Button variant="ghost" onClick={(e) => { e.stopPropagation(); remove(r.symbol); }}>Remove</Button></td>
+                <td><Button variant="ghost" onClick={() => remove(r.symbol)}>Remove</Button></td>
               </tr>))}</tbody>
           </table>
         </div>
       ) : <Empty>Your watchlist is empty — add tickers above.</Empty>}
 
-      {chosen && (
-        <div className="mt-4">
-          <h3 className="mb-1 text-sm font-semibold">{chosen.symbol} — daily open, high, low, close and volume
-            <span className="ml-2 text-xs font-normal text-muted">{chosen.bars_source ? `source: ${chosen.bars_source}` : ""}</span></h3>
-          {chosen.bars.length ? (
-            <SortTable
-              rows={chosen.bars.map((b, i, arr) => ({ ...b, change: i > 0 ? (b.close / arr[i - 1].close - 1) * 100 : null }))}
-              rowKey={(b) => b.date} initial="date" desc
-              cols={[
-                { key: "date", label: "Date", cell: (b) => b.date },
-                { key: "open", label: "Open", cell: (b) => usd(b.open), className: "num" },
-                { key: "high", label: "High", cell: (b) => usd(b.high), className: "num" },
-                { key: "low", label: "Low", cell: (b) => usd(b.low), className: "num" },
-                { key: "close", label: "Close", cell: (b) => usd(b.close), className: "num font-semibold" },
-                { key: "change", label: "Change", cell: (b) => <span className={tone(b.change)}>{pct(b.change, 2, true)}</span>, className: "num" },
-                { key: "volume", label: "Volume", cell: (b) => compact(b.volume), className: "num" },
-              ]} />
-          ) : <Empty>No price bars for {chosen.symbol} from the data APIs right now.</Empty>}
-        </div>
-      )}
-      <p className="mt-2 text-xs text-muted">Latest daily bar per stock; click a row or use “Select stock” for the last 15 sessions. Prices come from your price API when available, otherwise from the imported price CSV.</p>
+      <p className="mt-2 text-xs text-muted">Current trading day&apos;s open, high, low, close and volume per stock (change vs the previous close), from the price APIs.</p>
     </Card>
   );
 }
