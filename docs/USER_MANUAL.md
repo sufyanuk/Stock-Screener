@@ -20,7 +20,7 @@ calls/puts, put/call and IV rank.
 
 **Insider Buying** — the top 100 results of the OpenInsider screener (open-market purchases, SEC Form 4
 code P, filed in the last 2 years, newest first; link shown under the table), pulled when you open the tab
-and refreshed at most every 6 hours. Tick **Only above 1% of outstanding shares** to keep purchases where the
+and refreshed at most every 6 hours. **Only above 1% of outstanding shares** is ticked by default and keeps purchases where the
 shares bought are more than 1% of the company's shares outstanding. Columns include Outstanding shares
 and % of outstanding (shares bought ÷ shares outstanding). Share counts are looked up automatically and cached for 30 days, from (in order) the SEC figures already
 loaded by the Shariah engine (balance sheet, filing cover page, quarterly weighted-average shares), Massive

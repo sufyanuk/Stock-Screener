@@ -17,7 +17,7 @@ type Resp = { top: number; min_pct: number; rows: Row[]; total_purchases: number
 
 export default function InsidersPage() {
   // The OpenInsider screener's top 100 results (latest purchase filings), pulled at most every 6 hours.
-  const [onlyBig, setOnlyBig] = useState(false);
+  const [onlyBig, setOnlyBig] = useState(true);
   const { data, error, reload } = useApi<Resp>(`/insiders?top=100&min_pct=${onlyBig ? 1 : 0}`);
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
