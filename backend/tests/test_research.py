@@ -73,6 +73,8 @@ def test_insiders_endpoint_and_options_rows(client, db):
     before = client.get("/api/insiders", headers=h).json()  # default: every purchase in the top 100
     assert {x["ticker"] for x in before["rows"]} == {"GOOD", "PCR"} and before["total_purchases"] == 2  # BANK hidden
     assert "openinsider.com/screener" in before["url"] and "cnt=100" in before["url"] and "fd=730" in before["url"]
+    # 4 stored rows (GOOD jointly with Doe Trust, PCR, BANK): 1 joint merged, BANK hidden
+    assert (before["screener_rows"], before["merged_joint"], before["hidden_non_compliant"]) == (4, 1, 1)
     assert client.get("/api/insiders?min_pct=1", headers=h).json()["rows"] == []  # no share counts yet
     ld = client.post("/api/insiders/load-shares", headers=h).json()
     assert ld["fetched"] == 2 and ld["remaining"] == 0

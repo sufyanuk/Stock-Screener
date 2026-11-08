@@ -12,7 +12,8 @@ type Row = {
   outstanding_shares: number | null; pct_outstanding: number | null;
 };
 type Resp = { top: number; min_pct: number; rows: Row[]; total_purchases: number; shares_missing: number; shares_unavailable: number;
-  latest_filing_date: string | null; source: string; url: string; pulled_at: string | null; refresh_error: string | null };
+  latest_filing_date: string | null; source: string; url: string; pulled_at: string | null; refresh_error: string | null;
+  screener_rows: number; hidden_non_compliant: number; merged_joint: number };
 
 export default function InsidersPage() {
   // The OpenInsider screener's top 100 results (latest purchase filings), pulled at most every 6 hours.
@@ -80,6 +81,7 @@ export default function InsidersPage() {
         {data && <p className="mt-2 text-xs text-muted">
           Source: the top 100 results of <a className="text-accent hover:underline" href={data.url} target="_blank" rel="noopener noreferrer">this OpenInsider screener</a> (purchases filed in the last 2 years, newest first),
           {data.pulled_at ? ` pulled ${data.pulled_at.slice(0, 16).replace("T", " ")} UTC` : ""}; refreshed at most every 6 hours.
+          {` Of ${data.screener_rows} screener rows: ${data.merged_joint} joint filings of the same purchase merged, ${data.hidden_non_compliant} Shariah non-compliant hidden.`}
           {onlyBig && ` Showing ${rows.length} of ${data.total_purchases} purchases above 1% of shares outstanding.`}
           {onlyBig && data.shares_unavailable > 0 && ` ${data.shares_unavailable} stock(s) have no shares-outstanding figure and are not shown.`}
           {data.refresh_error && <span className="text-warn"> {data.refresh_error}</span>}</p>}
