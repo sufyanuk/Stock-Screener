@@ -279,3 +279,41 @@ def test_loader_and_api(client, db, monkeypatch):  # noqa: F811
     assert client.put("/api/shariah/primary", headers=h, json={"methodology": "AAOIFI"}).json() == {"primary": "AAOIFI"}
     assert rs.shariah_map(db, {"DEBTY"}) == {"DEBTY": "Non-Compliant"}
     assert client.get("/api/shariah", headers=h).json()["primary"] == "AAOIFI"
+
+
+
+def test_loader_fetches_latest_prices_for_market_cap(client, db, monkeypatch):  # noqa: F811
+    import app.main as main
+    from app.models import PriceSnapshot, Security
+    from app.services import shariah as shs
+    from tests.conftest import FakeDataSource
+
+    fake = FakeSec()
+    asked = []
+
+    class Alp:
+        async def multi_snapshots(self, symbols):
+            asked.extend(symbols)
+            return {"GOOD": {"price": 50.0}}  # DEBTY etc.: no price from the feed
+
+    class DS(FakeDataSource):
+        sec = fake
+        alpaca = Alp()
+
+    monkeypatch.setattr(main, "make_datasource", lambda: DS())
+    monkeypatch.setattr(shs, "_today", lambda: TODAY)
+    for c, t in fake.names.items():
+        db.add(Security(ticker=t, cik=str(c).zfill(10), name=t.title() + " Inc", exchange="Nasdaq"))
+    db.commit()
+    h = _auth(client)
+    r = client.post("/api/shariah/load", headers=h, json={"max_seconds": 120}).json()
+    # every US ticker is priced ("IFRSCO" is not a valid ticker format, so it is not asked)
+    assert r["complete"] and r["prices_done"] == r["prices_total"] == 7 and set(asked) == set(fake.names.values()) - {"IFRSCO"}
+    assert db.get(PriceSnapshot, "GOOD").close == 50.0 and db.get(PriceSnapshot, "DEBTY").close == 0.0
+    good = client.get("/api/shariah/GOOD", headers=h).json()["methods"]["AAOIFI"]
+    assert good["inputs"]["market_cap"] == 5000 and good["status"] == "HALAL"  # 100 shares x $50
+    debty = client.get("/api/shariah/DEBTY", headers=h).json()["methods"]["AAOIFI"]
+    assert debty["inputs"]["market_cap"] is None and debty["status"] == "DOUBTFUL"  # no price: never assumed
+    asked.clear()
+    client.post("/api/shariah/load", headers=h, json={"max_seconds": 120})
+    assert asked == []  # prices are fresh for today: not asked again

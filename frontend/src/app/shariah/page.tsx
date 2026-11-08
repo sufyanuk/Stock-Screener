@@ -12,6 +12,7 @@ type Ratio = { key: string; label: string; value: number | null; limit: number; 
 type Row = { symbol: string; name: string | null; sic: string | null; sic_description: string | null; period_end: string | null;
   status: Status; status_label: string; business: string; ratios: Ratio[]; reasons: string[] };
 type Load = { frames_total: number; frames_done: number; companies_total: number; companies_done: number; results: number;
+  prices_total: number; prices_done: number;
   computed_at: string | null };
 type Resp = { methodology: string; rows: Row[]; total: number; counts: Record<Status, number>; labels: Record<Status, string>;
   methodologies: Method[]; load: Load; primary: string; disclaimer: string };
@@ -34,7 +35,8 @@ export default function ShariahPage() {
   const { data, error, reload, loading } = useApi<Resp>(`/shariah?${qs}`);
   const ld = data?.load;
   const m = data?.methodologies.find((x) => x.key === method);
-  const incomplete = !!ld && (ld.frames_done < ld.frames_total || ld.companies_done < ld.companies_total);
+  const incomplete = !!ld && (ld.frames_done < ld.frames_total || ld.companies_done < ld.companies_total
+    || ld.prices_done < ld.prices_total);
 
   async function load(refresh = false) {
     setErr(null);
@@ -43,7 +45,7 @@ export default function ShariahPage() {
       for (let i = 0; i < 40; i++) {
         const r = await api<Load & { complete: boolean; processed: number; errors: string[] }>("/shariah/load", {
           method: "POST", body: JSON.stringify({ max_seconds: 200, refresh: refresh && i === 0 }) });
-        setBusy(`SEC data: ${r.frames_done} of ${r.frames_total} statement tables · industry codes for ${r.companies_done.toLocaleString()} of ${r.companies_total.toLocaleString()} companies…`);
+        setBusy(`SEC data: ${r.frames_done} of ${r.frames_total} statement tables · industry codes for ${r.companies_done.toLocaleString()} of ${r.companies_total.toLocaleString()} companies · prices for ${r.prices_done.toLocaleString()} of ${r.prices_total.toLocaleString()} stocks…`);
         if (r.errors.length) setErr(r.errors[0]);
         if (r.complete || r.processed === 0) break;
       }

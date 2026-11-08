@@ -173,6 +173,48 @@ def _store_frame(db: Session, taxonomy: str, tag: str, unit: str, period: str, r
     return len(out)
 
 
+PRICE_SOURCE = "alpaca-latest"  # latest price per stock for market cap (AAOIFI)
+PRICE_TICKER_RE = re.compile(r"^[A-Z]{1,5}(\.[A-Z])?$")
+PRICE_MAX_AGE_DAYS = 3
+
+
+def _price_universe(db: Session) -> list[str]:
+    return sorted(t for t in db.scalars(select(Security.ticker).where(Security.active.is_(True))).all()
+                  if t and PRICE_TICKER_RE.match(t))
+
+
+def _prices_fresh(db: Session, today: date) -> set[str]:
+    return set(db.scalars(select(PriceSnapshot.symbol).where(
+        PriceSnapshot.as_of >= today - timedelta(days=PRICE_MAX_AGE_DAYS))).all())
+
+
+async def _load_prices(db: Session, ds, deadline: float, errors: list[str]) -> int:
+    """Latest price for every stock (Alpaca snapshots, 200 per request); a stock with no price is recorded
+    with close 0 so it is not asked again today (it has no market cap: DOUBTFUL for market-cap tests)."""
+    alp = getattr(ds, "alpaca", None)
+    if alp is None or not hasattr(alp, "multi_snapshots"):
+        return 0
+    today = _today()
+    todo = [t for t in _price_universe(db) if t not in _prices_fresh(db, today)]
+    done = 0
+    for i in range(0, len(todo), 1000):
+        if time.time() > deadline:
+            break
+        part = todo[i:i + 1000]
+        try:
+            snaps = await asyncio.wait_for(alp.multi_snapshots(part), max(5.0, deadline - time.time()))
+        except Exception as e:  # noqa: BLE001 - prices are retried on the next call
+            errors.append(f"prices: {str(e)[:150]}")
+            break
+        now = datetime.now(timezone.utc)
+        upsert(db, PriceSnapshot, [{"symbol": t, "as_of": today, "close": float((snaps.get(t) or {}).get("price") or 0.0),
+                                    "data": {}, "metrics": None, "source": PRICE_SOURCE, "imported_at": now}
+                                   for t in part])
+        db.commit()
+        done += len(part)
+    return done
+
+
 def status(db: Session) -> dict:
     today = _today()
     plan = frame_plan(today)
@@ -180,8 +222,10 @@ def status(db: Session) -> dict:
     ciks = {_cik(c) for c in db.scalars(select(Security.cik).where(Security.active.is_(True))).all() if c}
     have_sic = set(db.scalars(select(SecCompany.cik)).all())
     last = db.scalar(select(ShariahResultRow.computed_at).order_by(ShariahResultRow.computed_at.desc()).limit(1))
+    uni = _price_universe(db)
     return {"frames_total": len(plan), "frames_done": len([p[0] for p in plan if p[0] in done]),
             "companies_total": len(ciks), "companies_done": len(ciks & have_sic),
+            "prices_total": len(uni), "prices_done": len(set(uni) & _prices_fresh(db, today)),
             "results": db.query(ShariahResultRow).count(), "computed_at": last.isoformat() if last else None,
             "quarters": _quarters(today), "fiscal_years": _years(today)}
 
@@ -247,8 +291,13 @@ async def load(db: Session, ds, max_seconds: float = 200.0, refresh: bool = Fals
             processed += 1
         upsert(db, SecCompany, comp_rows)
         db.commit()
+    # latest prices (market capitalisation for AAOIFI)
+    if time.time() - started < budget:
+        processed += await _load_prices(db, ds, started + budget, errors)
     st = status(db)
-    complete = st["frames_done"] == st["frames_total"] and st["companies_done"] >= st["companies_total"]
+    has_prices = hasattr(getattr(ds, "alpaca", None), "multi_snapshots")
+    complete = (st["frames_done"] == st["frames_total"] and st["companies_done"] >= st["companies_total"]
+                and (st["prices_done"] >= st["prices_total"] or not has_prices))
     # only classify once every frame is in: a half-loaded balance sheet could understate debt or cash
     frames_complete = st["frames_done"] == st["frames_total"]
     if frames_complete and (complete or processed == 0 or not st["results"]):
@@ -430,7 +479,8 @@ def _last_complete_month(today: date) -> date:
 
 
 def _market(db: Session, symbols: list[str], today: date) -> tuple[dict[str, float], dict[str, list[float]]]:
-    prices = dict(db.execute(select(PriceSnapshot.symbol, PriceSnapshot.close).where(PriceSnapshot.symbol.in_(symbols))).all())
+    prices = dict(db.execute(select(PriceSnapshot.symbol, PriceSnapshot.close).where(
+        PriceSnapshot.symbol.in_(symbols), PriceSnapshot.close > 0)).all())
     first = _last_complete_month(today)
     since = date(first.year - 3, first.month, 1)
     closes: dict[str, list[tuple[date, float]]] = {}
