@@ -103,15 +103,26 @@ Industries where the activity is often present (hotels, restaurants, meat packin
 brokers, …) and name keywords (casino, brewery, bank, pork, adult entertainment, …) → DOUBTFUL until an
 administrator records a business review (with the share of revenue from prohibited activities).
 
+**Coverage.** US GAAP filers (us-gaap taxonomy) and foreign IFRS filers (ifrs-full taxonomy, statements in USD,
+EUR or CNY). Preferred shares, warrants, units and rights are not screened separately — the methodologies screen
+common shares. Closed-end funds and trusts have no operating-company statements and stay DOUBTFUL.
+
 **Financial figures (SEC XBRL, frames API).** All balance-sheet lines are taken at the company's latest
 balance-sheet date (from the same filing date, never mixed); income lines from the latest fiscal year.
 * Interest-bearing debt = long-term debt incl. current portion (`LongTermDebt`, or non-current + current) +
-  short-term borrowings / commercial paper / notes payable + finance-lease liabilities. Operating leases excluded.
+  short-term borrowings / commercial paper / notes payable / repurchase agreements + finance-lease liabilities.
+  When a company reports only component lines (senior notes, convertible notes, loans, lines of credit), they are
+  added up (can only overstate debt). Operating leases excluded. IFRS: `Borrowings` (or non-current + current
+  borrowings); IFRS lease liabilities excluded.
 * Cash + interest-bearing investments = cash & equivalents + short-term investments / current marketable or
-  debt securities + non-current marketable / debt securities (conservative: all cash treated as interest-bearing).
+  debt securities + non-current marketable / debt securities + assets held in trust (SPAC trust accounts hold
+  Treasury bills / money-market funds) (conservative: all cash treated as interest-bearing).
 * Accounts receivable = `AccountsReceivableNetCurrent` (or `ReceivablesNetCurrent`).
 * Non-permissible income = interest income (+ prohibited revenue from a business review). If only "interest and
-  other income" or "interest and dividend income" is reported, that larger figure is used (noted).
+  other income", "interest and dividend income" or total investment income is reported, that larger figure is
+  used (noted). If only net interest is reported, gross interest income = net interest income + interest expense
+  for the same fiscal year (both from the filing).
+* REITs are not excluded by industry; mortgage REITs fail the debt / interest-income tests.
 * Market cap (only for tests that use it) = shares outstanding on the same balance sheet × latest price;
   12/24/36-month averages = average of consecutive month-end closes × those shares (requires the full window).
 

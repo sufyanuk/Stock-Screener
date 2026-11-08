@@ -51,8 +51,10 @@ CATEGORIES: dict[str, dict] = {
     "conventional_finance": {
         "label": "Conventional banking / interest-based finance",
         "prohibited": {"6021", "6022", "6029", "6035", "6036", "6111", "6141", "6153", "6159", "6162", "6163", "6189", "6199"},
-        "review": {"6211", "6282", "6726", "6770", "6798", "6799"},
-        "keywords": ("bancorp", "bancshares", "bank", "savings", "lending", "mortgage", "financial corp"),
+        # 6798 REITs are not excluded as such: mortgage REITs fail the debt / interest-income tests
+        "review": {"6211", "6282", "6726", "6770", "6799"},
+        "keywords": ("bancorp", "bancshares", "bank", "savings", "lending", "mortgage", "financial corp",
+                     "municipal", "muni", "bond fund", "income fund", "debt fund", "credit fund", "treasury"),
     },
     "conventional_insurance": {
         "label": "Conventional insurance",

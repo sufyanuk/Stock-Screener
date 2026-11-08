@@ -82,7 +82,8 @@ export default function ShariahPage() {
           <p className="max-w-4xl text-sm text-muted">
             Internal engine using actual figures from SEC filings (XBRL). Each methodology is applied separately with its own
             business exclusions and financial tests. Missing figures are never treated as compliant — the stock is marked
-            DOUBTFUL / INSUFFICIENT DATA.
+            DOUBTFUL / INSUFFICIENT DATA. US GAAP and IFRS (foreign) filers are covered; preferred shares, warrants, units and
+            rights are not screened separately (see the company&apos;s common share).
             {ld?.computed_at && <> Last computed {ld.computed_at.slice(0, 10)} for {ld.results.toLocaleString()} stocks.</>}
           </p>
         </div>

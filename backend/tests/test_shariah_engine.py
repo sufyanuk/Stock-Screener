@@ -124,11 +124,31 @@ class FakeSec:
             "AccountsReceivableNetCurrent": {1: 100, 2: 10, 3: 100, 4: 100},
             "CommonStockSharesOutstanding": {1: 100, 3: 100, 4: 100},
         }
-        self.annual = {"Revenues": {1: 500, 2: 400, 3: 500, 4: 500}, "InvestmentIncomeInterest": {1: 5, 2: 300, 3: 5}}
-        self.names = a
+        # 5 = SPAC (trust account), 6 = debt only as component lines + net interest, 7 = REIT
+        self.inst["Assets"] |= {5: 100, 6: 1000, 7: 1000}
+        self.inst["CashAndCashEquivalentsAtCarryingValue"] |= {5: 1, 6: 100, 7: 50}
+        self.inst["AssetsHeldInTrustNoncurrent"] = {5: 99}
+        self.inst["SeniorNotes"] = {6: 200}
+        self.inst["LineOfCredit"] = {7: 100}
+        self.inst["ConvertibleNotesPayable"] = {6: 150}
+        self.inst["AccountsReceivableNetCurrent"] |= {6: 50, 7: 20}
+        self.annual = {"Revenues": {1: 500, 2: 400, 3: 500, 4: 500, 6: 500, 7: 300},
+                       "InvestmentIncomeInterest": {1: 5, 2: 300, 3: 5, 7: 3},
+                       "InterestIncomeExpenseNonoperatingNet": {6: -20}, "InterestExpenseNonoperating": {6: 30}}
+        self.ifrs_inst = {"Assets": 1000, "Borrowings": 100, "CashAndCashEquivalents": 100, "TradeAndOtherCurrentReceivables": 80}
+        self.ifrs_annual = {"Revenue": 900, "InterestRevenueCalculatedUsingEffectiveInterestMethod": 9}
+        self.names = a | {5: "SPAC", 6: "PARTS", 7: "REIT", 9: "IFRSCO"}
 
     async def frame(self, taxonomy, tag, unit, period):
         self.calls.append((tag, period))
+        if taxonomy == "ifrs-full":
+            if unit != "EUR":
+                return []
+            if period == "CY2025Q4I" and tag in self.ifrs_inst:
+                return [{"cik": 9, "end": "2025-12-31", "val": self.ifrs_inst[tag], "accn": "f9"}]
+            if period == "CY2025" and tag in self.ifrs_annual:
+                return [{"cik": 9, "start": "2025-01-01", "end": "2025-12-31", "val": self.ifrs_annual[tag], "accn": "f9"}]
+            return []
         if period == "CY2026Q2I" and tag == "Assets":  # an older balance sheet must not win
             return [{"cik": 1, "end": "2026-06-30", "val": 1.0, "accn": "old"}]
         if period == "CY2026Q3I" and tag in self.inst:
@@ -140,8 +160,9 @@ class FakeSec:
 
     async def submissions(self, cik):
         c = int(cik)
-        return {"name": self.names.get(c, "?"), "sic": "6022" if c == 2 else "3571",
-                "sicDescription": "State commercial banks" if c == 2 else "Electronic computers"}
+        sic = {2: "6022", 5: "6770", 7: "6798"}.get(c, "3571")
+        return {"name": self.names.get(c, "?"), "sic": sic, "sicDescription": {"6022": "State commercial banks",
+                "6770": "Blank Checks", "6798": "Real Estate Investment Trusts"}.get(sic, "Electronic computers")}
 
 
 def test_loader_and_api(client, db, monkeypatch):  # noqa: F811
@@ -159,22 +180,37 @@ def test_loader_and_api(client, db, monkeypatch):  # noqa: F811
     monkeypatch.setattr(shs, "_today", lambda: TODAY)
     for c, t in fake.names.items():
         db.add(Security(ticker=t, cik=str(c).zfill(10), name=t.title() + " Inc", exchange="Nasdaq"))
+    assert len(fake.names) == 8
     db.add(Security(ticker="NOCIK", cik=None, name="No Cik Co", exchange="Nasdaq"))
+    db.add(Security(ticker="SPACW", cik="0000000005", name="Spac warrant", exchange="Nasdaq"))  # warrant: not screened
+    db.add(Security(ticker="REIT-PA", cik="0000000007", name="Reit preferred", exchange="NYSE"))  # preferred: not screened
     db.commit()
     h = _auth(client)
 
     r = client.post("/api/shariah/load", headers=h, json={"max_seconds": 120}).json()
-    assert r["complete"] and r["frames_done"] == r["frames_total"] and r["companies_done"] == 4 and r["results"] == 5
+    assert r["complete"] and r["frames_done"] == r["frames_total"] and r["companies_done"] == 8 and r["results"] == 9
     assert fake.calls[0][0] == "Assets"
 
     lst = client.get("/api/shariah?methodology=FTSE", headers=h).json()
     st = {x["symbol"]: x["status"] for x in lst["rows"]}
     assert st == {"GOOD": "HALAL", "BANK": "NON_COMPLIANT", "DEBTY": "NON_COMPLIANT", "NOINT": "DOUBTFUL",
-                  "NOCIK": "DOUBTFUL"}
-    assert lst["counts"] == {"HALAL": 1, "NON_COMPLIANT": 2, "DOUBTFUL": 2}
+                  "NOCIK": "DOUBTFUL", "SPAC": "NON_COMPLIANT", "PARTS": "NON_COMPLIANT", "REIT": "HALAL",
+                  "IFRSCO": "HALAL"}
+    assert lst["counts"] == {"HALAL": 3, "NON_COMPLIANT": 4, "DOUBTFUL": 2}
+    det = lambda t: client.get(f"/api/shariah/{t}", headers=h).json()  # noqa: E731
+    spac = det("SPAC")["methods"]["FTSE"]
+    assert spac["inputs"]["cash_ib"] == 100 and _ratio(spac, "cash")["status"] == "fail"  # trust counted
+    parts = det("PARTS")
+    assert parts["methods"]["FTSE"]["inputs"]["debt"] == 350  # senior + convertible notes added up
+    assert parts["methods"]["FTSE"]["inputs"]["interest_income"] == 10  # net -20 + expense 30
+    reit = det("REIT")["methods"]["FTSE"]
+    assert reit["business"]["status"] == "pass" and reit["inputs"]["debt"] == 100  # unclassified line of credit
+    ifrs = det("IFRSCO")
+    assert ifrs["period_end"] == "2025-12-31" and ifrs["methods"]["FTSE"]["inputs"]["debt"] == 100
+    assert any("EUR" in n for n in ifrs["notes"]) and ifrs["sources"]["debt"][0]["tag"] == "ifrs:Borrowings"
     good = next(x for x in lst["rows"] if x["symbol"] == "GOOD")
     assert {x["key"]: x["value"] for x in good["ratios"]} == {"debt": 10.0, "cash": 15.0, "recv_cash": 25.0, "income": 1.0}
-    assert client.get("/api/shariah?methodology=FTSE&status=HALAL", headers=h).json()["total"] == 1
+    assert client.get("/api/shariah?methodology=FTSE&status=HALAL", headers=h).json()["total"] == 3
 
     # AAOIFI / DJIM / S&P have no rules yet: everything DOUBTFUL except the bank (business screen)
     aa = {x["symbol"]: x["status"] for x in client.get("/api/shariah?methodology=AAOIFI", headers=h).json()["rows"]}
