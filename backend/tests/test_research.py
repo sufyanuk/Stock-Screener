@@ -252,3 +252,23 @@ def test_seasonality_backfills_bullish_bearish_columns(client, db):
     db.commit()
     t = client.get("/api/seasonality?month=11&min_years=5&index=all", headers=h).json()
     assert t["ranked"][0]["symbol"] == "GOOD" and t["ranked"][0]["count"] == 11
+
+
+def test_seasonality_price_column_uses_live_snapshot(client, db, monkeypatch):
+    import app.main as main
+    from tests.conftest import FakeDataSource
+
+    class Alp:
+        async def multi_snapshots(self, symbols):
+            return {"GOOD": {"price": 123.45, "market_ts": None}}
+
+    class DS(FakeDataSource):
+        alpaca = Alp()
+
+    monkeypatch.setattr(main, "make_datasource", lambda: DS())
+    h = _auth(client)
+    client.post("/api/seasonality/import", headers=h, json={"rows": _month_rows(), "replace_all": True})
+    client.post("/api/seasonality/import/finish", headers=h, json={"last_date": "2025-12-31"})
+    r = {x["symbol"]: x for x in client.get("/api/seasonality?month=11&min_years=5", headers=h).json()["ranked"]}
+    assert r["GOOD"]["price"] == 123.45 and r["GOOD"]["price_live"] is True
+    assert r["BANK"]["price"] == r["BANK"]["last_close"] and r["BANK"]["price_live"] is False

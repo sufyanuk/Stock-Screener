@@ -1141,6 +1141,33 @@ async def seasonality_load(p: SeasonalityLoad, db: Session = Depends(get_db), _:
     return await ss.load_api(db, make_datasource(), p.max_seconds, p.rebuild)
 
 
+async def _attach_prices(db: Session, rows: list[dict]) -> None:
+    """Current market price for each row: Alpaca live snapshot, else the latest daily close on file,
+    else the last month-end close."""
+    from app.models import PriceSnapshot
+
+    syms = [r["symbol"] for r in rows]
+    live: dict[str, dict] = {}
+    alp = getattr(make_datasource(), "alpaca", None)
+    if syms and alp is not None and hasattr(alp, "multi_snapshots"):
+        try:
+            live = await asyncio.wait_for(alp.multi_snapshots(syms), timeout=15)
+        except Exception as e:  # noqa: BLE001
+            log.warning("seasonality live prices unavailable: %s", e)
+    daily = {s: (d, c) for s, d, c in db.execute(select(PriceSnapshot.symbol, PriceSnapshot.as_of, PriceSnapshot.close)
+                                                 .where(PriceSnapshot.symbol.in_(syms))).all()} if syms else {}
+    for r in rows:
+        snap = live.get(r["symbol"]) or {}
+        if snap.get("price"):
+            ts = snap.get("market_ts")
+            r["price"], r["price_as_of"], r["price_live"] = snap["price"], ts.isoformat() if ts else None, True
+        elif r["symbol"] in daily:
+            d, c = daily[r["symbol"]]
+            r["price"], r["price_as_of"], r["price_live"] = c, d.isoformat(), False
+        else:
+            r["price"], r["price_as_of"], r["price_live"] = r.get("last_close"), None, False
+
+
 @app.get("/api/seasonality")
 async def seasonality(month: int | None = None, min_years: int = 5, rank_by: str = "pct", limit: int = 500,
                       min_price: float | None = None, max_price: float | None = None, q: str | None = None,
@@ -1169,6 +1196,7 @@ async def seasonality(month: int | None = None, min_years: int = 5, rank_by: str
             idx_error = f"Could not load the {ix.INDEXES[index]['label']} constituents right now."
     out = ss.ranking(db, month, min_years, "avg" if rank_by == "avg" else "pct", limit, min_price, max_price, q,
                      "bearish" if mode == "bearish" else "bullish", symbols, names)
+    await _attach_prices(db, out["ranked"])
     best = ss.best_by_month(db, min_years, 5, min_price, max_price)
     sh = rs.shariah_map(db, {e["symbol"] for e in out["ranked"]} | {t["symbol"] for m in best for t in m["top"]})
     for e in out["ranked"]:

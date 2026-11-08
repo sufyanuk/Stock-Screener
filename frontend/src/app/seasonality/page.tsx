@@ -2,13 +2,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Card, Empty, ErrorBox, Field, ShariahLegend, SortTable, Ticker } from "@/components/ui";
 import { api, useApi } from "@/lib/api";
-import { nf, pct, tone } from "@/lib/format";
+import { nf, pct, tone, usd } from "@/lib/format";
 import { PriceImport } from "@/components/price-import";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 type Entry = { rank: number; symbol: string; name: string | null; years: number; count: number; pct: number | null;
-  max: number | null; min: number | null; avg_dir: number | null; avg: number; last_close: number | null; shariah_status: string | null };
+  max: number | null; min: number | null; avg_dir: number | null; avg: number; last_close: number | null;
+  price: number | null; price_as_of: string | null; price_live: boolean; shariah_status: string | null };
 type Coverage = { first_month: string | null; last_month: string | null; months: number; symbols: number; provider: string | null; computed_at: string | null };
 type Load = { universe: number; loaded: number; remaining: number; stale: number; target_month: string };
 type Resp = { month: number; month_name: string; ranked: Entry[]; total_matching: number; note: string; coverage: Coverage; load: Load;
@@ -104,6 +105,7 @@ export default function SeasonalityPage() {
             cols={[
               { key: "symbol", label: "Ticker", cell: (e) => <Ticker symbol={e.symbol} status={e.shariah_status} /> },
               { key: "name", label: "Company", cell: (e) => <span className="block max-w-[18rem] truncate" title={e.name ?? ""}>{e.name ?? "—"}</span> },
+              { key: "price", label: "Price", cell: (e) => <span title={e.price_live ? "Live price (Alpaca)" : e.price_as_of ? `Close on ${e.price_as_of.slice(0, 10)}` : "Last month-end close"}>{usd(e.price)}</span>, className: "num" },
               { key: "years", label: "Total Years", cell: (e) => e.years, className: "num" },
               { key: "count", label: `Total Positive Years`, cell: (e) => e.count, className: "num" },
               { key: "pct", label: `% Positive`, cell: (e) => <span className={`rounded px-1.5 py-0.5 font-semibold bg-bull/10`}>{e.pct === null ? "—" : `${nf(e.pct, 2)}%`}</span>, className: "num" },

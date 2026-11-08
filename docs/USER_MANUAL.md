@@ -48,7 +48,8 @@ All thresholds can be changed on the tab. Latest completed session only.
 
 **Seasonality** — covers all US stocks. Pick a month with the month buttons and use the filters: Rank
 by (% of years positive, or average positive change), minimum years of history, price range (default
-$5 to $100) and ticker prefix. The table shows Ticker, Company, Total Years, Total Positive Years,
+$5 to $100) and ticker prefix. The table shows Ticker, Company, Price (current market price from Alpaca; if that is unavailable, the latest
+daily close — hover to see which), Total Years, Total Positive Years,
 % Positive, and the Max, Min and Average Positive Change (%) — the largest, smallest and average gain
 in the years the month closed up. Every column can be sorted. Prices come from Alpaca monthly bars
 (10 years, adjusted for splits and dividends) and load automatically the first time you open the tab

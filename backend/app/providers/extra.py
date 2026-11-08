@@ -59,6 +59,27 @@ class Alpaca:
         j = await self.http.get_json(f"/v2/stocks/{ticker}/snapshot", {"feed": self.feed})
         return parse_alpaca_snapshot(j)
 
+    async def multi_snapshots(self, symbols: list[str]) -> dict[str, dict]:
+        """Latest trade / daily bar for many symbols at once (200 per request): symbol -> parsed snapshot."""
+        import asyncio
+
+        feeds = ["sip"] if self.feed == "sip" else ["sip", self.feed]
+
+        async def one(chunk: list[str]) -> dict:
+            for feed in feeds:
+                try:
+                    j = await self.http.get_json("/v2/stocks/snapshots", {"symbols": ",".join(chunk), "feed": feed})
+                    return {k: parse_alpaca_snapshot(v) for k, v in (j or {}).items() if isinstance(v, dict)}
+                except ProviderError as e:
+                    if e.status not in (401, 403, 422) or feed == feeds[-1]:
+                        raise
+            return {}
+
+        out: dict[str, dict] = {}
+        for part in await asyncio.gather(*(one(symbols[i:i + 200]) for i in range(0, len(symbols), 200))):
+            out.update(part)
+        return out
+
     async def multi_daily_bars(self, symbols: list[str], start: date, end: date, timeframe: str = "1Day") -> dict[str, list[tuple]]:
         """Daily bars for many symbols in one paginated request (up to 10,000 bars a page):
         symbol -> [(YYYY-MM-DD, open, high, low, close, volume), ...] oldest first, split/dividend adjusted.
