@@ -108,6 +108,8 @@ async def load_analyst_counts(db: Session, ds, symbols: list[str], limit: int = 
                                  sell=c.get("sell"), strong_sell=c.get("strong_sell"), provider=prov.provider,
                                  retrieved_at=_now()))
         done += 1
+        if done % 20 == 0:
+            db.commit()  # keep progress if the batch is interrupted
     db.commit()
     remaining = len([s for s in symbols if s not in have]) - done
     return {"fetched": done, "remaining": max(0, remaining), "errors": errors[:5]}

@@ -43,8 +43,11 @@ def _make(url: str, pooled: bool = True):
     # One instance serves many requests at once (long loaders hold a connection for minutes), so the
     # pool must be roomy; Neon's pooled endpoint (PgBouncer) accepts many client connections.
     # prepare_threshold=None keeps psycopg compatible with transaction-mode poolers.
+    # AUTOCOMMIT: every statement commits on its own, so no request holds a transaction open while it
+    # awaits an outside API (Neon ends connections that sit idle inside a transaction).
     return create_engine("postgresql+psycopg://", creator=_retrying_creator(url), pool_pre_ping=True,
-                         pool_size=10, max_overflow=10, pool_timeout=20, pool_recycle=300)
+                         pool_size=10, max_overflow=10, pool_timeout=20, pool_recycle=300,
+                         isolation_level="AUTOCOMMIT")
 
 
 def engine():
@@ -79,6 +82,6 @@ def get_db() -> Iterator[Session]:
 
 def reset_engine_for_tests(url: str) -> None:
     global _engine, _Session
-    kw = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {}
+    kw = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {"isolation_level": "AUTOCOMMIT"}
     _engine = create_engine(url, **kw)
     _Session = sessionmaker(_engine, expire_on_commit=False)
