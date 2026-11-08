@@ -1,9 +1,8 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState } from "react";
-import { Badge, Button, Card, Empty, ErrorBox, Field, SortTable, Ticker } from "@/components/ui";
+import { Badge, Button, Card, Empty, ErrorBox, Field, SortTable } from "@/components/ui";
 import { api, useApi } from "@/lib/api";
-import { compact, nf, pct, usd } from "@/lib/format";
 
 type Batch = { id: number; filename: string; session_date: string; rows: number; percent_interpretation: string; imported_by: string; imported_at: string; summary: any };
 
@@ -77,18 +76,7 @@ export function OptionsImport({ isAdmin = true, open: openInit = true, onImporte
                 {s.skipped_count > 0 && <span className="text-warn">{s.skipped_count} skipped</span>}
               </div>
               {s.warnings?.length > 0 && <ul className="list-disc pl-5 text-xs text-warn">{s.warnings.map((w: string) => <li key={w}>{w}</li>)}</ul>}
-              <SortTable className="text-xs" rows={result.preview as any[]} rowKey={(r) => r.symbol}
-                cols={[
-                  { key: "symbol", label: "Symbol", cell: (r) => <Ticker symbol={r.symbol} /> },
-                  { key: "price", label: "Price", cell: (r) => usd(r.price), className: "num" },
-                  { key: "options_volume", label: "Options vol", cell: (r) => compact(r.options_volume), className: "num" },
-                  { key: "vol_change_1m_pct", label: "1M vol Δ", cell: (r) => pct(r.vol_change_1m_pct, 0, true), className: "num" },
-                  { key: "iv_rank", label: "IV rank", cell: (r) => nf(r.iv_rank, 1), className: "num" },
-                  { key: "call_volume", label: "Calls", cell: (r) => compact(r.call_volume), className: "num" },
-                  { key: "put_volume", label: "Puts", cell: (r) => compact(r.put_volume), className: "num" },
-                  { key: "pc_ratio", label: "P/C", cell: (r) => nf(r.pc_ratio, 3), className: "num" },
-                ]} />
-              <p className="text-xs text-muted">Check that the 1M change and IV rank look right (e.g. +1,639% and 3.3, not +16% and 0.03) before importing.</p>
+              {result.dry_run && <p className="text-xs text-muted">Preview only — click Import to save it. Stocks that meet the unusual-options criteria appear in the table below.</p>}
             </div>
           )}
         </>

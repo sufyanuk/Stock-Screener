@@ -35,7 +35,7 @@ export default function DashboardPage() {
   const month = new Date().getMonth() + 1;
   const seas = useApi<{ month_name: string; ranked: any[] }>(`/seasonality?month=${month}&min_years=5&min_price=5&max_price=100&limit=5`);
 
-  const optRows = opts.data ? [...opts.data.data].sort((a, b) => (b.vol_change_1m_pct ?? -1e9) - (a.vol_change_1m_pct ?? -1e9)) : latest === undefined && imports.data ? [] : undefined;
+  const optRows = opts.data ? opts.data.data.filter((r) => r.passes_rules).sort((a, b) => (b.vol_change_1m_pct ?? -1e9) - (a.vol_change_1m_pct ?? -1e9)) : latest === undefined && imports.data ? [] : undefined;
   const insRows = ins.data ? [...ins.data.rows].sort((a, b) => (b.pct_outstanding ?? 0) - (a.pct_outstanding ?? 0)) : undefined;
   const earnRows = earn.data ? [...earn.data.rows].sort((a, b) => (b.analysts?.strong_buy ?? -1) - (a.analysts?.strong_buy ?? -1)) : undefined;
 
@@ -60,7 +60,7 @@ export default function DashboardPage() {
       </Card>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <Mini title="Unusual options — top 5" href="/options" rows={optRows} empty="No options CSV imported yet."
+        <Mini title="Unusual options — top 5" href="/options" rows={optRows} empty="No stocks in the latest options CSV meet the criteria."
           cols={[{ label: "Price", cell: (r) => usd(r.price), sort: (r) => r.price }, { label: "1M vol Δ", sort: (r) => r.vol_change_1m_pct, cell: (r) => <span className={tone(r.vol_change_1m_pct)}>{pct(r.vol_change_1m_pct, 0, true)}</span> },
             { label: "IV rank", cell: (r) => nf(r.iv_rank, 0), sort: (r) => r.iv_rank }, { label: "P/C", cell: (r) => nf(r.pc_ratio, 2), sort: (r) => r.pc_ratio }]} />
         <Mini title="Insider buying — top 5 by % of outstanding" href="/insiders" rows={insRows} empty="No insider purchases above 1% of outstanding shares."

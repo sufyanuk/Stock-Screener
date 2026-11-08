@@ -12,10 +12,10 @@ shares), upcoming earnings, seasonality for this month, 52-week-low bounces and 
 
 **Unusual Options** — import the day's unusual-options CSV at the top of this tab
 (choose the file, click **Preview** to check how it was read, e.g. +1,639% and IV rank 3.3, then
-**Import**; import a new file each trading day). Below it, **Unusual-options criteria** sets the
-thresholds (1M volume change, IV rank, put/call, data source). The table lists every stock in the latest
-file, sorted by 1-month options volume change, with price, calls/puts, put/call and IV rank. "passes"
-marks stocks meeting the criteria and price < $100; "Top 5" marks current recommendations.
+**Import**; the box shows a one-line summary; import a new file each trading day). Below it, **Unusual-options criteria** sets the
+thresholds (1M volume change, IV rank, put/call, data source). The table lists only the stocks in the latest
+file that meet the criteria (and price < $100), sorted by 1-month options volume change, with price,
+calls/puts, put/call and IV rank.
 
 **Insider Buying** — open-market purchases (SEC Form 4) filed in the last 90 days, shown only where the
 shares bought are more than 1% of the company's shares outstanding. Columns include Outstanding shares

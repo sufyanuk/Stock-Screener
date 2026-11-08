@@ -3,7 +3,7 @@ import { useState } from "react";
 import { CriteriaCard } from "@/components/criteria";
 import { OptionsImport } from "@/components/options-import";
 import { ScanBar } from "@/components/scan-bar";
-import { Badge, Card, Empty, ErrorBox, Ticker, useSort } from "@/components/ui";
+import { Card, Empty, ErrorBox, Ticker, useSort } from "@/components/ui";
 import { useApi } from "@/lib/api";
 import { compact, nf, pct, tone, usd } from "@/lib/format";
 
@@ -20,11 +20,10 @@ export default function OptionsPage() {
   const fresh = !!list.data?.[0];
   const latest = list.data?.[0];
   const { data, error, reload } = useApi<Detail>(latest ? `/options-imports/${latest.id}` : null);
-  const [onlyPass, setOnlyPass] = useState(false);
   const [q, setQ] = useState("");
-  const rows = (data?.data ?? []).filter((r) => (!onlyPass || r.passes_rules) && (!q || r.symbol.includes(q.toUpperCase()) || (r.name ?? "").toLowerCase().includes(q.toLowerCase())));
-  const rrows = rows.map((r) => ({ ...r, rules: (r.in_top5 ? 2 : 0) + (r.passes_rules ? 1 : 0) }));
-  const { sorted, th } = useSort(rrows, "vol_change_1m_pct" as keyof (typeof rrows)[number], true);
+  const passing = (data?.data ?? []).filter((r) => r.passes_rules);
+  const rows = passing.filter((r) => (!q || r.symbol.includes(q.toUpperCase()) || (r.name ?? "").toLowerCase().includes(q.toLowerCase())));
+  const { sorted, th } = useSort(rows, "vol_change_1m_pct" as keyof Row, true);
   const t = data?.thresholds;
   return (
     <div className="space-y-4">
@@ -32,10 +31,9 @@ export default function OptionsPage() {
       <ErrorBox error={error || list.error} />
       {list.data && <OptionsImport open={!fresh} onImported={() => { list.reload(); reload(); }} />}
       <CriteriaCard title="Unusual-options criteria" tab="Unusual Options" sections={["options"]} />
-      <Card title={data ? `${rows.length} of ${data.data.length} stocks` : "Unusual options"} right={
+      <Card title={data ? `${passing.length} stock${passing.length === 1 ? "" : "s"} meet the unusual-options criteria (of ${data.data.length} imported)` : "Unusual options"} right={
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by ticker or name" className="w-48" />
-          <label className="flex items-center gap-1.5"><input type="checkbox" checked={onlyPass} onChange={(e) => setOnlyPass(e.target.checked)} /> Passes rules only</label>
         </div>}>
         {!latest && !list.loading ? (
           <Empty>No CSV imported yet — upload today&apos;s file above.</Empty>
@@ -45,7 +43,7 @@ export default function OptionsPage() {
               <thead><tr>
                 {th("symbol", "Ticker")}{th("name", "Company")}{th("price", "Price")}{th("pct_change", "Day")}
                 {th("vol_change_1m_pct", "1M vol Δ")}{th("options_volume", "Options vol")}{th("call_volume", "Calls")}{th("put_volume", "Puts")}
-                {th("pc_ratio", "P/C")}{th("iv_rank", "IV rank")}{th("rules", "Rules")}
+                {th("pc_ratio", "P/C")}{th("iv_rank", "IV rank")}
               </tr></thead>
               <tbody>{sorted.map((r) => (
                 <tr key={r.symbol}>
@@ -59,12 +57,11 @@ export default function OptionsPage() {
                   <td className="num">{compact(r.put_volume)}</td>
                   <td className="num">{nf(r.pc_ratio, 3)}</td>
                   <td className="num">{nf(r.iv_rank, 1)}</td>
-                  <td className="whitespace-nowrap">{r.passes_rules ? <Badge tone="bull">passes</Badge> : <Badge>—</Badge>}{r.in_top5 && <> <Badge tone="info">Top 5</Badge></>}</td>
                 </tr>))}</tbody>
             </table>
           </div>
-        ) : <Empty>{data ? "No stocks match the filters." : "Loading…"}</Empty>}
-        {t && <p className="mt-2 text-xs text-muted">“passes” = price below ${t.max_price}, 1M volume change ≥ {t.min_volume_change_pct}%, IV rank &gt; {t.min_iv_rank}, put/call &lt; {t.max_put_call_ratio} (criteria above). Large call volume is not automatically bullish.</p>}
+        ) : <Empty>{!data ? "Loading…" : q ? "No matching stocks." : "No stocks in the latest file meet the criteria."}</Empty>}
+        {t && <p className="mt-2 text-xs text-muted">Shown: price below ${t.max_price}, 1M volume change ≥ {t.min_volume_change_pct}%, IV rank &gt; {t.min_iv_rank}, put/call &lt; {t.max_put_call_ratio} (criteria above). Large call volume is not automatically bullish.</p>}
       </Card>
     </div>
   );
