@@ -409,6 +409,9 @@ class PriceSnapshot(Base):
     as_of: Mapped[date] = mapped_column(Date, index=True)
     close: Mapped[float] = mapped_column(Float)
     data: Mapped[dict] = mapped_column(Json)
+    # Bounce-screen figures computed from ``data`` when it is saved: the screen reads only these (a year of
+    # daily bars for every stock is far too much to send from the database on each view).
+    metrics: Mapped[dict | None] = mapped_column(Json, nullable=True)
     source: Mapped[str] = mapped_column(String(64))
     imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

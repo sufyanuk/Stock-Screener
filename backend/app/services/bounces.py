@@ -139,10 +139,10 @@ def _write(db: Session, states: dict[str, dict], target: date) -> None:
     for sym, st in states.items():
         if st.get("days"):
             rows.append({"symbol": sym, "as_of": date.fromisoformat(st["days"][-1]), "close": st["bars"][-1][4],
-                         "data": st, "source": SOURCE, "imported_at": now})
+                         "data": st, "metrics": _metrics(st), "source": SOURCE, "imported_at": now})
         else:  # no bars from the provider (delisted, no trades): remember it so it is not re-requested
-            rows.append({"symbol": sym, "as_of": target, "close": 0.0, "data": {"days": []}, "source": SOURCE,
-                         "imported_at": now})
+            rows.append({"symbol": sym, "as_of": target, "close": 0.0, "data": {"days": []}, "metrics": None,
+                         "source": SOURCE, "imported_at": now})
     db.execute(insert(PriceSnapshot), rows)
     db.commit()
 
@@ -289,20 +289,32 @@ def ema50_bounce(m: dict, p: dict) -> bool:
     return True
 
 
+def _backfill_metrics(db: Session, symbols: list[str]) -> None:
+    """One-time: compute the stored figures for rows saved before the ``metrics`` column existed."""
+    for i in range(0, len(symbols), 200):
+        for s in db.scalars(select(PriceSnapshot).where(PriceSnapshot.symbol.in_(symbols[i:i + 200]))).all():
+            s.metrics = _metrics(s.data) or {}
+        db.commit()
+
+
 def screen(db: Session, kind: str, p: dict) -> dict:
     info = status(db)
     fn = low52_bounce if kind == "low52" else ema50_bounce
     rows = []
-    for s in db.scalars(select(PriceSnapshot).where(PriceSnapshot.source == SOURCE,
-                                                    PriceSnapshot.close < p["max_price"])).all():
-        if info["as_of"] and s.as_of.isoformat() != info["as_of"]:
-            continue  # not traded in the latest session
-        m = _metrics(s.data)
+    q = select(PriceSnapshot.symbol, PriceSnapshot.as_of, PriceSnapshot.metrics).where(
+        PriceSnapshot.source == SOURCE, PriceSnapshot.close < p["max_price"], PriceSnapshot.close > 0)
+    if info["as_of"]:
+        q = q.where(PriceSnapshot.as_of == date.fromisoformat(info["as_of"]))  # traded in the latest session
+    found = db.execute(q).all()
+    _backfill_metrics(db, [sym for sym, _, met in found if met is None])
+    if any(met is None for _, _, met in found):
+        found = db.execute(q).all()
+    for sym, _, m in found:
         if not m or (p.get("min_price") is not None and m["price"] < p["min_price"]):
             continue
         if fn(m, p):
             avg = m["avg_vol50"] if kind == "low52" else m["avg_vol20"]
-            rows.append({"symbol": s.symbol, **m, "vol_ratio": m["volume"] / avg if avg else None})
+            rows.append({"symbol": sym, **m, "vol_ratio": m["volume"] / avg if avg else None})
     rows.sort(key=lambda r: -(r["vol_ratio"] or 0))
     return {"kind": kind, "params": p, "rows": rows[: p.get("limit", 500)], "total": len(rows), "data": info}
 
