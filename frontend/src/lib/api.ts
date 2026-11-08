@@ -49,8 +49,11 @@ export function useApi<T>(path: string | null, refreshMs?: number) {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- data fetching on mount/interval
     load();
     if (!refreshMs) return;
-    const id = setInterval(load, refreshMs);
-    return () => clearInterval(id);
+    // Refresh only while the tab is visible, so a background tab doesn't keep the database awake.
+    const id = setInterval(() => { if (document.visibilityState === "visible") load(); }, refreshMs);
+    const onShow = () => { if (document.visibilityState === "visible") load(); };
+    document.addEventListener("visibilitychange", onShow);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", onShow); };
   }, [load, refreshMs]);
   return { data, error, loading, reload: load };
 }

@@ -183,7 +183,8 @@ async def load_api(db: Session, ds, max_seconds: float = 200.0, rebuild: bool = 
             processed += len(syms)
         if errors and not processed:
             break
-    if processed:
+    # Recompute the statistics once, when the load has finished (it reads every month-end close).
+    if processed and api_status(db)["remaining"] == 0:
         _rebuild_market_months(db, "alpaca (monthly bars)")
         recompute(db)
     return {"processed": processed, "errors": errors[:3]} | api_status(db) | {"coverage": coverage(db)}
