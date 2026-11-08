@@ -11,6 +11,8 @@ const nextConfig: NextConfig = {
   turbopack: { root: path.resolve(__dirname) },
   outputFileTracingRoot: path.resolve(__dirname),
   poweredByHeader: false,
+  // Identifies this build: the browser's daily data cache is dropped when a new version is deployed.
+  env: { NEXT_PUBLIC_BUILD_ID: process.env.VERCEL_GIT_COMMIT_SHA ?? String(Date.now()) },
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${backend}/api/:path*` }];
   },

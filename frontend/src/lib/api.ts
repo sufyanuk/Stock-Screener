@@ -17,8 +17,10 @@ const PREFIX = "apicache:";
 const GEN = PREFIX + "gen";
 const mem = new Map<string, { day: string; gen: string; data: unknown }>();
 
+// Cache entries belong to one trading day and one deployed build (a new version may change the data shape).
+const BUILD = process.env.NEXT_PUBLIC_BUILD_ID ?? "dev";
 function nyDay() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date()) + "|" + BUILD;
 }
 function gen() {
   try { return localStorage.getItem(GEN) ?? "0"; } catch { return "0"; }
