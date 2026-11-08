@@ -285,10 +285,8 @@ def ranking(db: Session, month: int, min_years: int = 5, rank_by: str = "pct", l
     cnt = SeasonalityStat.neg_years if bear else SeasonalityStat.pos_years
     pct_expr = (func.coalesce(cnt, 0) * 100.0 / SeasonalityStat.years)
     avg_col = SeasonalityStat.neg_avg if bear else SeasonalityStat.pos_avg
-    if rank_by == "avg":
-        order = (avg_col.asc() if bear else avg_col.desc(), pct_expr.desc())
-    else:
-        order = (pct_expr.desc(), avg_col.asc() if bear else avg_col.desc())
+    avg_order = (avg_col.asc() if bear else avg_col.desc()).nulls_last()
+    order = (avg_order, pct_expr.desc()) if rank_by == "avg" else (pct_expr.desc(), avg_order)
     base = _filtered(month, min_years, min_price, max_price, q, symbols)
     total = db.scalar(select(func.count()).select_from(base.subquery()))
     rows = db.scalars(base.order_by(*order, SeasonalityStat.symbol).limit(limit)).all()

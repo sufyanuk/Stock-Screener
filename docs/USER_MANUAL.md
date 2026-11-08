@@ -46,18 +46,16 @@ the newest day, and a stock with a split-sized jump has its history reloaded. **
   above the EMA; volume at least 1.5× the 20-day average; optional RSI(14) 40–60.
 All thresholds can be changed on the tab. Latest completed session only.
 
-**Seasonality** — choose **Select Index** (S&P 500, Nasdaq-100, Dow Jones 30 or All US stocks),
-**Select Month**, and **Bullish** or **Bearish**. Bullish lists, for every stock, the total years of
-data, how many years that month closed up, % positive, and the largest, smallest and average gain in
-those up years. Bearish shows the same for the down years (largest, smallest and average fall). The
-table is sorted by % positive (or % negative) and every column can be sorted. Prices come from Alpaca
-monthly bars (10 years, adjusted for splits and dividends) and load automatically the first time you
-open the tab (a progress line shows "Loaded X of Y stocks"); after that the daily scan adds each new
-month, or click **Update prices**. Index members come from FMP, with Wikipedia as a fallback, and are
-refreshed weekly. "More filters" adds minimum years, price range and ticker prefix. You can still
-import your own price-history CSV at the bottom of the page (months already in the database are kept).
-Moves beyond ±200% in a month are ignored as data errors. Past seasonality does not guarantee future
-returns.
+**Seasonality** — covers all US stocks. Pick a month with the month buttons and use the filters: Rank
+by (% of years positive, or average positive change), minimum years of history, price range (default
+$5 to $100) and ticker prefix. The table shows Ticker, Company, Total Years, Total Positive Years,
+% Positive, and the Max, Min and Average Positive Change (%) — the largest, smallest and average gain
+in the years the month closed up. Every column can be sorted. Prices come from Alpaca monthly bars
+(10 years, adjusted for splits and dividends) and load automatically the first time you open the tab
+(a progress line shows "Loaded X of Y stocks"); after that the daily scan adds each new month, or click
+**Update prices**. You can still import your own price-history CSV at the bottom of the page (months
+already in the database are kept). Moves beyond ±200% in a month are ignored as data errors. Past
+seasonality does not guarantee future returns.
 
 **Stock page** — why the stock was or wasn't selected (pass/fail/missing per criterion, in plain
 English); a candlestick chart with SMAs, support/resistance, entry, stop and targets; options
