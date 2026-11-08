@@ -14,7 +14,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app import market_calendar as mc
@@ -84,8 +84,9 @@ class ScanEngine:
                 "active": True, "updated_at": now} for t, r in latest.items() if t not in have]
         changed = [{"t": t, "cik": r["cik"], "name": (r["name"] or "")[:255], "exchange": r["exchange"], "now": now}
                    for t, r in latest.items() if t in have and have[t] != (r["cik"], (r["name"] or "")[:255], r["exchange"])]
-        for i in range(0, len(new), 2000):
-            self.db.execute(insert(Security), new[i:i + 2000])
+        from app.db import upsert
+
+        upsert(self.db, Security, new, update=False)  # another request may add the same tickers at the same moment
         if changed:
             from sqlalchemy import bindparam, update
 
@@ -351,8 +352,12 @@ class ScanEngine:
             for r in rows:
                 sec = universe.get(r.symbol)
                 if sec is None:  # ticker not in the SEC universe (or SEC not configured): evaluate without a CIK
-                    sec = Security(ticker=r.symbol, name=r.name or r.symbol, cik=None, exchange=None)
-                    self.db.merge(sec)
+                    from app.db import upsert
+
+                    upsert(self.db, Security, [{"ticker": r.symbol, "name": r.name or r.symbol, "cik": None,
+                                                "exchange": None, "active": True,
+                                                "updated_at": datetime.now(timezone.utc)}], update=False)
+                    sec = self.db.get(Security, r.symbol)
                     universe[r.symbol] = sec
                 if r.price is None or not r.price < cfg.max_price:
                     priced_out += 1

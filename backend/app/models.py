@@ -531,3 +531,12 @@ class ShariahRules(Base):
     rules: Mapped[dict] = mapped_column(Json)
     updated_by: Mapped[str] = mapped_column(String(255))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class JobClaim(Base):
+    """One row per job run that must happen only once (e.g. "daily-scan:2026-11-08"): the database's unique
+    key decides which of two simultaneous requests runs it."""
+
+    __tablename__ = "job_claims"
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    claimed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

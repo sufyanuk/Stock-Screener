@@ -87,7 +87,8 @@ def reset_engine_for_tests(url: str) -> None:
     _Session = sessionmaker(_engine, expire_on_commit=False)
 
 
-def upsert(db: Session, model, rows: list[dict], chunk: int = 2000) -> None:
+def upsert(db: Session, model, rows: list[dict], chunk: int = 2000, conflict: list[str] | None = None,
+           update: bool = True) -> None:
     """Insert rows, updating any that already exist (by primary key). Safe when two requests save the
     same rows at the same moment (a plain insert / merge would fail with a duplicate key)."""
     if not rows:
@@ -96,11 +97,27 @@ def upsert(db: Session, model, rows: list[dict], chunk: int = 2000) -> None:
         from sqlalchemy.dialects.postgresql import insert as dialect_insert
     else:
         from sqlalchemy.dialects.sqlite import insert as dialect_insert
-    pk = [c.name for c in model.__table__.primary_key.columns]
+    pk = conflict or [c.name for c in model.__table__.primary_key.columns]
     for i in range(0, len(rows), chunk):
         part = rows[i:i + chunk]
         stmt = dialect_insert(model).values(part)
         cols = {k: stmt.excluded[k] for k in part[0] if k not in pk}
-        stmt = (stmt.on_conflict_do_update(index_elements=pk, set_=cols) if cols
+        stmt = (stmt.on_conflict_do_update(index_elements=pk, set_=cols) if cols and update
                 else stmt.on_conflict_do_nothing(index_elements=pk))
         db.execute(stmt)
+
+
+def claim_once(db: Session, key: str) -> bool:
+    """True for exactly one caller per ``key``, even across separate server instances."""
+    from datetime import datetime, timezone
+
+    from app.models import JobClaim
+
+    if db.get_bind().dialect.name == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as dialect_insert
+    else:
+        from sqlalchemy.dialects.sqlite import insert as dialect_insert
+    won = db.execute(dialect_insert(JobClaim).values(key=key[:100], claimed_at=datetime.now(timezone.utc))
+                     .on_conflict_do_nothing(index_elements=["key"]).returning(JobClaim.key)).first() is not None
+    db.commit()
+    return won

@@ -4,8 +4,9 @@ Eligibility (all must hold for the main Top 5):
   * Mandatory, non-configurable: price < $100 (sourced, not missing).
   * Every criterion marked ``hard`` must PASS. MISSING never passes.
 
-Shariah status is **not** an eligibility condition. It is computed for display only: the UI
-highlights compliant tickers in green and non-compliant ones in red.
+Shariah: stocks that are NON-COMPLIANT under the methodology chosen on the Shariah tab are removed
+before ranking (they never enter the Top 5 or the watchlist). Compliant tickers show in green,
+doubtful / insufficient-data ones in amber.
 
 Overall score (0–100) = Σ weight_i × subscore_i / 100 over the six factors.
 

@@ -395,3 +395,31 @@ def test_shares_from_cover_page_and_sec_filings(db):
     r = asyncio.run(rs.load_shares(db, DS(), ["COVR", "FILE"]))
     got = {x.ticker: (x.shares, x.source) for x in db.query(SharesOutstanding).all()}
     assert got == {"COVR": (7e7, "sec (cover page)"), "FILE": (5e7, "sec (filings)")} and r["fetched"] == 2
+
+
+def test_concurrent_saves_of_earnings_and_securities_do_not_fail(db):
+    from datetime import date as d, datetime, timezone
+
+    from app.db import upsert
+    from app.models import EarningsEvent, Security
+
+    row = {"symbol": "AAA", "name": "A", "report_date": d(2026, 11, 10), "fiscal_date_ending": None,
+           "eps_estimate": 1.0, "time_of_day": "pre-market", "provider": "x", "retrieved_at": datetime.now(timezone.utc)}
+    upsert(db, EarningsEvent, [row], conflict=["symbol", "report_date"])
+    upsert(db, EarningsEvent, [row | {"eps_estimate": 2.0}], conflict=["symbol", "report_date"])  # the other request
+    db.commit()
+    rows = db.query(EarningsEvent).all()
+    assert len(rows) == 1 and rows[0].eps_estimate == 2.0
+    sec = {"ticker": "ZZZ", "cik": "1", "name": "Z", "exchange": "Nasdaq", "active": True, "updated_at": datetime.now(timezone.utc)}
+    upsert(db, Security, [sec], update=False)
+    upsert(db, Security, [sec | {"name": "changed"}], update=False)  # already added by another request: kept
+    db.commit()
+    assert db.get(Security, "ZZZ").name == "Z"
+
+
+def test_claim_once_lets_exactly_one_request_run(db):
+    from app.db import claim_once
+
+    assert claim_once(db, "daily-scan:2026-11-08") is True
+    assert claim_once(db, "daily-scan:2026-11-08") is False  # a second tab / instance at the same moment
+    assert claim_once(db, "daily-scan:2026-11-09") is True

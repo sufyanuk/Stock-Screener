@@ -61,6 +61,21 @@ class TTLCache:
         self._d[k] = (time.time() + ttl, v)
 
 
+# Providers whose daily quota is used up: skipped until this time (a "daily limit reached" 429 will not clear by
+# retrying, and each retry cycle would stall the caller for ~15 s).
+_QUOTA_COOLDOWN: dict[str, float] = {}
+QUOTA_COOLDOWN_SECONDS = 3600
+_QUOTA_WORDS = ("limit reach", "daily limit", "per day", "quota", "upgrade your plan")
+
+
+def _quota_exhausted(r: httpx.Response) -> bool:
+    try:
+        body = r.text[:500].lower()
+    except Exception:  # noqa: BLE001
+        return False
+    return any(w in body for w in _QUOTA_WORDS)
+
+
 @dataclass
 class HttpProvider:
     name: str
@@ -94,6 +109,8 @@ class HttpProvider:
         if ttl and (hit := self._cache.get(key)) is not None:
             return hit
         safe = {k: ("***" if k in redact else v) for k, v in params.items()}
+        if _QUOTA_COOLDOWN.get(self.name, 0) > time.time():
+            raise ProviderError(self.name, "daily request quota used up (skipped for now)", 429)
         delay = 1.0
         for attempt in range(self.max_retries + 1):
             await self._limiter.acquire()
@@ -112,6 +129,9 @@ class HttpProvider:
                 if r.status_code == 404:
                     raise ProviderError(self.name, f"not found on {path} {safe}", 404)
                 err = ProviderError(self.name, f"HTTP {r.status_code} on {path} {safe}", r.status_code)
+                if r.status_code == 429 and _quota_exhausted(r):
+                    _QUOTA_COOLDOWN[self.name] = time.time() + QUOTA_COOLDOWN_SECONDS
+                    raise ProviderError(self.name, f"daily request quota used up (HTTP 429 on {path})", 429)
                 if r.status_code not in (429, 500, 502, 503, 504):
                     raise err
                 if ra := r.headers.get("Retry-After"):

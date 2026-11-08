@@ -55,16 +55,20 @@ async def refresh_earnings(db: Session, ds, force: bool = False, horizon_days: i
         rows, prov = await asyncio.wait_for(ds.earnings_calendar(start, start + timedelta(days=horizon_days)), 60)
     except (ProviderError, asyncio.TimeoutError) as e:
         return {"refreshed": False, "error": str(e) or "timed out", "retrieved_at": last.isoformat() if last else None}
+    from app.db import upsert
+
     db.execute(delete(EarningsEvent).where(EarningsEvent.report_date >= start))
-    seen = set()
+    seen, new = set(), []
     for r in rows:
         key = (r["symbol"], r["report_date"])
         if key in seen:
             continue
         seen.add(key)
-        db.add(EarningsEvent(symbol=r["symbol"], name=r.get("name"), report_date=date.fromisoformat(r["report_date"]),
-                             fiscal_date_ending=r.get("fiscal_date_ending"), eps_estimate=r.get("eps_estimate"),
-                             time_of_day=r.get("time_of_day"), provider=prov.provider))
+        new.append({"symbol": r["symbol"], "name": r.get("name"), "report_date": date.fromisoformat(r["report_date"]),
+                    "fiscal_date_ending": r.get("fiscal_date_ending"), "eps_estimate": r.get("eps_estimate"),
+                    "time_of_day": r.get("time_of_day"), "provider": prov.provider, "retrieved_at": _now()})
+    # another request may be refreshing the calendar at the same moment: insert-or-update by (symbol, date)
+    upsert(db, EarningsEvent, new, conflict=["symbol", "report_date"])
     db.commit()
     return {"refreshed": True, "rows": len(seen), "provider": prov.provider}
 

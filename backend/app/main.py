@@ -641,6 +641,10 @@ async def daily_scan(bg: BackgroundTasks, u: User = Depends(current_user), db: S
             return {"ran": False, "reason": "already scanned today", "last_run": last.id}
     if _scan_lock.locked() or _scan_running(db):
         return {"ran": False, "reason": "a scan is already running"}
+    from app.db import claim_once
+
+    if not claim_once(db, f"daily-scan:{today.isoformat()}"):  # another tab / instance started it a moment ago
+        return {"ran": False, "reason": "already started today"}
     if _serverless():
         return {"ran": True, "queued": False, **await _do_scan("manual", f"auto (first open {today.isoformat()})")}
     bg.add_task(_do_scan, "manual", f"auto (first open {today.isoformat()})")
@@ -1226,7 +1230,9 @@ async def seasonality(month: int | None = None, min_years: int = 5, rank_by: str
             idx_error = f"Could not load the {ix.INDEXES[index]['label']} constituents right now."
     out = ss.ranking(db, month, min_years, "avg" if rank_by == "avg" else "pct", limit, min_price, max_price, q,
                      "bearish" if mode == "bearish" else "bullish", symbols, names)
+    before = len(out["ranked"])
     out["ranked"] = rs.hide_non_compliant(db, out["ranked"])  # scan results hide non-compliant stocks
+    out["total_matching"] = max(len(out["ranked"]), out["total_matching"] - (before - len(out["ranked"])))
     for i, e in enumerate(out["ranked"], 1):
         e["rank"] = i
     await _attach_prices(db, out["ranked"])
