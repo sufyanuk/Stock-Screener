@@ -1,27 +1,15 @@
 "use client";
 import Link from "next/link";
-import { ReactNode, useState } from "react";
-import { Badge, Button, ErrorBox, ShariahLegend } from "@/components/ui";
-import { api, useApi } from "@/lib/api";
+import { ReactNode } from "react";
+import { Badge, ErrorBox, ShariahLegend } from "@/components/ui";
+import { useApi } from "@/lib/api";
 import { ago } from "@/lib/format";
 import type { Dashboard } from "@/lib/types";
 
-/** Page title + last scan, options-CSV status and scan warnings (shared by the tabs). The "Run scan now"
- *  button is shown only where asked (Dashboard, Unusual Options); elsewhere the daily auto-scan applies. */
-export function ScanBar({ title, subtitle, onScanned, showButton = false }: { title: string; subtitle?: ReactNode; onScanned?: () => void; showButton?: boolean }) {
-  const { data, error, reload } = useApi<Dashboard>("/dashboard");
-  const [msg, setMsg] = useState<string | null>(null);
-  async function scan() {
-    setMsg("Scanning… this can take a few minutes.");
-    try {
-      const r = await api<{ queued: boolean; status?: string; new?: string[] }>("/scan", { method: "POST" });
-      setMsg(r.queued ? "Scan queued — results appear when it finishes." : `Scan finished (${r.status}).${r.new?.length ? ` New: ${r.new.join(", ")}` : ""}`);
-      reload();
-      onScanned?.();
-    } catch (e) {
-      setMsg((e as Error).message);
-    }
-  }
+/** Page title + last scan and options-CSV status (shared by the tabs). Scans run automatically: once on the
+ *  first open of each day and on the weekday schedule after the US close. */
+export function ScanBar({ title, subtitle }: { title: string; subtitle?: ReactNode; onScanned?: () => void }) {
+  const { data, error } = useApi<Dashboard>("/dashboard");
   const run = data?.latest_run;
   const o = data?.options_source;
   return (
@@ -33,10 +21,6 @@ export function ScanBar({ title, subtitle, onScanned, showButton = false }: { ti
             {subtitle ? <>{subtitle} · </> : null}Market: <span className="text-ink">{data?.market_phase ?? "…"}</span>
             {run && <> · last scan {run.session_date} ({run.kind}) {ago(run.finished_at)} <Badge tone={run.status === "ok" ? "bull" : "warn"}>{run.status}</Badge></>}
           </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {msg && <span className="text-xs text-muted">{msg}</span>}
-          {showButton && <Button onClick={scan}>Run scan now</Button>}
         </div>
       </div>
       <ErrorBox error={error} />

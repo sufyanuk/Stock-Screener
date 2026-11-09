@@ -30,7 +30,7 @@ export default function OptionsPage() {
   const t = data?.thresholds;
   return (
     <div className="space-y-4">
-      <ScanBar showButton title="Unusual options activity" subtitle={latest ? `CSV import #${latest.id} · ${latest.filename} · session ${latest.session_date}` : undefined} onScanned={reload} />
+      <ScanBar title="Unusual options activity" subtitle={latest ? `CSV import #${latest.id} · ${latest.filename} · session ${latest.session_date}` : undefined} onScanned={reload} />
       <ErrorBox error={error || list.error} />
       {list.data && <OptionsImport open={!fresh} onImported={() => { list.reload(); reload(); }} />}
       <CriteriaCard title="Unusual-options criteria" tab="Unusual Options" sections={["options"]} />

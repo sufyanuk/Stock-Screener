@@ -40,7 +40,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <ScanBar showButton title="Dashboard" onScanned={() => { dash.reload(); ins.reload(); }} />
+        <ScanBar title="Dashboard" onScanned={() => { dash.reload(); ins.reload(); }} />
       </div>
       <ErrorBox error={dash.error} />
 

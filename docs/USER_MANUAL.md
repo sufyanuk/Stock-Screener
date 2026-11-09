@@ -2,8 +2,8 @@
 
 **Scans** — the first time the app is opened on a new day it runs a scan automatically (insider buying,
 earnings calendar, analyst and SentiSense ratings, outstanding shares); a banner shows
-progress. **Run scan now** is on the Dashboard and Unusual Options tabs for an extra scan (e.g. after
-importing today's options CSV). Every table column can be sorted by clicking its heading.
+progress. A scheduled scan also runs on weekdays after the US close (21:15 UTC). There is no manual
+scan button. Every table column can be sorted by clicking its heading.
 
 **Dashboard** (opens first) — near-qualified stocks failing one or two rules (with reasons), and the top 5
 from each tab: unusual options, insider buying (by % of outstanding
