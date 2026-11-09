@@ -377,15 +377,19 @@ def status(db: Session) -> dict:
             "quarters": _quarters(today), "fiscal_years": _years(today)}
 
 
-async def load(db: Session, ds, max_seconds: float = 200.0, refresh: bool = False) -> dict:
+async def load(db: Session, ds, max_seconds: float = 200.0, refresh: bool = False, sec_data: bool = True) -> dict:
     """Resumable: SEC frames → SIC codes → classification of every stock. Call repeatedly until
-    ``complete`` is true (each call stays within ``max_seconds``)."""
+    ``complete`` is true (each call stays within ``max_seconds``). With ``sec_data=False`` nothing is fetched
+    from SEC: only the latest prices are refreshed and every stock re-classified from the stored SEC figures
+    (SEC data is refreshed weekly, on Sundays)."""
     from app.providers.http import ProviderError
 
     started = time.time()
     sec = getattr(ds, "sec", None)
     if sec is None:
         return status(db) | {"complete": False, "processed": 0, "errors": ["SEC EDGAR is not configured (SEC_USER_AGENT)"]}
+    if not sec_data:
+        return await _prices_only(db, ds, started, max(10.0, max_seconds - 40))
     if refresh:
         db.execute(delete(SecFrameLoad))
         db.commit()
@@ -453,6 +457,21 @@ async def load(db: Session, ds, max_seconds: float = 200.0, refresh: bool = Fals
     # only classify once every frame is in: a half-loaded balance sheet could understate debt or cash
     frames_complete = st["frames_done"] == st["frames_total"]
     if frames_complete and (complete or processed == 0 or not st["results"]):
+        compute_all(db)
+        st = status(db)
+    return st | {"complete": complete, "processed": processed, "errors": errors[:5]}
+
+
+async def _prices_only(db: Session, ds, started: float, budget: float) -> dict:
+    """Weekday refresh: latest prices (market cap) and re-classification from the stored SEC figures."""
+    errors: list[str] = []
+    processed = await _load_prices(db, ds, started + budget, errors)
+    st = status(db)
+    has_prices = hasattr(getattr(ds, "alpaca", None), "multi_snapshots")
+    complete = st["prices_done"] >= st["prices_total"] * 0.99 or not has_prices
+    # the stored figures come from the last complete SEC load, so they can be re-used even after a new
+    # quarter starts (its tables are downloaded on Sunday)
+    if st["results"] and (complete or processed == 0):
         compute_all(db)
         st = status(db)
     return st | {"complete": complete, "processed": processed, "errors": errors[:5]}

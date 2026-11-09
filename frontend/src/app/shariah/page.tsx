@@ -1,7 +1,7 @@
 "use client";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Badge, Button, Card, Empty, ErrorBox, Field, ShariahLegend, Ticker } from "@/components/ui";
-import { api, JOBS_NOTE, JOBS_ON_GITHUB, useApi } from "@/lib/api";
+import { api, JOBS_ON_GITHUB, useApi } from "@/lib/api";
 import { compact, nf } from "@/lib/format";
 
 type Status = "HALAL" | "NON_COMPLIANT" | "DOUBTFUL";
@@ -120,7 +120,7 @@ export default function ShariahPage() {
           </div>
           <Field label="Ticker starts with"><input value={q} onChange={(e) => setQ(e.target.value.toUpperCase())} placeholder="e.g. AA" /></Field>
           {JOBS_ON_GITHUB
-            ? <p className="self-end text-xs text-muted">SEC data: {JOBS_NOTE}{ld?.computed_at && <> Last computed {new Date(ld.computed_at).toLocaleString()}.</>}</p>
+            ? <p className="self-end text-xs text-muted">SEC figures are refreshed every Sunday; prices and results every weekday evening.{ld?.computed_at && <> Last computed {new Date(ld.computed_at).toLocaleString()}.</>}</p>
             : <Button variant="ghost" onClick={() => load(true)} disabled={!!busy}>{busy ? "Loading…" : "Refresh SEC data"}</Button>}
         </div>
         <div className="mt-3 space-y-2">

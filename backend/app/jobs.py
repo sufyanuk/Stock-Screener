@@ -2,6 +2,7 @@
 
     python -m app.jobs nightly      # scan + every data load below
     python -m app.jobs scan         # one scan (after a CSV import)
+    python -m app.jobs shariah-weekly     # Sundays: download the SEC figures again
     python -m app.jobs shariah | ratings | insiders | earnings
 
 Each loader is resumable and is called repeatedly until it reports nothing left (or the job's time is up),
@@ -49,14 +50,24 @@ async def scan(kind: str = "manual") -> None:
     log.info("scan: %s", await _do_scan(kind, "github-actions"))
 
 
-async def shariah(deadline: float) -> None:
+async def shariah(deadline: float, weekly: bool = False) -> None:
+    """Weekdays: prices + re-classification only, nothing fetched from SEC. Sundays (``weekly``): the SEC
+    figures are downloaded again. SEC is also read on a weekday when nothing has ever been classified (a new database)."""
     from app.services import shariah as shs
 
     with _session() as db:
         ds = _ds()
-        refresh = bool(shs.status(db)["results"]) and shs.is_stale(db, 7)  # SEC figures refreshed weekly
-        await _until_done("shariah", lambda i: shs.load(db, ds, ROUND, refresh=refresh and i == 0),
+        st = shs.status(db)
+        first_load = not st["results"]  # nothing classified yet (new database)
+        sec_data = weekly or first_load
+        refresh = weekly and bool(st["results"])
+        log.info("shariah: %s", "weekly SEC refresh" if refresh else "SEC load" if sec_data else "prices only (no SEC)")
+        await _until_done("shariah", lambda i: shs.load(db, ds, ROUND, refresh=refresh and i == 0, sec_data=sec_data),
                           lambda r: r.get("complete") or r.get("processed") == 0, deadline)
+
+
+async def shariah_weekly(deadline: float) -> None:
+    await shariah(deadline, weekly=True)
 
 
 async def ratings(deadline: float) -> None:
@@ -87,13 +98,14 @@ async def earnings(deadline: float) -> None:
 
 
 LOADS = {"shariah": shariah, "ratings": ratings, "insiders": insiders, "earnings": earnings}
-JOBS = ["nightly", "scan", *LOADS]
+JOBS = ["nightly", "scan", "shariah-weekly", *LOADS]
 
 
 async def run(job: str, minutes: float = 100) -> int:
     deadline = time.time() + minutes * 60
     failed = 0
-    steps = [("scan", None), *LOADS.items()] if job == "nightly" else [(job, LOADS.get(job))]
+    steps = ([("scan", None), *LOADS.items()] if job == "nightly"
+             else [(job, shariah_weekly)] if job == "shariah-weekly" else [(job, LOADS.get(job))])
     for name, fn in steps:
         try:
             if name == "scan":

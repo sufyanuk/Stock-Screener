@@ -60,3 +60,41 @@ def test_job_runner_finishes_a_whole_load_in_one_run(db, monkeypatch):
     db.expire_all()
     assert db.query(ShariahResultRow).count() == len(fake.names)
     assert jobs.main(["jobs", "nope"]) == 2
+
+
+def test_sec_data_is_downloaded_only_by_the_weekly_job(db, monkeypatch):
+    import app.main as main
+    from app import jobs
+    from app.models import PriceSnapshot, Security, ShariahResultRow
+    from app.services import shariah as shs
+    from tests.conftest import FakeDataSource
+
+    fake = FakeSec()
+    priced = []
+
+    class Alp:
+        async def multi_snapshots(self, symbols):
+            priced.extend(symbols)
+            return {s: {"price": 50.0} for s in symbols}
+
+    class DS(FakeDataSource):
+        sec = fake
+        alpaca = Alp()
+
+    monkeypatch.setattr(main, "make_datasource", lambda: DS())
+    monkeypatch.setattr(shs, "_today", lambda: TODAY)
+    for c, t in fake.names.items():
+        db.add(Security(ticker=t, cik=str(c).zfill(10), name=t, exchange="Nasdaq"))
+    db.commit()
+    assert asyncio.run(jobs.run("shariah")) == 0  # new database: the first load reads SEC
+    assert fake.calls and db.query(ShariahResultRow).count() == len(fake.names)
+
+    fake.calls.clear()
+    priced.clear()
+    db.query(PriceSnapshot).delete()
+    db.commit()
+    assert asyncio.run(jobs.run("nightly")) == 0  # weekday: prices and re-classification only
+    assert fake.calls == [] and priced  # no SEC request, prices fetched
+
+    assert asyncio.run(jobs.run("shariah-weekly")) == 0  # Sunday: SEC figures downloaded again
+    assert len(fake.calls) >= len(shs.frame_plan(TODAY))

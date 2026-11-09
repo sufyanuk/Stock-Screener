@@ -2,8 +2,9 @@
 
 **Scans and data refreshes** — the heavy work runs on GitHub Actions, not on Vercel (Vercel's free plan
 allows only 4 CPU-hours a month). Every weekday evening after the US close (~21:40 UTC) a GitHub job scans
-(insider buying, earnings calendar, analyst and SentiSense ratings, outstanding shares) and refreshes the
-Shariah SEC data (weekly) and analyst counts. Opening a tab never starts a
+(insider buying, earnings calendar, analyst and SentiSense ratings, outstanding shares), refreshes the
+Shariah prices and results, and analyst counts. The Shariah engine's SEC figures are downloaded again only
+once a week, on Sunday (~04:17 UTC); weekday runs re-use the stored figures and never contact SEC. Opening a tab never starts a
 load; each tab shows the stored data. Importing an Unusual Options CSV starts a scan on GitHub straight away
 (it begins within about a minute and takes a few minutes; refresh the page for the results). Any job can also
 be run by hand: GitHub → the repository → Actions → data-jobs → Run workflow. Every table column can be sorted by clicking its heading.

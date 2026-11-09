@@ -4,14 +4,15 @@ name: data-jobs
 
 on:
   schedule:
-    - cron: "40 21 * * 1-5"  # weekdays ~21:40 UTC, after the US close (GitHub may start it a little later)
+    - cron: "40 21 * * 1-5"  # weekdays ~21:40 UTC, after the US close: scan, prices, ratings (no SEC download)
+    - cron: "17 4 * * 0"     # Sundays ~04:17 UTC: download the SEC figures for the Shariah engine again
   workflow_dispatch:
     inputs:
       job:
         description: "Which job"
         type: choice
         default: nightly
-        options: [nightly, scan, shariah, ratings, insiders, earnings]
+        options: [nightly, scan, shariah, shariah-weekly, ratings, insiders, earnings]
 
 concurrency:
   group: data-jobs  # one job at a time; a scan requested during the nightly run waits for it
@@ -45,4 +46,4 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Check the database secret
         run: test -n "$DATABASE_URL" || { echo "::error::Add the DATABASE_URL secret (see docs/USER_MANUAL.md)"; exit 1; }
-      - run: python -m app.jobs "${{ inputs.job || 'nightly' }}"
+      - run: python -m app.jobs "${{ inputs.job || (github.event.schedule == '17 4 * * 0' && 'shariah-weekly') || 'nightly' }}"

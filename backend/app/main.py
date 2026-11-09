@@ -596,13 +596,6 @@ async def _do_scan(kind: str, by: str) -> dict:
 
             await load_shares(db, ds, [r["ticker"] for r in latest_insider_buys(db, 90, 500)
                                        if r["outstanding_shares"] is None], limit=80, max_seconds=40)
-            from app.services import shariah as shs
-
-            try:  # Shariah engine: refresh SEC figures weekly (continues on the Shariah page if not finished)
-                if shs.status(db)["results"] and shs.is_stale(db, 7):
-                    await shs.load(db, ds, max_seconds=60, refresh=True)
-            except Exception as e:  # noqa: BLE001
-                log.warning("shariah refresh skipped: %s", e)
             from app.services import ratings
 
             try:  # Ratings tab: SentiSense screener (once a day) and analyst counts for the followed stocks
