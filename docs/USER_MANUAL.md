@@ -3,7 +3,7 @@
 **Scans** — the first time the app is opened on a new day it runs a scan automatically (insider buying,
 earnings calendar, analyst and SentiSense ratings, outstanding shares); a banner shows
 progress. A scheduled scan also runs on weekdays after the US close (21:15 UTC). There is no manual
-scan button. Every table column can be sorted by clicking its heading.
+scan button; importing an Unusual Options CSV starts a scan straight away so the Top 5 uses it. Every table column can be sorted by clicking its heading.
 
 **Dashboard** (opens first) — near-qualified stocks failing one or two rules (with reasons), and the top 5
 from each tab: unusual options, insider buying (by % of outstanding

@@ -15,6 +15,20 @@ export function OptionsImport({ isAdmin = true, open: openInit = true, onImporte
   const [result, setResult] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [scanMsg, setScanMsg] = useState<string | null>(null);
+
+  async function scanNow() {
+    // A new CSV changes the unusual-options criterion: rescan straight away so the Top 5 uses it.
+    setScanMsg("Running a scan with the new CSV… this can take a few minutes.");
+    try {
+      const r = await api<{ queued: boolean; status?: string }>("/scan", { method: "POST" });
+      setScanMsg(r.queued ? "Scan started — results appear when it finishes." : `Scan finished (${r.status}).`);
+    } catch (e) {
+      const m = (e as Error).message;
+      setScanMsg(/already running/i.test(m) ? "A scan is already running — it will use the new CSV." : `Scan could not start: ${m}`);
+    }
+    onImported?.();
+  }
 
   async function send(dryRun: boolean) {
     if (!file) return;
@@ -27,7 +41,7 @@ export function OptionsImport({ isAdmin = true, open: openInit = true, onImporte
         body: JSON.stringify({ filename: file.name, csv, percent_numbers: percent, session_date: sessionDate || null, dry_run: dryRun }),
       });
       setResult(r);
-      if (!dryRun) { list.reload(); onImported?.(); }
+      if (!dryRun) { list.reload(); onImported?.(); void scanNow(); }
     } catch (e) {
       setErr((e as Error).message); setResult(null);
     } finally {
@@ -68,6 +82,7 @@ export function OptionsImport({ isAdmin = true, open: openInit = true, onImporte
             </div>
           </div>
           <div className="mt-3"><ErrorBox error={err} /></div>
+          {scanMsg && <p className="mt-2 text-sm text-accent">{scanMsg}</p>}
           {s && (
             <div className="mt-3 space-y-2">
               <div className="flex flex-wrap items-center gap-2 text-sm">
