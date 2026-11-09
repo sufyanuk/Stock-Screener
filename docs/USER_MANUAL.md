@@ -108,3 +108,19 @@ Disclaimer: research tool only, not investment advice. Shariah screening is not 
    Without it, a CSV import runs the scan on Vercel instead.
 3. **First run** — Actions → data-jobs → Run workflow → `nightly`. It loads everything (the first Shariah
    load takes longest); the log shows each step.
+
+## Running the app on your own computer
+
+The same app can run locally against the same Neon database (e.g. while the Vercel site is paused). It shows the
+stored data only — like the Vercel site, it never starts heavy loads; the GitHub jobs keep doing that.
+
+1. Install **Docker Desktop** (docker.com) and **Git**, then: `git clone https://github.com/sufyanuk/Stock-Screener.git`
+2. In the `Stock-Screener` folder, copy `.env.local.example` to `.env.local` and fill it in: `DATABASE_URL` from the Neon
+   console (Connect → connection pooling **off**), a random `JWT_SECRET`, and the same API keys as in Vercel.
+   `.env.local` is never committed.
+3. `docker compose -f docker-compose.local.yml up -d --build` (the first build takes a few minutes), then open
+   http://localhost:3000. Stop it with `docker compose -f docker-compose.local.yml down`; after a `git pull`, run step 3
+   again to update.
+
+Everything you change locally (imports, watchlist, settings) is saved in the shared database, so it also shows on
+the Vercel site when that is back.
