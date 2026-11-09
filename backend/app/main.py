@@ -370,7 +370,8 @@ async def insiders(top: int = 100, min_pct: float = 0.0, db: Session = Depends(g
     last = db.scalar(select(func.max(InsiderTransaction.filing_date)))
     from app.services.research import shares_map
 
-    unknown = [t for t in missing if t not in shares_map(db, set(missing))]
+    known = shares_map(db, set(missing))  # one query, not one per ticker
+    unknown = [t for t in missing if t not in known]
     from app.models import ProviderHealth
 
     h = db.get(ProviderHealth, "openinsider")

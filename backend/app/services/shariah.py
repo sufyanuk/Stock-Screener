@@ -284,7 +284,8 @@ async def _load_prices(db: Session, ds, deadline: float, errors: list[str]) -> i
     if alp is None or not hasattr(alp, "multi_snapshots"):
         return 0
     today = _today()
-    todo = [t for t in _price_universe(db) if t not in _prices_fresh(db, today)]
+    fresh = _prices_fresh(db, today)  # one query, not one per stock
+    todo = [t for t in _price_universe(db) if t not in fresh]
     done = 0
 
     async def fetch(part: list[str]) -> dict[str, float]:
@@ -438,7 +439,8 @@ async def load(db: Session, ds, max_seconds: float = 200.0, refresh: bool = Fals
         upsert(db, SecCompany, comp_rows)
         db.commit()
     # companies the frames missed: read their own companyfacts file (once every frame is in)
-    if len([p for p in frame_plan(_today()) if p[0] not in set(db.scalars(select(SecFrameLoad.key)).all())]) == 0:
+    loaded = set(db.scalars(select(SecFrameLoad.key)).all())  # one query, not one per frame
+    if all(p[0] in loaded for p in frame_plan(_today())):
         processed += await _load_companyfacts(db, sec, started + budget, errors)
     # latest prices (market capitalisation for AAOIFI)
     if time.time() - started < budget:
