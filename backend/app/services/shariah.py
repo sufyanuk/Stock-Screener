@@ -262,42 +262,63 @@ def _price_universe(db: Session) -> list[str]:
 
 
 def _prices_fresh(db: Session, today: date) -> set[str]:
-    return set(db.scalars(select(PriceSnapshot.symbol).where(
-        PriceSnapshot.as_of >= today - timedelta(days=PRICE_MAX_AGE_DAYS))).all())
+    """Stocks priced in the last few days, or checked and found to have no price (close 0 marked 'checked').
+    A close-0 row without that mark (e.g. written while the price API was rejecting the keys) is retried."""
+    rows = db.execute(select(PriceSnapshot.symbol, PriceSnapshot.close, PriceSnapshot.data).where(
+        PriceSnapshot.as_of >= today - timedelta(days=PRICE_MAX_AGE_DAYS))).all()
+    return {s for s, c, d in rows if (c or 0) > 0 or (d or {}).get("checked")}
+
+
+class _PricesRejected(Exception):
+    """The price API refused the credentials: stop, record nothing (every stock would look price-less)."""
 
 
 async def _load_prices(db: Session, ds, deadline: float, errors: list[str]) -> int:
-    """Latest price for every stock (Alpaca snapshots, 200 per request); a stock with no price is recorded
-    with close 0 so it is not asked again today (it has no market cap: DOUBTFUL for market-cap tests)."""
+    """Latest price for every stock (Alpaca snapshots, 200 per request). A stock the feed answered for without
+    a price is recorded with close 0 (marked 'checked') so it is not asked again for a few days; it has no
+    market cap and is DOUBTFUL for market-cap tests. Stocks not answered (rejected keys, out of time) are
+    not recorded and are asked again next time."""
+    from app.providers.http import ProviderError
+
     alp = getattr(ds, "alpaca", None)
     if alp is None or not hasattr(alp, "multi_snapshots"):
         return 0
     today = _today()
     todo = [t for t in _price_universe(db) if t not in _prices_fresh(db, today)]
     done = 0
-    async def fetch(part: list[str]) -> dict:
-        """One batch; if the feed rejects it (e.g. one unknown symbol), retry in smaller pieces so a single
-        bad ticker cannot hold back the rest. Tickers that still fail get no price."""
+
+    async def fetch(part: list[str]) -> dict[str, float]:
+        """ticker -> price (0 = answered without a price). If the feed rejects a batch (e.g. one unknown
+        symbol), retry in smaller pieces so a single bad ticker cannot hold back the rest."""
         try:
-            return await asyncio.wait_for(alp.multi_snapshots(part), max(5.0, deadline - time.time()))
+            snaps = await asyncio.wait_for(alp.multi_snapshots(part), max(5.0, deadline - time.time()))
+            return {t: float((snaps.get(t) or {}).get("price") or 0.0) for t in part}
         except Exception as e:  # noqa: BLE001
-            if len(part) <= 10 or time.time() > deadline:
-                errors.append(f"prices ({part[0]}…): {str(e)[:120]}")
+            if isinstance(e, ProviderError) and e.status in (401, 403):
+                raise _PricesRejected(str(e)) from e
+            if time.time() > deadline:
                 return {}
+            if len(part) <= 10:
+                errors.append(f"prices ({part[0]}…): {str(e)[:120]}")
+                return dict.fromkeys(part, 0.0)  # the feed rejects these symbols
             half = len(part) // 2
             return (await fetch(part[:half])) | (await fetch(part[half:]))
 
     for i in range(0, len(todo), 1000):
         if time.time() > deadline:
             break
-        part = todo[i:i + 1000]
-        snaps = await fetch(part)
+        try:
+            got = await fetch(todo[i:i + 1000])
+        except _PricesRejected as e:
+            errors.append(f"prices: the price API rejected the keys ({str(e)[:100]}) — check ALPACA_API_KEY_ID and "
+                          "ALPACA_API_SECRET_KEY")
+            break
         now = datetime.now(timezone.utc)
-        upsert(db, PriceSnapshot, [{"symbol": t, "as_of": today, "close": float((snaps.get(t) or {}).get("price") or 0.0),
-                                    "data": {}, "metrics": None, "source": PRICE_SOURCE, "imported_at": now}
-                                   for t in part])
+        upsert(db, PriceSnapshot, [{"symbol": t, "as_of": today, "close": px, "data": {} if px else {"checked": True},
+                                    "metrics": None, "source": PRICE_SOURCE, "imported_at": now}
+                                   for t, px in got.items()])
         db.commit()
-        done += len(part)
+        done += len(got)
     return done
 
 

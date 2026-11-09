@@ -438,3 +438,43 @@ def test_companyfacts_fallback_for_companies_the_frames_miss(client, db, monkeyp
     fake.cf_calls.clear()  # already read this quarter: not asked again
     client.post("/api/shariah/load", headers=h, json={"max_seconds": 120})
     assert fake.cf_calls == []
+
+
+def test_rejected_price_keys_stop_and_record_nothing(db):
+    import asyncio
+    import time
+    from datetime import date as _d
+
+    from app.models import PriceSnapshot, Security
+    from app.providers.http import ProviderError
+    from app.services import shariah as shs
+
+    calls = []
+
+    class Alp:
+        def __init__(self, ok):
+            self.ok = ok
+
+        async def multi_snapshots(self, symbols):
+            calls.append(len(symbols))
+            if not self.ok:
+                raise ProviderError("alpaca", "unauthorized (401) on /v2/stocks/snapshots", status=401)
+            return {"AAA": {"price": 10.0}}
+
+    class DS:
+        alpaca = Alp(False)
+
+    for t in ["AAA", "BBB", "CCC"]:
+        db.add(Security(ticker=t, cik=None, name=t, exchange="Nasdaq"))
+    db.add(PriceSnapshot(symbol="BBB", as_of=_d.today(), close=0.0, data={}, source=shs.PRICE_SOURCE))  # from bad keys
+    db.commit()
+    errors = []
+    assert asyncio.run(shs._load_prices(db, DS(), time.time() + 30, errors)) == 0
+    assert calls == [3] and "rejected the keys" in errors[0]  # one request, no splitting
+    assert db.query(PriceSnapshot).count() == 1
+    assert shs._prices_fresh(db, _d.today()) == set()  # the unmarked close-0 row is retried
+
+    DS.alpaca = Alp(True)  # keys fixed: every stock is asked again
+    assert asyncio.run(shs._load_prices(db, DS(), time.time() + 30, [])) == 3
+    assert db.get(PriceSnapshot, "AAA").close == 10.0 and db.get(PriceSnapshot, "BBB").data == {"checked": True}
+    assert shs._prices_fresh(db, _d.today()) == {"AAA", "BBB", "CCC"}
