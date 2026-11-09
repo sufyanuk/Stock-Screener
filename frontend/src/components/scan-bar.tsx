@@ -56,12 +56,6 @@ export function ScanBar({ title, subtitle, onScanned, showButton = false }: { ti
           These criteria were relaxed (looser than the specification) for the last scan: <b>{run.relaxed_criteria.join(", ")}</b>.
         </div>
       )}
-      {run && run.errors.length > 0 && (
-        <details className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm text-warn">
-          <summary>{run.errors.length} data issue(s) in the last scan — affected criteria were marked missing, never passed.</summary>
-          <ul className="mt-2 list-disc pl-5 text-xs">{run.errors.slice(0, 20).map((e, i) => <li key={i}>{e}</li>)}</ul>
-        </details>
-      )}
       <div className="flex justify-end"><ShariahLegend /></div>
     </div>
   );
