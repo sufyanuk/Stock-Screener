@@ -29,7 +29,7 @@ export default function ShariahPage() {
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const qs = new URLSearchParams({ methodology: method, limit: "2000" });
+  const qs = new URLSearchParams({ methodology: method, limit: "1000" });  // the table shows 1,000 rows
   if (status) qs.set("status", status);
   if (q) qs.set("q", q);
   const { data, error, reload, loading } = useApi<Resp>(`/shariah?${qs}`);

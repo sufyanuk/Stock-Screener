@@ -529,3 +529,13 @@ class JobClaim(Base):
     __tablename__ = "job_claims"
     key: Mapped[str] = mapped_column(String(100), primary_key=True)
     claimed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class KeyValue(Base):
+    """Small stored values (e.g. the Shariah loader's progress, written when a job runs) so pages can read them
+    without recounting large tables on every view."""
+
+    __tablename__ = "kv_store"
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[dict] = mapped_column(Json)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

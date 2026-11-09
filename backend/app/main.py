@@ -1293,7 +1293,7 @@ def shariah_list(methodology: str = "FTSE", status: str | None = None, q: str | 
                     "status": x["status"], "status_label": se.LABELS[x["status"]], "business": x["business"],
                     "ratios": x["ratios"], "reasons": x["reasons"]})
     return {"methodology": m, "rows": out, "total": total, "counts": counts, "labels": se.LABELS,
-            "methodologies": _methods_info(db), "load": shs.status(db), "primary": load_config(db).shariah.methodology,
+            "methodologies": _methods_info(db), "load": shs.status_cached(db), "primary": load_config(db).shariah.methodology,
             "disclaimer": se.DISCLAIMER}
 
 

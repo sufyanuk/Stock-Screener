@@ -323,10 +323,12 @@ def shariah_map(db: Session, symbols: set[str]) -> dict[str, str]:
     from app.services import shariah as shs
     from app.services.engine import load_config
 
-    rows = db.execute(select(ShariahScreen.ticker, ShariahScreen.status).where(ShariahScreen.ticker.in_(symbols))
-                      .order_by(ShariahScreen.id)).all()
+    engine = shs.status_map(db, set(symbols), load_config(db).shariah.methodology)
+    rest = set(symbols) - set(engine)  # scan-time history only for tickers the engine has not screened
+    rows = db.execute(select(ShariahScreen.ticker, ShariahScreen.status).where(ShariahScreen.ticker.in_(rest))
+                      .order_by(ShariahScreen.id)).all() if rest else []
     out = {t: s for t, s in rows}
-    out.update(shs.status_map(db, set(symbols), load_config(db).shariah.methodology))
+    out.update(engine)
     return out
 
 

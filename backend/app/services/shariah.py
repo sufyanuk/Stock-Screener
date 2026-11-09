@@ -214,9 +214,12 @@ def _cik(v) -> str:
     return str(v).zfill(10)
 
 
-def _store_frame(db: Session, taxonomy: str, tag: str, unit: str, period: str, rows: list[dict], ciks: set[str]) -> int:
+def _store_frame(db: Session, taxonomy: str, tag: str, unit: str, period: str, rows: list[dict], ciks: set[str],
+                 cache: dict | None = None) -> int:
     """Keep the facts we need: Assets = latest date per company; other balance-sheet lines only at that
-    date (and, for IFRS, in the same currency); annual lines = latest fiscal year (about 12 months)."""
+    date (and, for IFRS, in the same currency); annual lines = latest fiscal year (about 12 months).
+    ``cache`` keeps the stored dates per tag between calls, so each tag is read from the database once per
+    load instead of once per frame (database transfer)."""
     ifrs = taxonomy == "ifrs-full"
     dei = taxonomy == "dei"  # cover-page facts: latest per company, not tied to the balance-sheet date
     key = ("ifrs:" + tag) if ifrs else ("dei:" + tag) if dei else tag
@@ -225,10 +228,15 @@ def _store_frame(db: Session, taxonomy: str, tag: str, unit: str, period: str, r
     rows = [r for r in rows if _cik(r.get("cik")) in ciks and r.get("val") is not None and r.get("end")]
     if not rows:
         return 0
-    have = {f.cik: f for f in db.scalars(select(SecFact).where(SecFact.tag == key)).all()}
-    anchors = {} if key == anchor_tag else {
-        c: (e, (fr or "").split("|")[-1]) for c, e, fr in db.execute(
+    cache = {} if cache is None else cache
+    have_all, anchors_all = cache.setdefault("have", {}), cache.setdefault("anchors", {})
+    if key not in have_all:
+        have_all[key] = dict(db.execute(select(SecFact.cik, SecFact.end).where(SecFact.tag == key)).all())
+    have = have_all[key]
+    if key != anchor_tag and anchor_tag not in anchors_all:
+        anchors_all[anchor_tag] = {c: (e, (fr or "").split("|")[-1]) for c, e, fr in db.execute(
             select(SecFact.cik, SecFact.end, SecFact.frame).where(SecFact.tag == anchor_tag)).all()}
+    anchors = {} if key == anchor_tag else anchors_all[anchor_tag]
     duration = not period.endswith("I")
     quarterly = duration and "Q" in period
     out: dict[str, dict] = {}
@@ -243,11 +251,15 @@ def _store_frame(db: Session, taxonomy: str, tag: str, unit: str, period: str, r
             if a is None or a[0] != end or (ifrs and a[1] != unit):
                 continue
         cur = have.get(c)
-        if (cur is not None and cur.end > end) or (c in out and out[c]["end"] >= end):
+        if (cur is not None and cur > end) or (c in out and out[c]["end"] >= end):
             continue
         out[c] = {"cik": c, "tag": key, "end": end, "start": start, "val": float(r["val"]), "accn": r.get("accn"),
                   "frame": label}
     upsert(db, SecFact, list(out.values()))
+    for c, v in out.items():
+        have[c] = v["end"]
+        if key == anchor_tag and anchor_tag in anchors_all:
+            anchors_all[anchor_tag][c] = (v["end"], label.split("|")[-1])
     return len(out)
 
 
@@ -359,6 +371,17 @@ async def _load_companyfacts(db: Session, sec, deadline: float, errors: list[str
     return done
 
 
+STATUS_KEY = "shariah_status"
+
+
+def status_cached(db: Session) -> dict:
+    """The loader's progress as stored by the last job run (one small row); computed only if never stored."""
+    from app.models import KeyValue
+
+    row = db.get(KeyValue, STATUS_KEY)
+    return dict(row.value) if row else status(db)
+
+
 def status(db: Session) -> dict:
     today = _today()
     plan = frame_plan(today)
@@ -369,12 +392,17 @@ def status(db: Session) -> dict:
     uni = _price_universe(db)
     frames_done = len([p[0] for p in plan if p[0] in done])
     cf_need, cf_done = _cf_needed(db, today) if frames_done == len(plan) else ([], 0)
-    return {"frames_total": len(plan), "frames_done": frames_done,
+    out = {"frames_total": len(plan), "frames_done": frames_done,
             "filings_total": len(cf_need) + cf_done, "filings_done": cf_done,
             "companies_total": len(ciks), "companies_done": len(ciks & have_sic),
             "prices_total": len(uni), "prices_done": len(set(uni) & _prices_fresh(db, today)),
             "results": db.query(ShariahResultRow).count(), "computed_at": last.isoformat() if last else None,
             "quarters": _quarters(today), "fiscal_years": _years(today)}
+    from app.models import KeyValue
+
+    upsert(db, KeyValue, [{"key": STATUS_KEY, "value": out, "updated_at": datetime.now(timezone.utc)}])
+    db.commit()
+    return out
 
 
 async def load(db: Session, ds, max_seconds: float = 200.0, refresh: bool = False, sec_data: bool = True) -> dict:
@@ -399,6 +427,7 @@ async def load(db: Session, ds, max_seconds: float = 200.0, refresh: bool = Fals
     ciks = {_cik(c) for c in db.scalars(select(Security.cik).where(Security.active.is_(True), Security.cik.is_not(None))).all()}
     done = set(db.scalars(select(SecFrameLoad.key)).all())
     todo = [p for p in frame_plan(_today()) if p[0] not in done]
+    cache: dict = {}
     i = 0
     while i < len(todo) and time.time() - started < budget and len(errors) < 6:
         group = todo[i:i + 4]
@@ -414,7 +443,7 @@ async def load(db: Session, ds, max_seconds: float = 200.0, refresh: bool = Fals
             if isinstance(rows, Exception):
                 errors.append(f"{key}: {str(rows)[:160]}")
                 continue
-            n = _store_frame(db, tx, tag, unit, period, rows, ciks)
+            n = _store_frame(db, tx, tag, unit, period, rows, ciks, cache)
             upsert(db, SecFrameLoad, [{"key": key, "rows": n, "loaded_at": datetime.now(timezone.utc)}])
             processed += 1
         db.commit()
@@ -471,7 +500,7 @@ async def _prices_only(db: Session, ds, started: float, budget: float) -> dict:
     complete = st["prices_done"] >= st["prices_total"] * 0.99 or not has_prices
     # the stored figures come from the last complete SEC load, so they can be re-used even after a new
     # quarter starts (its tables are downloaded on Sunday)
-    if st["results"] and (complete or processed == 0):
+    if st["results"] and processed:  # recompute only when new prices came in (every few days)
         compute_all(db)
         st = status(db)
     return st | {"complete": complete, "processed": processed, "errors": errors[:5]}
@@ -763,6 +792,11 @@ def compute_all(db: Session) -> int:
     db.execute(delete(ShariahResultRow))
     for i in range(0, len(rows), 1000):
         db.execute(insert(ShariahResultRow), rows[i:i + 1000])
+    from app.models import KeyValue
+
+    snap = db.get(KeyValue, STATUS_KEY)  # keep the stored progress in step with the new results
+    if snap:
+        snap.value = dict(snap.value) | {"results": len(rows), "computed_at": now.isoformat()}
     db.commit()
     return len(rows)
 
