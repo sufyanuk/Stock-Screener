@@ -11,7 +11,7 @@ export function PriceImport({ onDone, open: openInit = true }: { onDone?: () => 
   const [err, setErr] = useState<string | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [parsed, setParsed] = useState<{ data: MonthEnd; recent: Recent; stats: ParseStats } | null>(null);
-  const [replaceAll, setReplaceAll] = useState(false);  // default: add new months only
+  const [replaceAll, setReplaceAll] = useState(true);
   const [done, setDone] = useState<string | null>(null);
 
   async function read(list: File[]) {
@@ -34,22 +34,17 @@ export function PriceImport({ onDone, open: openInit = true }: { onDone?: () => 
     const source = files.length === 1 ? files[0].name : `${files.length} CSV files`;
     const parts = chunks(parsed.data);
     try {
-      let stored = 0, kept = 0;
+      let stored = 0;
       for (let i = 0; i < parts.length; i++) {
         setBusy(`Uploading month-end prices… ${i + 1} of ${parts.length}`);
-        const r = await api<{ stored: number; already_stored?: number }>("/seasonality/import", { method: "POST",
+        const r = await api<{ stored: number }>("/seasonality/import", { method: "POST",
           body: JSON.stringify({ rows: parts[i], replace_all: replaceAll && i === 0, source }) });
         stored += r.stored;
-        kept += r.already_stored ?? 0;
       }
-      setBusy(replaceAll ? "Calculating seasonality for every stock…" : "Calculating only the months that gained data…");
-      const f = await api<{ stats: number; mode: string; partial_month_dropped: string | null }>("/seasonality/import/finish", {
+      setBusy("Calculating seasonality for every stock…");
+      const f = await api<{ stats: number; partial_month_dropped: string | null }>("/seasonality/import/finish", {
         method: "POST", body: JSON.stringify({ source, last_date: parsed.stats.lastDate }) });
-      const how = f.mode === "full" ? "All results recalculated."
-        : f.mode === "incremental" ? `Recalculated ${f.stats.toLocaleString()} stock-month results; everything else kept as it was.`
-        : "Nothing new to calculate.";
-      setDone(`Added ${stored.toLocaleString()} new month-end prices` +
-        (kept ? ` (${kept.toLocaleString()} months already stored were kept unchanged)` : "") + `. ${how}` +
+      setDone(`Imported ${stored.toLocaleString()} month-end prices for ${parsed.stats.symbols.toLocaleString()} stocks.` +
         (f.partial_month_dropped ? ` ${f.partial_month_dropped} was left out because the file ends part-way through that month.` : ""));
       setParsed(null); setFiles([]);
     } catch (e) {
@@ -66,7 +61,7 @@ export function PriceImport({ onDone, open: openInit = true }: { onDone?: () => 
           <input type="file" accept=".csv,.txt,text/csv" multiple disabled={!!busy}
             onChange={(e) => read(Array.from(e.target.files ?? []))} />
           <label className="flex items-center gap-1.5"><input type="checkbox" checked={replaceAll} onChange={(e) => setReplaceAll(e.target.checked)} />
-            Start over (replace all stored history)</label>
+            Replace all existing price history</label>
           {parsed && <Button onClick={upload} disabled={!!busy}>Import</Button>}
         </div>
         {parsed && (
@@ -84,8 +79,7 @@ export function PriceImport({ onDone, open: openInit = true }: { onDone?: () => 
           Daily (or weekly/monthly) bars with a header row: Symbol/Ticker, Date, Open, High, Low, Close, Adj Close (optional), Volume —
           one file for all stocks, or one file per stock named by ticker (e.g. AAPL.csv). The file is read in your browser and only each
           stock&apos;s month-end closes are uploaded. Use split-adjusted prices; “Adj Close” is used when present.
-          {replaceAll ? " Ticked: the stored history is deleted and every result recalculated."
-            : " Only months not yet stored are added — stored months and their results stay unchanged, and only the calendar months that gained data are recalculated. Import each new month's file as months pass."}
+          {!replaceAll && " Unticked: stocks in the file replace their own history; other stocks are kept."}
         </p>
       </>}
       </Card>

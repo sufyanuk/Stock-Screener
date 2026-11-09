@@ -139,48 +139,13 @@ def test_seasonality_from_imported_csv(client, db):
     assert "best_by_month" not in t  # Top-5-per-month card removed
     assert client.get("/api/seasonality?month=0", headers=h).status_code == 422
 
-    # adding months: stored months stay as they are; only the calendar months that gained data are recalculated
-    from app.models import SeasonalityStat
-    before = {(r.symbol, r.month): r.computed_at for r in db.query(SeasonalityStat).all()}
-    good_dec = next(r[2] for r in rows if r[0] == "GOOD" and r[1] == "2025-12")
-    again = client.post("/api/seasonality/import", headers=h, json={"rows": _month_rows()}).json()
-    assert again["stored"] == 0 and again["already_stored"] == 4 * 11 * 12  # nothing re-written
-    f = client.post("/api/seasonality/import/finish", headers=h, json={"last_date": "2025-12-31"}).json()
-    assert f["mode"] == "nothing new"
-
-    new = client.post("/api/seasonality/import", headers=h, json={"rows": [
-        ["GOOD", "2025-12", 999.0], ["GOOD", "2026-01", good_dec * 1.2]]}).json()  # Dec 2025 already stored: kept
-    assert new["stored"] == 1 and new["already_stored"] == 1
-    f = client.post("/api/seasonality/import/finish", headers=h, json={"last_date": "2026-01-30"}).json()
-    assert f["mode"] == "incremental" and f["new_stock_months"] == 1 and f["stats"] == 1
-    db.expire_all()
-    after = {(r.symbol, r.month): r for r in db.query(SeasonalityStat).all()}
-    changed = {k for k, r in after.items() if r.computed_at != before[k]}
-    assert changed == {("GOOD", 1)}  # every other statistic left untouched
-    jan = after[("GOOD", 1)]
-    assert jan.years == 11 and jan.avg == pytest.approx(20 / 11) and jan.best == pytest.approx(20.0)
-    assert after[("GOOD", 11)].avg == pytest.approx(10.0)  # November unchanged
-    assert after[("GOOD", 11)].last_close == pytest.approx(good_dec * 1.2)  # latest close updated everywhere
-
-    # the partial recalculation matches a full one exactly
-    cols = ["years", "avg", "median", "win_rate", "best", "best_year", "worst", "worst_year", "last_close",
-            "pos_years", "pos_max", "pos_min", "pos_avg", "neg_years", "neg_max", "neg_min", "neg_avg"]
-    snap = lambda: {(r.symbol, r.month): tuple(getattr(r, c) for c in cols)  # noqa: E731
-                    for r in db.query(SeasonalityStat).all()}
-    incremental = snap()
-    ss.recompute(db)
-    db.expire_all()
-    full = snap()
-    assert incremental.keys() == full.keys()
-    for k in full:
-        assert incremental[k] == pytest.approx(full[k], nan_ok=True), k
-
-    # "start over" replaces everything
-    client.post("/api/seasonality/import", headers=h, json={"rows": _month_rows(range(2020, 2026)), "replace_all": True})
-    f = client.post("/api/seasonality/import/finish", headers=h, json={"last_date": "2025-12-31"}).json()
-    assert f["mode"] == "full"
-    nov = client.get("/api/seasonality?month=11&min_years=1&q=GOOD", headers=h).json()["ranked"][0]
-    assert nov["years"] == 6
+    # merge mode: re-importing one symbol replaces only that symbol's history
+    client.post("/api/seasonality/import", headers=h, json={"rows": [["GOOD", "2025-01", 10.0], ["GOOD", "2025-02", 11.0]]})
+    f = client.post("/api/seasonality/import/finish", headers=h, json={"last_date": "2025-02-10"}).json()
+    assert f["partial_month_dropped"] is None  # Feb 2025 is not the latest month (Dec 2025 is)
+    feb = client.get("/api/seasonality?month=2&min_years=1&q=GOOD", headers=h).json()["ranked"]
+    assert len(feb) == 1 and feb[0]["years"] == 1 and feb[0]["avg"] == pytest.approx(10.0)  # only the new history
+    assert client.get("/api/seasonality?month=11&min_years=1&q=GOOD", headers=h).json()["ranked"] == []
 
 
 def test_partial_final_month_is_dropped(client, db):
