@@ -109,6 +109,18 @@ Disclaimer: research tool only, not investment advice. Shariah screening is not 
 3. **First run** — Actions → data-jobs → Run workflow → `nightly`. It loads everything (the first Shariah
    load takes longest); the log shows each step.
 
+## Running the app in GitHub Codespaces (no installation, no admin rights)
+
+1. Add your keys once: github.com → your profile picture → **Settings → Codespaces → Secrets → New secret**. Add
+   `DATABASE_URL` (Neon console → Connect → connection pooling **off**), `JWT_SECRET` (any long random text),
+   `SEC_USER_AGENT`, and the API keys (`ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`, `FINNHUB_API_KEY`, …). For each,
+   under *Repository access* choose **Stock-Screener**.
+2. Open github.com/sufyanuk/Stock-Screener → green **Code** button → **Codespaces** tab → **Create codespace on main**.
+   The first start installs and builds the app (about 5 minutes); then the screener opens in a new browser tab
+   (or open the **Ports** tab and click the globe icon next to port 3000).
+3. Next time: Code → Codespaces → click your codespace; the app starts by itself. A codespace stops after about
+   30 minutes without use. The address is private to your GitHub account.
+
 ## Running the app on your own computer
 
 The same app can run locally against the same Neon database (e.g. while the Vercel site is paused). It shows the

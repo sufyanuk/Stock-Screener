@@ -1,0 +1,24 @@
+{
+  // GitHub Codespaces: runs the screener in the browser, no installation needed.
+  // Add your keys once as Codespaces secrets (github.com → Settings → Codespaces → Secrets, repository Stock-Screener):
+  // DATABASE_URL (Neon, pooling off), JWT_SECRET, SEC_USER_AGENT and the API keys. The app starts by itself.
+  "name": "Stock Screener",
+  "image": "mcr.microsoft.com/devcontainers/python:3.13",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "22" }
+  },
+  "containerEnv": {
+    "JOBS_ON_GITHUB": "1",
+    "APP_ENV": "production",
+    "SINGLE_USER_MODE": "true",
+    "INSIDER_SOURCE": "openinsider",
+    "BACKEND_URL": "http://localhost:8000"
+  },
+  "postCreateCommand": "bash scripts/codespace-setup.sh",
+  "postStartCommand": "bash scripts/codespace-start.sh",
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": { "label": "Stock Screener", "onAutoForward": "openBrowser" },
+    "8000": { "label": "API (internal)", "onAutoForward": "ignore" }
+  }
+}
