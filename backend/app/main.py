@@ -602,14 +602,6 @@ async def _do_scan(kind: str, by: str) -> dict:
                     await shs.load(db, ds, max_seconds=60, refresh=True)
             except Exception as e:  # noqa: BLE001
                 log.warning("shariah refresh skipped: %s", e)
-            from app.services import seasonality as ss
-
-            try:  # Seasonality: add the newest completed month once the API history is loaded
-                st = ss.api_status(db)
-                if st["loaded"] and st["stale"]:
-                    await ss.load_api(db, ds, max_seconds=60)
-            except Exception as e:  # noqa: BLE001
-                log.warning("seasonality refresh skipped: %s", e)
             from app.services import ratings
 
             try:  # Ratings tab: SentiSense screener (once a day) and analyst counts for the followed stocks
@@ -1194,42 +1186,16 @@ def custom_watchlist_remove(symbol: str, db: Session = Depends(get_db), u: User 
     return {"ok": True}
 
 
-class SeasonalityLoad(BaseModel):
-    max_seconds: float = Field(200, ge=20, le=270)
-    rebuild: bool = False
-
-
-@app.post("/api/seasonality/load")
-async def seasonality_load(p: SeasonalityLoad, db: Session = Depends(get_db), _: User = Depends(current_user)):
-    """Load ~10 years of month-end closes for every US stock from the price API (resumable)."""
-    if _serverless() and _ is not None:
-        return OFFLOADED
-    from app.services import seasonality as ss
-
-    return await ss.load_api(db, make_datasource(), p.max_seconds, p.rebuild)
-
-
-async def _attach_prices(db: Session, rows: list[dict]) -> None:
-    """Current market price for each row: Alpaca live snapshot, else the latest daily close on file,
-    else the last month-end close."""
+def _attach_prices(db: Session, rows: list[dict]) -> None:
+    """Price for each row from data already stored (no API call): the latest daily price on file, else the
+    last month-end close from the imported CSV."""
     from app.models import PriceSnapshot
 
     syms = [r["symbol"] for r in rows]
-    live: dict[str, dict] = {}
-    alp = getattr(make_datasource(), "alpaca", None)
-    if syms and alp is not None and hasattr(alp, "multi_snapshots"):
-        try:
-            live = await asyncio.wait_for(alp.multi_snapshots(syms), timeout=15)
-        except Exception as e:  # noqa: BLE001
-            log.warning("seasonality live prices unavailable: %s", e)
     daily = {s: (d, c) for s, d, c in db.execute(select(PriceSnapshot.symbol, PriceSnapshot.as_of, PriceSnapshot.close)
-                                                 .where(PriceSnapshot.symbol.in_(syms))).all()} if syms else {}
+                                                 .where(PriceSnapshot.symbol.in_(syms), PriceSnapshot.close > 0)).all()} if syms else {}
     for r in rows:
-        snap = live.get(r["symbol"]) or {}
-        if snap.get("price"):
-            ts = snap.get("market_ts")
-            r["price"], r["price_as_of"], r["price_live"] = snap["price"], ts.isoformat() if ts else None, True
-        elif r["symbol"] in daily:
+        if r["symbol"] in daily:
             d, c = daily[r["symbol"]]
             r["price"], r["price_as_of"], r["price_live"] = c, d.isoformat(), False
         else:
@@ -1269,8 +1235,8 @@ async def seasonality(month: int | None = None, min_years: int = 5, rank_by: str
     out["total_matching"] = max(len(out["ranked"]), out["total_matching"] - (before - len(out["ranked"])))
     for i, e in enumerate(out["ranked"], 1):
         e["rank"] = i
-    await _attach_prices(db, out["ranked"])
-    return out | {"coverage": ss.coverage(db), "load": ss.api_status(db), "index": index,
+    _attach_prices(db, out["ranked"])
+    return out | {"coverage": ss.coverage(db), "index": index,
                   "indexes": [{"code": "all", "label": "All US stocks"}] +
                              [{"code": k, "label": v["label"]} for k, v in ix.INDEXES.items()],
                   "index_error": idx_error}

@@ -465,17 +465,6 @@ class IndexMember(Base):
     retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
-class SeasonalitySymbol(Base):
-    """Stocks whose monthly history was loaded from the price API (resumable whole-market load)."""
-
-    __tablename__ = "seasonality_symbols"
-    symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
-    months: Mapped[int] = mapped_column(Integer)
-    last_month: Mapped[date | None] = mapped_column(Date, nullable=True)
-    provider: Mapped[str] = mapped_column(String(32))
-    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-
 class SecCompany(Base):
     """SEC registrant profile (industry SIC code) from data.sec.gov submissions."""
 

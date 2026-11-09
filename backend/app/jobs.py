@@ -2,7 +2,7 @@
 
     python -m app.jobs nightly      # scan + every data load below
     python -m app.jobs scan         # one scan (after a CSV import)
-    python -m app.jobs shariah | seasonality | ratings | insiders | earnings
+    python -m app.jobs shariah | ratings | insiders | earnings
 
 Each loader is resumable and is called repeatedly until it reports nothing left (or the job's time is up),
 so whole-market loads that need several 5-minute Vercel requests finish in one run here.
@@ -59,16 +59,6 @@ async def shariah(deadline: float) -> None:
                           lambda r: r.get("complete") or r.get("processed") == 0, deadline)
 
 
-async def seasonality(deadline: float) -> None:
-    from app.services import seasonality as ss
-
-    with _session() as db:
-        ds = _ds()
-        await _until_done("seasonality", lambda i: ss.load_api(db, ds, ROUND),
-                          lambda r: (r.get("remaining", 0) <= 0 and r.get("stale", 0) <= 0) or r.get("processed") == 0,
-                          deadline)
-
-
 async def ratings(deadline: float) -> None:
     from app.services import ratings as rt
 
@@ -96,7 +86,7 @@ async def earnings(deadline: float) -> None:
                           lambda r: r.get("remaining", 0) == 0 or r.get("fetched") == 0, deadline, rounds=10)
 
 
-LOADS = {"shariah": shariah, "seasonality": seasonality, "ratings": ratings, "insiders": insiders, "earnings": earnings}
+LOADS = {"shariah": shariah, "ratings": ratings, "insiders": insiders, "earnings": earnings}
 JOBS = ["nightly", "scan", *LOADS]
 
 

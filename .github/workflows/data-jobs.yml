@@ -11,7 +11,7 @@ on:
         description: "Which job"
         type: choice
         default: nightly
-        options: [nightly, scan, shariah, seasonality, ratings, insiders, earnings]
+        options: [nightly, scan, shariah, ratings, insiders, earnings]
 
 concurrency:
   group: data-jobs  # one job at a time; a scan requested during the nightly run waits for it

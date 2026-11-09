@@ -13,7 +13,7 @@ DISPATCH = "https://api.github.com/repos/sufyanuk/Stock-Screener/actions/workflo
 def test_vercel_does_not_run_heavy_loads(client, monkeypatch):  # noqa: F811
     monkeypatch.setenv("VERCEL", "1")
     h = _auth(client)
-    for path, body in [("/api/shariah/load", {}), ("/api/seasonality/load", {}), ("/api/ratings/analysts/load", None),
+    for path, body in [("/api/shariah/load", {}), ("/api/ratings/analysts/load", None),
                        ("/api/ratings/sentisense/load", None), ("/api/earnings/load-analysts", None),
                        ("/api/insiders/load-shares", None)]:
         r = client.post(path, headers=h, json=body)

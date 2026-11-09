@@ -202,49 +202,6 @@ def test_wikipedia_constituent_parser():
     assert parse_wiki(html, 100) == []
 
 
-def test_seasonality_loads_from_alpaca_monthly_bars(client, db, monkeypatch):
-    from datetime import date as d
-
-    import app.main as main
-    from app.models import Security
-    from app.services import seasonality as ss
-    from tests.conftest import FakeDataSource
-
-    calls = []
-
-    class Alp:
-        async def multi_daily_bars(self, symbols, start, end, timeframe="1Day"):
-            calls.append((tuple(symbols), timeframe))
-            out = {}
-            for s in symbols:
-                px, rows = 100.0, []
-                y, m = start.year, start.month
-                while d(y, m, 1) <= end:
-                    if m == 3 and s == "UPMAR":
-                        px *= 1.08
-                    rows.append((f"{y}-{m:02d}-01", px, px, px, px, 1.0))
-                    y, m = (y + 1, 1) if m == 12 else (y, m + 1)
-                out[s] = rows
-            return out
-
-    class DS(FakeDataSource):
-        alpaca = Alp()
-
-    monkeypatch.setattr(main, "make_datasource", lambda: DS())
-    monkeypatch.setattr(ss, "_today", lambda: d(2026, 11, 8))
-    for t in ["UPMAR", "FLAT"]:
-        db.add(Security(ticker=t, cik="1", name=t, exchange="Nasdaq"))
-    db.commit()
-    h = _auth(client)
-    r = client.post("/api/seasonality/load", headers=h, json={"max_seconds": 120}).json()
-    assert r["remaining"] == 0 and r["loaded"] == 2 and calls[0][1] == "1Month" and r["coverage"]["symbols"] == 2
-    mar = client.get("/api/seasonality?month=3&min_years=5", headers=h).json()
-    assert mar["ranked"][0]["symbol"] == "UPMAR" and mar["ranked"][0]["pct"] == 100.0 and mar["ranked"][0]["years"] == 10
-    n = len(calls)
-    again = client.post("/api/seasonality/load", headers=h, json={}).json()
-    assert again["processed"] == 0 and len(calls) == n  # nothing new until next month
-
-
 def test_seasonality_backfills_bullish_bearish_columns(client, db):
     from app.models import SeasonalityStat
 
@@ -257,24 +214,37 @@ def test_seasonality_backfills_bullish_bearish_columns(client, db):
     assert t["ranked"][0]["symbol"] == "GOOD" and t["ranked"][0]["count"] == 11
 
 
-def test_seasonality_price_column_uses_live_snapshot(client, db, monkeypatch):
+def test_seasonality_uses_no_price_api(client, db, monkeypatch):
+    """Seasonality works only from the imported CSV: no history load, and the price column uses stored data."""
+    from datetime import date as d
+
     import app.main as main
+    from app.models import PriceSnapshot
     from tests.conftest import FakeDataSource
 
     class Alp:
         async def multi_snapshots(self, symbols):
-            return {"GOOD": {"price": 123.45, "market_ts": None}}
+            raise AssertionError("the price API must not be called")
+
+        async def multi_daily_bars(self, *a, **k):
+            raise AssertionError("the price API must not be called")
 
     class DS(FakeDataSource):
         alpaca = Alp()
 
     monkeypatch.setattr(main, "make_datasource", lambda: DS())
     h = _auth(client)
+    assert client.post("/api/seasonality/load", headers=h, json={}).status_code in (404, 405)
     client.post("/api/seasonality/import", headers=h, json={"rows": _month_rows(), "replace_all": True})
     client.post("/api/seasonality/import/finish", headers=h, json={"last_date": "2025-12-31"})
-    r = {x["symbol"]: x for x in client.get("/api/seasonality?month=11&min_years=5", headers=h).json()["ranked"]}
-    assert r["GOOD"]["price"] == 123.45 and r["GOOD"]["price_live"] is True
-    assert r["BANK"]["price"] == r["BANK"]["last_close"] and r["BANK"]["price_live"] is False
+    db.add(PriceSnapshot(symbol="GOOD", as_of=d(2026, 11, 6), close=123.45, data={}, source="alpaca-latest"))
+    db.add(PriceSnapshot(symbol="FLAT", as_of=d(2026, 11, 6), close=0.0, data={"checked": True}, source="alpaca-latest"))
+    db.commit()
+    t = client.get("/api/seasonality?month=11&min_years=5", headers=h).json()
+    r = {x["symbol"]: x for x in t["ranked"]}
+    assert r["GOOD"]["price"] == 123.45 and r["GOOD"]["price_as_of"] == "2026-11-06" and r["GOOD"]["price_live"] is False
+    assert r["BANK"]["price"] == r["BANK"]["last_close"] and r["FLAT"]["price"] == r["FLAT"]["last_close"]
+    assert "load" not in t and t["coverage"]["provider"] is not None
 
 
 def test_shares_lookup_uses_sec_and_does_not_cache_timeouts(db):

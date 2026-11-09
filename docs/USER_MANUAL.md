@@ -3,7 +3,7 @@
 **Scans and data refreshes** — the heavy work runs on GitHub Actions, not on Vercel (Vercel's free plan
 allows only 4 CPU-hours a month). Every weekday evening after the US close (~21:40 UTC) a GitHub job scans
 (insider buying, earnings calendar, analyst and SentiSense ratings, outstanding shares) and refreshes the
-Shariah SEC data (weekly), seasonality prices (new month) and analyst counts. Opening a tab never starts a
+Shariah SEC data (weekly) and analyst counts. Opening a tab never starts a
 load; each tab shows the stored data. Importing an Unusual Options CSV starts a scan on GitHub straight away
 (it begins within about a minute and takes a few minutes; refresh the page for the results). Any job can also
 be run by hand: GitHub → the repository → Actions → data-jobs → Run workflow. Every table column can be sorted by clicking its heading.
@@ -42,17 +42,17 @@ purchases of the last 90 days, and earnings this week):
   letter. Loaded with SentiSense's screener (all rated stocks in one request) or per stock if the screener is not
   on your plan. A research score, not a buy/sell recommendation.
 
-**Seasonality** — covers all US stocks. Pick a month with the month buttons and use the filters: Rank
-by (% of years positive, or average positive change), minimum years of history, price range (default
-$5 to $100) and ticker prefix. The table shows Ticker, Company, Price (current market price from Alpaca; if that is unavailable, the latest
-daily close — hover to see which), Total Years, Total Positive Years,
-% Positive, and the Max, Min and Average Positive Change (%) — the largest, smallest and average gain
-in the years the month closed up. Every column can be sorted. Prices come from Alpaca monthly bars
-(10 years, adjusted for splits and dividends) and load automatically the first time you open the tab
-(a progress line shows "Loaded X of Y stocks"); after that the daily scan adds each new month, or click
-**Update prices**. You can still import your own price-history CSV at the bottom of the page (months
-already in the database are kept). Moves beyond ±200% in a month are ignored as data errors. Past
-seasonality does not guarantee future returns.
+**Seasonality** — works only from the price-history CSV you import at the top of the tab; no price API
+is used. When an import finishes, the statistics are calculated once and kept (in the database and the
+browser's daily cache) until the next CSV import; opening the tab or changing filters only reads them. A
+fresh import replaces the stored history; re-importing a few tickers replaces only those tickers. Pick a
+month with the month buttons and use the filters: Rank by (% of years positive, or average positive
+change), minimum years of history, price range (default $5 to $100) and ticker prefix. The table shows
+Ticker, Company, Price (the latest daily price already on file, else the last month-end close in your CSV
+— hover to see the date), Total Years, Total Positive Years, % Positive, and the Max, Min and Average
+Positive Change (%) — the largest, smallest and average gain in the years the month closed up. Every column
+can be sorted. Moves beyond ±200% in a month are ignored as data errors. Past seasonality does not
+guarantee future returns.
 
 **Shariah** — the internal Shariah screening engine. It reads actual figures from SEC filings for every
 listed US stock (loaded automatically the first time you open the tab; the daily scan refreshes it weekly)
