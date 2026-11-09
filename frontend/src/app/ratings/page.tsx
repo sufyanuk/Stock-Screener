@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Card, Empty, ErrorBox, ShariahLegend, Ticker, useSort } from "@/components/ui";
-import { api, useApi } from "@/lib/api";
+import { api, JOBS_ON_GITHUB, useApi } from "@/lib/api";
 import { nf } from "@/lib/format";
 
 type Sub = "analysts" | "sentisense";
@@ -69,7 +69,7 @@ function AnalystRatings() {
     reload();
   }
   useEffect(() => {
-    if (data && data.missing > 0 && !auto.current) {
+    if (data && data.missing > 0 && !auto.current && !JOBS_ON_GITHUB) {
       auto.current = true;
       load();
     }
@@ -146,7 +146,7 @@ function SentiSenseRatings() {
     reload();
   }
   useEffect(() => {
-    if (!data || auto.current) return;
+    if (!data || auto.current || JOBS_ON_GITHUB) return;
     const stale = !data.retrieved_at || Date.now() - new Date(data.retrieved_at).getTime() > 20 * 3600 * 1000;
     if (stale) {
       auto.current = true;

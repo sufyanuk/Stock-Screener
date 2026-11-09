@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Button, Card, Empty, ErrorBox, Field, ShariahLegend, SortTable, Ticker } from "@/components/ui";
-import { api, useApi } from "@/lib/api";
+import { api, JOBS_NOTE, JOBS_ON_GITHUB, useApi } from "@/lib/api";
 import { nf, pct, tone, usd } from "@/lib/format";
 import { PriceImport } from "@/components/price-import";
 
@@ -54,7 +54,7 @@ export default function SeasonalityPage() {
   // Load automatically when the monthly history is missing or a month behind (once per page visit).
   const auto = useRef(false);
   useEffect(() => {
-    if (!ld || auto.current) return;
+    if (!ld || auto.current || JOBS_ON_GITHUB) return;
     if (ld.remaining > 0 || ld.stale > 0) {
       auto.current = true;
       // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time automatic load when history is missing or stale
@@ -100,7 +100,7 @@ export default function SeasonalityPage() {
       </Card>
 
       <Card title={data ? `Best stocks in ${MONTHS[data.month - 1]} — top ${data.ranked.length.toLocaleString()} of ${data.total_matching.toLocaleString()}` : "Seasonality"}
-        right={ld && <Button onClick={() => load()} disabled={!!busy}>{busy ? "Loading…" : "Update prices"}</Button>}>
+        right={JOBS_ON_GITHUB ? <span className="text-xs text-muted">Prices: {JOBS_NOTE}</span> : ld && <Button onClick={() => load()} disabled={!!busy}>{busy ? "Loading…" : "Update prices"}</Button>}>
         {data?.ranked.length ? (
           <SortTable rows={data.ranked} rowKey={(e) => e.symbol} initial={null} limit={500}
             cols={[

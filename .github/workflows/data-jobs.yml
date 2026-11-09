@@ -1,0 +1,48 @@
+# Heavy data jobs for the screener, run here instead of on Vercel (Vercel's free plan has 4 CPU-hours a month).
+# They write straight to the app's Neon database. Secrets: Settings → Secrets and variables → Actions.
+name: data-jobs
+
+on:
+  schedule:
+    - cron: "40 21 * * 1-5"  # weekdays ~21:40 UTC, after the US close (GitHub may start it a little later)
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Which job"
+        type: choice
+        default: nightly
+        options: [nightly, scan, shariah, seasonality, ratings, insiders, earnings]
+
+concurrency:
+  group: data-jobs  # one job at a time; a scan requested during the nightly run waits for it
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+      ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+      MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
+      FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+      TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
+      ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+      SENTISENSE_API_KEY: ${{ secrets.SENTISENSE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Check the database secret
+        run: test -n "$DATABASE_URL" || { echo "::error::Add the DATABASE_URL secret (see docs/USER_MANUAL.md)"; exit 1; }
+      - run: python -m app.jobs "${{ inputs.job || 'nightly' }}"

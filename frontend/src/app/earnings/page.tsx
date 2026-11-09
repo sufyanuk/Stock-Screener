@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Card, Empty, ErrorBox, ShariahLegend, Ticker, useSort } from "@/components/ui";
-import { api, useApi } from "@/lib/api";
+import { api, JOBS_ON_GITHUB, useApi } from "@/lib/api";
 import { compact, nf, pct } from "@/lib/format";
 import { daysUntil } from "@/lib/pane-context";
 
@@ -42,7 +42,7 @@ export default function EarningsPage() {
   // Analyst counts load automatically the first time the screen opens with companies missing them.
   const auto = useRef(false);
   useEffect(() => {
-    if (data && data.analysts_missing > 0 && !auto.current) {
+    if (data && data.analysts_missing > 0 && !auto.current && !JOBS_ON_GITHUB) {
       auto.current = true;
       loadAnalysts();
     }
@@ -72,7 +72,7 @@ export default function EarningsPage() {
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <label className="flex items-center gap-1.5"><input type="checkbox" checked={onlyInsider} onChange={(e) => setOnlyInsider(e.target.checked)} /> With insider buying</label>
           <label className="flex items-center gap-1.5"><input type="checkbox" checked={onlyOptions} onChange={(e) => setOnlyOptions(e.target.checked)} /> With unusual options</label>
-          {data && data.analysts_missing > 0 && <Button variant="ghost" onClick={loadAnalysts} disabled={!!busy}>Load analyst counts ({data.analysts_missing})</Button>}
+          {data && data.analysts_missing > 0 && !JOBS_ON_GITHUB && <Button variant="ghost" onClick={loadAnalysts} disabled={!!busy}>Load analyst counts ({data.analysts_missing})</Button>}
           {busy && <span className="text-xs text-muted">{busy}</span>}
         </div>}>
         {loading && !data ? <Empty>Loading the earnings calendar…</Empty> : sorted.length ? (

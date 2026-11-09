@@ -21,8 +21,9 @@ export function OptionsImport({ isAdmin = true, open: openInit = true, onImporte
     // A new CSV changes the unusual-options criterion: rescan straight away so the Top 5 uses it.
     setScanMsg("Running a scan with the new CSV… this can take a few minutes.");
     try {
-      const r = await api<{ queued: boolean; status?: string }>("/scan", { method: "POST" });
-      setScanMsg(r.queued ? "Scan started — results appear when it finishes." : `Scan finished (${r.status}).`);
+      const r = await api<{ queued: boolean; status?: string; via?: string }>("/scan", { method: "POST" });
+      setScanMsg(r.via === "github" ? "Scan started on GitHub — it begins within about a minute and takes a few minutes; refresh the page to see the results."
+        : r.queued ? "Scan started — results appear when it finishes." : `Scan finished (${r.status}).`);
     } catch (e) {
       const m = (e as Error).message;
       setScanMsg(/already running/i.test(m) ? "A scan is already running — it will use the new CSV." : `Scan could not start: ${m}`);

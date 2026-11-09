@@ -3,6 +3,10 @@ import { useCallback, useEffect, useState } from "react";
 
 // Personal single-user app: no login. Writes carry a custom header the backend requires (CSRF guard).
 
+/** Heavy data loads (Shariah, seasonality, ratings, scans) run on GitHub Actions; pages don't start them. */
+export const JOBS_ON_GITHUB = process.env.NEXT_PUBLIC_JOBS_ON_GITHUB === "1";
+export const JOBS_NOTE = "Refreshed automatically every weekday evening after the US close.";
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);

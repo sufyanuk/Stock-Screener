@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
 import { StockPane } from "@/components/stock-pane";
 import { TickerSearch } from "@/components/ticker-search";
-import { api, useApi } from "@/lib/api";
+import { api, JOBS_ON_GITHUB, useApi } from "@/lib/api";
 import { PaneProvider, usePane } from "@/lib/pane-context";
 
 const NAV = [
@@ -44,7 +44,7 @@ export function Shell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </nav>
-      <DailyAutoScan />
+      {!JOBS_ON_GITHUB && <DailyAutoScan />}
       <MainWithPane>{children}</MainWithPane>
       <footer className="mx-auto max-w-[1900px] px-4 pb-8 text-xs text-muted">
         Research tool only — not investment advice. Data may be delayed or incomplete; every value shows its source and timestamp.

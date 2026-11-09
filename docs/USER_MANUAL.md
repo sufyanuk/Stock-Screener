@@ -1,9 +1,12 @@
 # User manual
 
-**Scans** — the first time the app is opened on a new day it runs a scan automatically (insider buying,
-earnings calendar, analyst and SentiSense ratings, outstanding shares); a banner shows
-progress. A scheduled scan also runs on weekdays after the US close (21:15 UTC). There is no manual
-scan button; importing an Unusual Options CSV starts a scan straight away so the Top 5 uses it. Every table column can be sorted by clicking its heading.
+**Scans and data refreshes** — the heavy work runs on GitHub Actions, not on Vercel (Vercel's free plan
+allows only 4 CPU-hours a month). Every weekday evening after the US close (~21:40 UTC) a GitHub job scans
+(insider buying, earnings calendar, analyst and SentiSense ratings, outstanding shares) and refreshes the
+Shariah SEC data (weekly), seasonality prices (new month) and analyst counts. Opening a tab never starts a
+load; each tab shows the stored data. Importing an Unusual Options CSV starts a scan on GitHub straight away
+(it begins within about a minute and takes a few minutes; refresh the page for the results). Any job can also
+be run by hand: GitHub → the repository → Actions → data-jobs → Run workflow. Every table column can be sorted by clicking its heading.
 
 **Dashboard** (opens first) — near-qualified stocks failing one or two rules (with reasons), and the top 5
 from each tab: unusual options, insider buying (by % of outstanding
@@ -87,3 +90,20 @@ settings, Shariah rules) clears the saved results so the next view is fresh; "Re
 fetch new data.
 
 Disclaimer: research tool only, not investment advice. Shariah screening is not a fatwa.
+
+
+## One-time setup: GitHub Actions data jobs
+
+1. **Secrets for the jobs** — GitHub → Stock-Screener → Settings → Secrets and variables → Actions →
+   New repository secret. Add each of these with the same value as in Vercel (Vercel hides sensitive values,
+   so copy them from each provider's dashboard): `DATABASE_URL` (Neon console → Connect → connection string),
+   `SEC_USER_AGENT`, `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`, `FINNHUB_API_KEY`, `MASSIVE_API_KEY`,
+   `FMP_API_KEY`, `TIINGO_API_KEY`, `ALPHAVANTAGE_API_KEY`, `SENTISENSE_API_KEY`. Only `DATABASE_URL` is
+   required; a missing key just skips that data source.
+2. **Token so the app can start a scan after a CSV import** — GitHub → your profile → Settings → Developer
+   settings → Personal access tokens → Fine-grained tokens → Generate new token. Repository access: only
+   Stock-Screener. Permissions: Actions → Read and write. Copy the token into Vercel → stock_screener →
+   Settings → Environment Variables as `GITHUB_DISPATCH_TOKEN` (Production, Sensitive), then redeploy.
+   Without it, a CSV import runs the scan on Vercel instead.
+3. **First run** — Actions → data-jobs → Run workflow → `nightly`. It loads everything (the first Shariah
+   load takes longest); the log shows each step.

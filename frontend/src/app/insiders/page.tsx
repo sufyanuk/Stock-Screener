@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { CriteriaCard } from "@/components/criteria";
 import { ScanBar } from "@/components/scan-bar";
 import { Card, Empty, ErrorBox, Ticker, useSort } from "@/components/ui";
-import { api, useApi } from "@/lib/api";
+import { api, JOBS_ON_GITHUB, useApi } from "@/lib/api";
 import { compact, nf, usd } from "@/lib/format";
 
 type Row = {
@@ -25,7 +25,7 @@ export default function InsidersPage() {
   const tried = useRef(false);
   useEffect(() => {
     const need = data ? data.shares_missing + data.shares_unavailable : 0;  // never looked up, or not found last time
-    if (!data || need === 0 || tried.current) return;
+    if (!data || need === 0 || tried.current || JOBS_ON_GITHUB) return;
     tried.current = true;
     (async () => {
       setBusy(`Looking up shares outstanding for ${need} stocks…`);

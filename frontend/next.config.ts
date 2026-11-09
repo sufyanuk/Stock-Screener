@@ -12,7 +12,11 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: path.resolve(__dirname),
   poweredByHeader: false,
   // Identifies this build: the browser's daily data cache is dropped when a new version is deployed.
-  env: { NEXT_PUBLIC_BUILD_ID: process.env.VERCEL_GIT_COMMIT_SHA ?? String(Date.now()) },
+  // On Vercel the heavy data loads run on GitHub Actions, so pages only show the stored data.
+  env: {
+    NEXT_PUBLIC_BUILD_ID: process.env.VERCEL_GIT_COMMIT_SHA ?? String(Date.now()),
+    NEXT_PUBLIC_JOBS_ON_GITHUB: process.env.VERCEL ? "1" : (process.env.JOBS_ON_GITHUB ?? ""),
+  },
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${backend}/api/:path*` }];
   },

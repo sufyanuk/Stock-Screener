@@ -388,6 +388,8 @@ async def insiders(top: int = 100, min_pct: float = 0.0, db: Session = Depends(g
 @app.post("/api/insiders/load-shares")
 async def insiders_load_shares(top: int = 100, db: Session = Depends(get_db), _: User = Depends(current_user)):
     """Look up shares outstanding for tickers on the Insider Buying list (cached 30 days)."""
+    if _serverless() and _ is not None:
+        return OFFLOADED
     from app.services.research import load_shares
 
     rows = latest_insider_buys(db, 730, min(max(top, 1), 500), raw_rows=True)
@@ -630,9 +632,31 @@ def _serverless() -> bool:
     return bool(os.environ.get("VERCEL"))
 
 
+OFFLOADED = {"skipped": True, "reason": "Heavy data loads run on GitHub Actions (nightly on weekdays), not on Vercel."}
+
+
+async def dispatch_job(job: str) -> bool:
+    """Start a GitHub Actions data job now (workflow_dispatch). False when no token is configured."""
+    st = get_settings()
+    if not st.github_dispatch_token:
+        return False
+    import httpx
+
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.post(f"https://api.github.com/repos/{st.github_repo}/actions/workflows/{st.github_workflow}/dispatches",
+                         headers={"Authorization": f"Bearer {st.github_dispatch_token}",
+                                  "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"},
+                         json={"ref": st.github_ref, "inputs": {"job": job}})
+    if r.status_code != 204:
+        raise HTTPException(502, f"GitHub could not start the {job} job ({r.status_code}): {r.text[:200]}")
+    return True
+
+
 @app.post("/api/scan/daily")
 async def daily_scan(bg: BackgroundTasks, u: User = Depends(current_user), db: Session = Depends(get_db)):
     """Run a scan when the app is first opened on a new (New York) day; otherwise do nothing."""
+    if _serverless():  # the nightly GitHub job scans; nothing runs on Vercel when the app is opened
+        return {"ran": False, "reason": "scans run on GitHub Actions"}
     today = datetime.now(mc.NY).date()
     last = db.scalars(select(ScanRun).order_by(ScanRun.started_at.desc()).limit(1)).first()
     if last and last.started_at:
@@ -655,8 +679,10 @@ async def daily_scan(bg: BackgroundTasks, u: User = Depends(current_user), db: S
 async def manual_scan(bg: BackgroundTasks, u: User = Depends(current_user), db: Session = Depends(get_db)):
     if _scan_lock.locked() or _scan_running(db):
         raise HTTPException(409, "a scan is already running")
+    if _serverless() and await dispatch_job("scan"):
+        return {"queued": True, "via": "github"}
     if _serverless():
-        # Serverless instances may be frozen after the response, so run inside the request.
+        # No GitHub token: run inside the request (serverless instances may be frozen after the response).
         return {"queued": False, **await _do_scan("manual", u.email)}
     bg.add_task(_do_scan, "manual", u.email)
     return {"queued": True}
@@ -989,6 +1015,8 @@ async def earnings_upcoming(days: int = 7, db: Session = Depends(get_db), _: Use
 @app.post("/api/earnings/load-analysts")
 async def earnings_load_analysts(days: int = 7, limit: int = 100, db: Session = Depends(get_db),
                                  _: User = Depends(current_user)):
+    if _serverless() and _ is not None:
+        return OFFLOADED
     from app.services import research as rs
 
     events = rs.upcoming_earnings(db, days)
@@ -1040,6 +1068,8 @@ def ratings_analysts(min_strong_buy: int = 1, db: Session = Depends(get_db), _: 
 
 @app.post("/api/ratings/analysts/load")
 async def ratings_analysts_load(limit: int = 100, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    if _serverless() and _ is not None:
+        return OFFLOADED
     from app.services import ratings
 
     return await ratings.load_analysts(db, make_datasource(), min(max(limit, 1), 200))
@@ -1054,6 +1084,8 @@ def ratings_sentisense(db: Session = Depends(get_db), _: User = Depends(current_
 
 @app.post("/api/ratings/sentisense/load")
 async def ratings_sentisense_load(db: Session = Depends(get_db), _: User = Depends(current_user)):
+    if _serverless() and _ is not None:
+        return OFFLOADED
     from app.services import ratings
 
     return await ratings.load_sentisense(db, make_datasource())
@@ -1170,6 +1202,8 @@ class SeasonalityLoad(BaseModel):
 @app.post("/api/seasonality/load")
 async def seasonality_load(p: SeasonalityLoad, db: Session = Depends(get_db), _: User = Depends(current_user)):
     """Load ~10 years of month-end closes for every US stock from the price API (resumable)."""
+    if _serverless() and _ is not None:
+        return OFFLOADED
     from app.services import seasonality as ss
 
     return await ss.load_api(db, make_datasource(), p.max_seconds, p.rebuild)
@@ -1251,6 +1285,8 @@ class ShariahLoad(BaseModel):
 @app.post("/api/shariah/load")
 async def shariah_load(p: ShariahLoad, db: Session = Depends(get_db), _: User = Depends(current_user)):
     """Download SEC financial figures for every stock (resumable) and classify them."""
+    if _serverless() and _ is not None:
+        return OFFLOADED
     from app.services import shariah as shs
 
     return await shs.load(db, make_datasource(), p.max_seconds, p.refresh)

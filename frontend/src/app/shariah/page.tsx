@@ -1,7 +1,7 @@
 "use client";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Badge, Button, Card, Empty, ErrorBox, Field, ShariahLegend, Ticker } from "@/components/ui";
-import { api, useApi } from "@/lib/api";
+import { api, JOBS_NOTE, JOBS_ON_GITHUB, useApi } from "@/lib/api";
 import { compact, nf } from "@/lib/format";
 
 type Status = "HALAL" | "NON_COMPLIANT" | "DOUBTFUL";
@@ -68,7 +68,7 @@ export default function ShariahPage() {
   // Load automatically the first time (and continue an unfinished load) once per page visit.
   const auto = useRef(false);
   useEffect(() => {
-    if (!ld || auto.current) return;
+    if (!ld || auto.current || JOBS_ON_GITHUB) return;
     if (incomplete || !ld.results) {
       auto.current = true;
       // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time automatic load when SEC data is missing
@@ -119,7 +119,9 @@ export default function ShariahPage() {
             ))}
           </div>
           <Field label="Ticker starts with"><input value={q} onChange={(e) => setQ(e.target.value.toUpperCase())} placeholder="e.g. AA" /></Field>
-          <Button variant="ghost" onClick={() => load(true)} disabled={!!busy}>{busy ? "Loading…" : "Refresh SEC data"}</Button>
+          {JOBS_ON_GITHUB
+            ? <p className="self-end text-xs text-muted">SEC data: {JOBS_NOTE}{ld?.computed_at && <> Last computed {new Date(ld.computed_at).toLocaleString()}.</>}</p>
+            : <Button variant="ghost" onClick={() => load(true)} disabled={!!busy}>{busy ? "Loading…" : "Refresh SEC data"}</Button>}
         </div>
         <div className="mt-3 space-y-2">
           <ErrorBox error={error} />

@@ -59,6 +59,13 @@ class Settings(BaseSettings):
     backfill_sessions_per_run: int = 0  # 0 = unlimited; cap per invocation so a scan fits maxDuration
     insider_filings_per_run: int = 0  # 0 = unlimited; new Form 4 filings fetched per scan
     auto_migrate: bool = False  # run Alembic migrations at startup (Vercel has no release step)
+    # Heavy data jobs run on GitHub Actions (.github/workflows/data-jobs.yml), not on Vercel. A fine-grained
+    # token with "Actions: read and write" on the repository lets the app start a job (e.g. a scan after a
+    # CSV import) straight away.
+    github_dispatch_token: str = ""
+    github_repo: str = "sufyanuk/Stock-Screener"
+    github_workflow: str = "data-jobs.yml"
+    github_ref: str = "main"
 
     @model_validator(mode="after")
     def _guard_production(self) -> "Settings":
