@@ -4,6 +4,9 @@
 Data (all from SEC EDGAR, free):
 * XBRL **frames** (one request returns one fact per company for a tag and calendar period) for the
   balance-sheet and income-statement lines below — about 150 requests for the whole market.
+* **Companyfacts** per company, only for companies the frames miss (foreign filers reporting in other
+  currencies or with other year-ends, US GAAP in euros, older balance sheets): the same lines, read
+  from everything the company has filed.
 * **Submissions** per company for the industry SIC code (used by the business screen).
 * Market capitalisation (only for methodologies that use it) = shares outstanding from the same
   SEC balance sheet × latest price; averages use month-end closes (adjusted) × those shares.
@@ -84,6 +87,81 @@ IFRS_INTEREST = ["InterestRevenueCalculatedUsingEffectiveInterestMethod", "Inter
 IFRS_DURATION = IFRS_REVENUE + IFRS_INTEREST
 MAX_AGE_DAYS = 456  # balance sheets older than ~15 months are DOUBTFUL
 SIC_BATCH = 16
+CF_BATCH = 4  # companyfacts files are large: a few at a time
+FOREIGN_FORMS = {"20-F", "20-F/A", "40-F", "40-F/A", "6-K", "6-K/A"}
+
+
+def companyfacts_rows(cik: str, cf: dict) -> list[dict]:
+    """SecFact rows from one company's companyfacts file: the latest balance sheet (Assets fixes the date
+    and currency; every other line at that same date and currency), the latest fiscal-year income lines in
+    that currency, and share counts. Labels are 'cf:<form>|<unit>' so the currency and filing type travel
+    with each fact. Empty when the company has no Assets figure (e.g. investment funds)."""
+    facts = (cf or {}).get("facts") or {}
+    tx = next((t for t in ("us-gaap", "ifrs-full") if ASSETS in (facts.get(t) or {})), None)
+    if tx is None:
+        return []
+    px = "ifrs:" if tx == "ifrs-full" else ""
+
+    def entries(taxonomy: str, tag: str, unit: str | None = None):
+        units = ((facts.get(taxonomy) or {}).get(tag) or {}).get("units") or {}
+        for u, fs in units.items():
+            if unit is None or u == unit:
+                for f in fs:
+                    if f.get("val") is not None and f.get("end"):
+                        yield u, f
+
+    def days(f) -> int | None:
+        return (date.fromisoformat(f["end"]) - date.fromisoformat(f["start"])).days if f.get("start") else None
+
+    inst = [(f["end"], u == "USD", f.get("filed") or "", u, f) for u, f in entries(tx, ASSETS) if not f.get("start")]
+    if not inst:
+        return []
+    end, _, _, unit, anchor = max(inst, key=lambda x: x[:3])
+    label = f"cf:{anchor.get('form') or ''}|{unit}"[:16]
+    out: dict[str, dict] = {}
+
+    def put(key: str, f: dict, lab: str):
+        out[key] = {"cik": cik, "tag": key, "end": date.fromisoformat(f["end"]),
+                    "start": date.fromisoformat(f["start"]) if f.get("start") else None,
+                    "val": float(f["val"]), "accn": f.get("accn"), "frame": lab}
+
+    def pick(cands):
+        return max(cands, key=lambda f: (f["end"], f.get("filed") or "")) if cands else None
+
+    put(px + ASSETS, anchor, label)
+    for tag in (IFRS_INSTANT if px else INSTANT_TAGS):
+        f = pick([f for _, f in entries(tx, tag, unit) if not f.get("start") and f["end"] == end])
+        if f:
+            put(px + tag, f, label)
+    for tag in (IFRS_DURATION if px else DURATION_TAGS):
+        f = pick([f for _, f in entries(tx, tag, unit) if (d := days(f)) is not None and 340 <= d <= 390])
+        if f:
+            put(px + tag, f, label)
+    if not px:
+        f = pick([f for _, f in entries(tx, SHARES_TAG, "shares") if not f.get("start") and f["end"] == end])
+        if f:
+            put(SHARES_TAG, f, "cf|shares")
+        f = pick([f for _, f in entries(tx, WEIGHTED_SHARES, "shares") if (d := days(f)) is not None and 80 <= d <= 100])
+        if f:
+            put(WEIGHTED_SHARES, f, "cf|shares")
+    f = pick([f for _, f in entries("dei", DEI_SHARES, "shares")])
+    if f:
+        put("dei:" + DEI_SHARES, f, "cf|shares")
+    return list(out.values())
+
+
+def _cf_prefix(today: date) -> str:
+    """SecFrameLoad keys for companyfacts reads; tried again each new quarter."""
+    return f"cf:{_quarters(today)[0]}:"
+
+
+def _cf_needed(db: Session, today: date) -> tuple[list[str], int]:
+    """(companies still to read from companyfacts, companies already read this quarter)."""
+    ciks = {_cik(c) for c in db.scalars(select(Security.cik).where(Security.active.is_(True), Security.cik.is_not(None))).all()}
+    anchored = set(db.scalars(select(SecFact.cik).where(SecFact.tag.in_([ASSETS, "ifrs:" + ASSETS]))).all())
+    pre = _cf_prefix(today)
+    tried = {k[len(pre):] for k in db.scalars(select(SecFrameLoad.key).where(SecFrameLoad.key.like(pre + "%"))).all()}
+    return sorted(ciks - anchored - tried), len(tried & ciks)
 
 
 def _quarters(today: date, n: int = 5) -> list[str]:
@@ -223,6 +301,42 @@ async def _load_prices(db: Session, ds, deadline: float, errors: list[str]) -> i
     return done
 
 
+async def _load_companyfacts(db: Session, sec, deadline: float, errors: list[str]) -> int:
+    """Balance sheets for companies with none from the frames, from each company's full filing data.
+    A company with nothing usable (e.g. a fund, or not on EDGAR) is recorded so it is not asked again
+    this quarter."""
+    from app.providers.http import ProviderError
+
+    if not hasattr(sec, "companyfacts"):
+        return 0
+    need, _ = _cf_needed(db, _today())
+    pre, done = _cf_prefix(_today()), 0
+    for j in range(0, len(need), CF_BATCH):
+        if time.time() > deadline or len(errors) > 20:
+            break
+        part = need[j:j + CF_BATCH]
+        try:
+            res = await asyncio.wait_for(asyncio.gather(*(sec.companyfacts(c, cache_ttl=0) for c in part),
+                                                        return_exceptions=True), max(5.0, deadline - time.time()))
+        except asyncio.TimeoutError:
+            break
+        now = datetime.now(timezone.utc)
+        for c, cf in zip(part, res):
+            if isinstance(cf, ProviderError) and cf.status == 404:
+                cf = {}
+            if isinstance(cf, Exception):
+                errors.append(f"companyfacts {c}: {str(cf)[:120]}")
+                continue
+            rows = companyfacts_rows(c, cf)
+            if rows:  # one consistent set from this file replaces any partial frame facts
+                db.execute(delete(SecFact).where(SecFact.cik == c))
+                upsert(db, SecFact, rows)
+            upsert(db, SecFrameLoad, [{"key": pre + c, "rows": len(rows), "loaded_at": now}])
+            done += 1
+        db.commit()
+    return done
+
+
 def status(db: Session) -> dict:
     today = _today()
     plan = frame_plan(today)
@@ -231,7 +345,10 @@ def status(db: Session) -> dict:
     have_sic = set(db.scalars(select(SecCompany.cik)).all())
     last = db.scalar(select(ShariahResultRow.computed_at).order_by(ShariahResultRow.computed_at.desc()).limit(1))
     uni = _price_universe(db)
-    return {"frames_total": len(plan), "frames_done": len([p[0] for p in plan if p[0] in done]),
+    frames_done = len([p[0] for p in plan if p[0] in done])
+    cf_need, cf_done = _cf_needed(db, today) if frames_done == len(plan) else ([], 0)
+    return {"frames_total": len(plan), "frames_done": frames_done,
+            "filings_total": len(cf_need) + cf_done, "filings_done": cf_done,
             "companies_total": len(ciks), "companies_done": len(ciks & have_sic),
             "prices_total": len(uni), "prices_done": len(set(uni) & _prices_fresh(db, today)),
             "results": db.query(ShariahResultRow).count(), "computed_at": last.isoformat() if last else None,
@@ -299,12 +416,16 @@ async def load(db: Session, ds, max_seconds: float = 200.0, refresh: bool = Fals
             processed += 1
         upsert(db, SecCompany, comp_rows)
         db.commit()
+    # companies the frames missed: read their own companyfacts file (once every frame is in)
+    if len([p for p in frame_plan(_today()) if p[0] not in set(db.scalars(select(SecFrameLoad.key)).all())]) == 0:
+        processed += await _load_companyfacts(db, sec, started + budget, errors)
     # latest prices (market capitalisation for AAOIFI)
     if time.time() - started < budget:
         processed += await _load_prices(db, ds, started + budget, errors)
     st = status(db)
     has_prices = hasattr(getattr(ds, "alpaca", None), "multi_snapshots")
     complete = (st["frames_done"] == st["frames_total"] and st["companies_done"] >= st["companies_total"]
+                and st["filings_done"] >= st["filings_total"]
                 and (st["prices_done"] >= st["prices_total"] * 0.99 or not has_prices))
     # only classify once every frame is in: a half-loaded balance sheet could understate debt or cash
     frames_complete = st["frames_done"] == st["frames_total"]
@@ -323,15 +444,24 @@ def build_inputs(sec: Security, comp: SecCompany | None, facts: dict[str, SecFac
     px = "ifrs:" if ifrs else ""
     anchor = facts.get(px + ASSETS)
     end = anchor.end if anchor else None
-    unit = (anchor.frame or "").split("|")[-1] if (anchor and ifrs) else "USD"
+
+    def unit_of(f: SecFact) -> str:
+        lab = f.frame or ""
+        return lab.split("|")[-1] if "|" in lab else "USD"  # us-gaap frames are always USD
+
+    unit = unit_of(anchor) if anchor else "USD"
+    from_cf = bool(anchor and (anchor.frame or "").startswith("cf:"))
+    form = (anchor.frame or "")[3:].split("|")[0] if from_cf else ""
 
     def same_unit(f: SecFact) -> bool:
-        return not ifrs or (f.frame or "").split("|")[-1] == unit
+        return unit_of(f) in (unit, "shares")
 
     bs = {t[len(px):]: f for t, f in facts.items()
-          if t.startswith(px) and (ifrs or not t.startswith("ifrs:")) and f.start is None and f.end == end and same_unit(f)}
+          if t.startswith(px) and (ifrs or not t.startswith(("ifrs:", "dei:"))) and f.start is None and f.end == end
+          and same_unit(f)}
     annual = {t[len(px):]: f for t, f in facts.items()
-              if t.startswith(px) and (ifrs or not t.startswith("ifrs:")) and f.start is not None and same_unit(f)}
+              if t.startswith(px) and (ifrs or not t.startswith(("ifrs:", "dei:"))) and f.start is not None
+              and same_unit(f)}
     used: dict[str, list] = {}
     notes: list[str] = []
 
@@ -442,12 +572,31 @@ def build_inputs(sec: Security, comp: SecCompany | None, facts: dict[str, SecFac
     if anchor:
         rec("total_assets", ASSETS, anchor)
 
-    mcap = shares * price if shares and price else None
+    if from_cf:
+        notes.insert(0, f"Figures from the company's own SEC filing data ({form or 'filing'}, balance sheet {end}) — "
+                        "not in the SEC's quarterly bulk data.")
+    if not ifrs and unit != "USD":
+        notes.append(f"Financial statements are in {unit}.")
+    # Market cap = US price × shares only when both are like for like: a USD balance sheet from a US filer.
+    # Foreign filers (20-F / 40-F) usually trade in the US as ADRs that can represent several shares or a
+    # fraction of one, and a non-USD balance sheet cannot be compared with a USD market cap.
+    mcap_block = None
+    if anchor and unit != "USD":
+        mcap_block = f"the balance sheet is in {unit} and no exchange rate is applied"
+    elif form in FOREIGN_FORMS:
+        mcap_block = (f"the company files as a foreign issuer ({form}); its US listing may be an ADR whose ratio "
+                      "to ordinary shares is not in the filing data")
+    if mcap_block:
+        notes.append(f"Market capitalisation not computed: {mcap_block} (market-cap tests are DOUBTFUL).")
+        shares_for_cap = None
+    else:
+        shares_for_cap = shares
+    mcap = shares_for_cap * price if shares_for_cap and price else None
 
     def avg(n: int):
-        if not shares or len(closes) < n:
+        if not shares_for_cap or len(closes) < n:
             return None
-        return sum(closes[-n:]) / n * shares
+        return sum(closes[-n:]) / n * shares_for_cap
 
     if shares:
         used.setdefault("shares_outstanding", []).append({"tag": shares_tag, "value": shares_fact.val,

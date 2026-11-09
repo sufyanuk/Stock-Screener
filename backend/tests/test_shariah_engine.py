@@ -346,3 +346,95 @@ def test_one_bad_ticker_does_not_block_prices(db):
     # the batch is split; only the small piece holding BAD (AAA, BAD, BBB, CCC, DDD, EEE) goes unpriced
     assert n == 12 and got["BAD"] == 0.0 and all(got[t] == 10.0 for t in ["FFF", "GGG", "HHH", "III", "JJJ", "KKK"])
     assert sum(1 for v in got.values() if v == 0.0) == 6
+
+
+def _cf(tx, unit, form, inst, annual, end, start, shares=None, dei=None):
+    """A minimal companyfacts file: balance-sheet lines at ``end`` (plus an older one that must not win)."""
+    def f(v, e, s=None, filed="2026-03-01"):
+        return {"val": v, "end": e, "form": form, "filed": filed, "accn": "x", **({"start": s} if s else {})}
+    facts = {tx: {}}
+    for tag, v in inst.items():
+        facts[tx][tag] = {"units": {unit: [f(v * 2, "2024-12-31", filed="2025-03-01"), f(v, end)]}}
+    for tag, v in annual.items():
+        facts[tx][tag] = {"units": {unit: [f(v, end, start), f(v, end, "2025-10-01")]}}  # a quarter: ignored
+    if shares:
+        facts[tx]["CommonStockSharesOutstanding"] = {"units": {"shares": [f(shares, end)]}}
+    if dei:
+        facts["dei"] = {"EntityCommonStockSharesOutstanding": {"units": {"shares": [f(dei, "2026-02-20")]}}}
+    return {"facts": facts}
+
+
+class FakeCfSec(FakeSec):
+    """Frames know nothing about companies 20-23; their own companyfacts files do (or 404 for the fund)."""
+
+    def __init__(self):
+        super().__init__()
+        self.names = {1: "GOOD", 20: "EURGAAP", 21: "CADCO", 22: "FUND", 23: "USFPI"}
+        self.cf_calls = []
+
+    async def companyfacts(self, cik, cache_ttl=None):
+        from app.providers.http import ProviderError
+
+        c = int(cik)
+        self.cf_calls.append((c, cache_ttl))
+        if c == 20:  # US GAAP in euros, files a 20-F (like ASML)
+            return _cf("us-gaap", "EUR", "20-F", {"Assets": 1000, "LongTermDebt": 100, "CashAndCashEquivalentsAtCarryingValue": 50,
+                                                  "AccountsReceivableNetCurrent": 100},
+                       {"Revenues": 800, "InvestmentIncomeInterest": 4}, "2025-12-31", "2025-01-01", shares=10)
+        if c == 21:  # IFRS in Canadian dollars, March year-end
+            return _cf("ifrs-full", "CAD", "40-F", {"Assets": 1000, "Borrowings": 500, "CashAndCashEquivalents": 10,
+                                                    "TradeAndOtherCurrentReceivables": 10},
+                       {"Revenue": 300, "InterestIncome": 1}, "2026-03-31", "2025-04-01")
+        if c == 23:  # USD US GAAP but a foreign private issuer (possible ADR): no market cap
+            return _cf("us-gaap", "USD", "20-F", {"Assets": 1000, "LongTermDebt": 10, "CashAndCashEquivalentsAtCarryingValue": 10,
+                                                  "AccountsReceivableNetCurrent": 10},
+                       {"Revenues": 100, "InvestmentIncomeInterest": 1}, "2025-12-31", "2025-01-01", dei=1000)
+        if c == 22:
+            return {"facts": {"dei": {}}}  # a fund: no balance sheet
+        raise ProviderError("sec_edgar", 404, "not found")
+
+
+def test_companyfacts_fallback_for_companies_the_frames_miss(client, db, monkeypatch):  # noqa: F811
+    import app.main as main
+    from app.models import PriceSnapshot, Security
+    from app.services import shariah as shs
+    from tests.conftest import FakeDataSource
+
+    fake = FakeCfSec()
+
+    class DS(FakeDataSource):
+        sec = fake
+
+    monkeypatch.setattr(main, "make_datasource", lambda: DS())
+    monkeypatch.setattr(shs, "_today", lambda: TODAY)
+    for c, t in fake.names.items():
+        db.add(Security(ticker=t, cik=str(c).zfill(10), name=t.title(), exchange="NYSE"))
+        db.add(PriceSnapshot(symbol=t, as_of=TODAY, close=50.0, data={}, source="alpaca"))
+    db.commit()
+    h = _auth(client)
+    r = client.post("/api/shariah/load", headers=h, json={"max_seconds": 120}).json()
+    assert r["complete"] and r["filings_total"] == r["filings_done"] == 4
+    assert sorted(fake.cf_calls) == [(20, 0), (21, 0), (22, 0), (23, 0)]  # GOOD has frames: not read; never cached
+
+    det = lambda t: client.get(f"/api/shariah/{t}", headers=h).json()  # noqa: E731
+    eur = det("EURGAAP")
+    ftse = eur["methods"]["FTSE"]
+    assert eur["period_end"] == "2025-12-31" and ftse["inputs"]["total_assets"] == 1000  # latest balance sheet, not 2024
+    assert ftse["inputs"]["debt"] == 100 and ftse["inputs"]["revenue"] == 800 and ftse["status"] == "HALAL"
+    assert any("EUR" in n for n in eur["notes"]) and any("own SEC filing data" in n for n in eur["notes"])
+    aa = eur["methods"]["AAOIFI"]
+    assert aa["inputs"]["market_cap"] is None and aa["status"] == "DOUBTFUL"  # EUR debt vs USD price: not compared
+
+    cad = det("CADCO")
+    assert cad["period_end"] == "2026-03-31" and cad["methods"]["FTSE"]["status"] == "NON_COMPLIANT"  # 500/1000 debt
+    assert cad["sources"]["debt"][0]["tag"] == "ifrs:Borrowings" and any("CAD" in n for n in cad["notes"])
+
+    fpi = det("USFPI")["methods"]["AAOIFI"]
+    assert fpi["inputs"]["market_cap"] is None and any("foreign issuer" in n for n in fpi["notes"])
+
+    fund = det("FUND")["methods"]["FTSE"]
+    assert "No balance sheet found in SEC filings" in fund["reasons"] and fund["status"] == "DOUBTFUL"
+
+    fake.cf_calls.clear()  # already read this quarter: not asked again
+    client.post("/api/shariah/load", headers=h, json={"max_seconds": 120})
+    assert fake.cf_calls == []

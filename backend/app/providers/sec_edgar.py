@@ -48,8 +48,10 @@ class SecEdgar:
     async def submissions(self, cik: str) -> dict:
         return await self.data.get_json(f"/submissions/CIK{cik.zfill(10)}.json", cache_ttl=3600)
 
-    async def companyfacts(self, cik: str) -> dict:
-        return await self.data.get_json(f"/api/xbrl/companyfacts/CIK{cik.zfill(10)}.json", cache_ttl=6 * 3600)
+    async def companyfacts(self, cik: str, cache_ttl: int = 6 * 3600) -> dict:
+        """Every XBRL fact a company has filed (all taxonomies, currencies and periods). Bulk loaders pass
+        cache_ttl=0: these files can be several MB each and must not pile up in memory."""
+        return await self.data.get_json(f"/api/xbrl/companyfacts/CIK{cik.zfill(10)}.json", cache_ttl=cache_ttl)
 
     async def frame(self, taxonomy: str, tag: str, unit: str, period: str) -> list[dict]:
         """One fact per company for a tag and calendar period (e.g. CY2026Q2I = balance sheets around

@@ -108,11 +108,17 @@ Industries where the activity is often present (hotels, restaurants, meat packin
 brokers, …) and name keywords (casino, brewery, bank, pork, adult entertainment, …) → DOUBTFUL until an
 administrator records a business review (with the share of revenue from prohibited activities).
 
-**Coverage.** US GAAP filers (us-gaap taxonomy) and foreign IFRS filers (ifrs-full taxonomy, statements in USD,
-EUR or CNY). Preferred shares, warrants, units and rights are not screened separately — the methodologies screen
+**Coverage.** US GAAP filers (us-gaap taxonomy) and foreign IFRS filers (ifrs-full taxonomy), in any reporting
+currency and with any fiscal year-end. Preferred shares, warrants, units and rights are not screened separately — the methodologies screen
 common shares. Closed-end funds and trusts have no operating-company statements and stay DOUBTFUL.
 
-**Financial figures (SEC XBRL, frames API).** All balance-sheet lines are taken at the company's latest
+**Financial figures (SEC XBRL).** Figures come from the SEC frames API (one request per line and calendar
+period for the whole market: US GAAP in USD for the last five quarter-ends, IFRS in USD/EUR/CNY). A company with
+no balance sheet there (foreign filers reporting in other currencies or with March/September year-ends, US GAAP
+in euros, balance sheets older than five quarters) is then read from its own **companyfacts** file (everything
+it has filed): its latest balance sheet fixes the date and currency, and every other line is taken at that date
+in that currency. Each such company is read once per quarter; one with no balance sheet at all (e.g. an
+investment fund) stays DOUBTFUL. All balance-sheet lines are taken at the company's latest
 balance-sheet date (from the same filing date, never mixed); income lines from the latest fiscal year.
 * Interest-bearing debt = long-term debt incl. current portion (`LongTermDebt`, or non-current + current) +
   short-term borrowings / commercial paper / notes payable / repurchase agreements + finance-lease liabilities.
@@ -132,8 +138,10 @@ balance-sheet date (from the same filing date, never mixed); income lines from t
   cover-page count within ~6 months; else the weighted-average basic shares of the latest quarter, which
   totals all share classes) × latest price (fetched for every stock
   by the Shariah loader from Alpaca once a day, else the last month-end close; a stock with no price has no
-  market cap and is DOUBTFUL for market-cap tests). IFRS filers have no market cap (statements and share prices may differ in
-  currency or be ADRs), so market-cap tests are DOUBTFUL for them;
+  market cap and is DOUBTFUL for market-cap tests). No market cap is computed when the balance sheet is not in USD
+  (no exchange rate is applied) or when the company files as a foreign issuer (20-F / 40-F: its US listing may be
+  an ADR representing several shares or a fraction of one); market-cap tests are DOUBTFUL for them and tests on
+  total assets (FTSE) still apply;
   12/24/36-month averages = average of consecutive month-end closes × those shares (requires the full window).
 
 Refreshed weekly by the daily scan; the Shariah tab continues any unfinished load.
