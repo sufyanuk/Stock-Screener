@@ -47,8 +47,8 @@ purchases of the last 90 days, and earnings this week):
 is used. When an import finishes, the statistics are calculated once and kept (in the database and the
 browser's daily cache) until the next CSV import; opening the tab or changing filters only reads them. A
 fresh import replaces the stored history; re-importing a few tickers replaces only those tickers. Pick a
-month with the month buttons and use the filters: Rank by (% of years positive, or average positive
-change), minimum years of history, price range (default $5 to $100) and ticker prefix. The table shows
+month with the month buttons and use the filters: maximum price (default $100) and ticker prefix. Stocks are
+ranked by % of years positive and need at least 5 years of history. The table shows
 Ticker, Company, Price (the latest daily price already on file, else the last month-end close in your CSV
 — hover to see the date), Total Years, Total Positive Years, % Positive, and the Max, Min and Average
 Positive Change (%) — the largest, smallest and average gain in the years the month closed up. Every column

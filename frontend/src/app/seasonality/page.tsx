@@ -17,13 +17,10 @@ const num = (v: string) => v.replace(/[^0-9.]/g, "");
 
 export default function SeasonalityPage() {
   const [month, setMonth] = useState(new Date().getMonth() + 1);
-  const [rankBy, setRankBy] = useState("pct");
-  const [minYears, setMinYears] = useState(5);
-  const [minPrice, setMinPrice] = useState("5");
   const [maxPrice, setMaxPrice] = useState("100");
   const [q, setQ] = useState("");
-  const qs = new URLSearchParams({ month: String(month), rank_by: rankBy, min_years: String(minYears), limit: "1000" });
-  if (minPrice) qs.set("min_price", minPrice);
+  // Ranked by % of years positive; stocks need at least 5 years of history (fixed).
+  const qs = new URLSearchParams({ month: String(month), rank_by: "pct", min_years: "5", limit: "1000" });
   if (maxPrice) qs.set("max_price", maxPrice);
   if (q) qs.set("q", q);
   const { data, error, reload, loading } = useApi<Resp>(`/seasonality?${qs}`);
@@ -45,10 +42,7 @@ export default function SeasonalityPage() {
       {(data || error) && <PriceImport open={!cov?.months} onDone={reload} />}
 
       <Card>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-          <Field label="Rank by"><select value={rankBy} onChange={(e) => setRankBy(e.target.value)}><option value="pct">% of years positive</option><option value="avg">Average positive change</option></select></Field>
-          <Field label="Minimum years of history"><input type="number" min={1} max={20} value={minYears} onChange={(e) => setMinYears(Number(e.target.value) || 1)} /></Field>
-          <Field label="Price from ($)"><input value={minPrice} onChange={(e) => setMinPrice(num(e.target.value))} placeholder="any" /></Field>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <Field label="Price below ($)"><input value={maxPrice} onChange={(e) => setMaxPrice(num(e.target.value))} placeholder="any" /></Field>
           <Field label="Ticker starts with"><input value={q} onChange={(e) => setQ(e.target.value.toUpperCase())} placeholder="e.g. AA" /></Field>
         </div>
