@@ -32,7 +32,7 @@ export default function SeasonalityPage() {
         <div>
           <h1 className="text-xl font-semibold">Seasonality</h1>
           <p className="text-sm text-muted">
-            How often each stock rose in a calendar month over the past years, month-end to month-end, from your imported price CSV. Results are calculated once per import and kept until the next one.
+            How often each stock rose in a calendar month over the past years, month-end to month-end, from your imported price CSVs. Each import adds the months not yet stored; only the calendar months that gained data are recalculated and every other result is kept.
             {cov && cov.months > 0 && <> Data: {cov.symbols.toLocaleString()} stocks · {cov.first_month?.slice(0, 7)} → {cov.last_month?.slice(0, 7)}{cov.provider && <> · from {cov.provider}</>}{cov.computed_at && <> · calculated {new Date(cov.computed_at).toLocaleString()}</>}</>}
           </p>
         </div>

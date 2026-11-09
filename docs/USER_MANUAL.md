@@ -44,9 +44,12 @@ purchases of the last 90 days, and earnings this week):
   on your plan. A research score, not a buy/sell recommendation.
 
 **Seasonality** — works only from the price-history CSV you import at the top of the tab; no price API
-is used. When an import finishes, the statistics are calculated once and kept (in the database and the
-browser's daily cache) until the next CSV import; opening the tab or changing filters only reads them. A
-fresh import replaces the stored history; re-importing a few tickers replaces only those tickers. Pick a
+is used. Each import **adds** the months that are not stored yet: months already stored are kept unchanged, and only
+the stocks and calendar months that gained data are recalculated (adding November changes only the November
+figures), so all earlier results stay as they are. As months pass, import a file with the new month(s) — it can
+be just the new month or a full history; already-stored months in it are skipped. Tick **Start over** to delete
+the stored history and recalculate everything from the file. Opening the tab or changing filters only reads the
+stored results. Pick a
 month with the month buttons and use the filters: maximum price (default $100) and ticker prefix. Stocks are
 ranked by % of years positive and need at least 5 years of history. The table shows
 Ticker, Company, Price (the latest daily price already on file, else the last month-end close in your CSV

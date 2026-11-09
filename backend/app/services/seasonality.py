@@ -10,6 +10,9 @@ Method, per stock and calendar month (Jan…Dec):
   * returns beyond ±200% in a single month are treated as probable data errors (unadjusted
     splits, ticker reuse) and excluded;
   * stats: years of data, average, median, % of years positive, best and worst year.
+Imports add months: a month already stored for a stock is kept as it is, and only the calendar months
+that gained data are recalculated (adding November changes only the November statistics), so earlier
+results stay intact. "Start over" replaces the whole history and recalculates everything.
 Ranking: by average return (or % of years positive) among stocks with at least ``min_years``.
 If the CSV has an adjusted-close column it is used (returns then include dividends); otherwise
 the close column (price returns). Past seasonality does not guarantee future returns.
@@ -20,7 +23,7 @@ import re
 from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import bindparam, delete, extract, func, insert, select, update
 from sqlalchemy.orm import Session
 
 from app import market_calendar as mc
@@ -41,10 +44,16 @@ def month_last_session(month: date) -> date:
     return mc.previous_sessions(nxt - timedelta(days=1), 1)[-1]
 
 
+PENDING_KEY = "seasonality_pending"  # (stock -> calendar months) that gained data in the import in progress
+
+
 def import_chunk(db: Session, rows: list[list], replace_all: bool, source: str) -> dict:
-    """Store month-end closes ``[symbol, "YYYY-MM", close]``. ``replace_all`` wipes the existing
-    history first (first chunk of a fresh import); otherwise each symbol in the chunk replaces that
-    symbol's stored history (the browser never splits one symbol across chunks)."""
+    """Store month-end closes ``[symbol, "YYYY-MM", close]``. ``replace_all`` (first chunk of a "start over"
+    import) wipes the stored history first. Otherwise only months not yet stored are added: months already
+    stored are kept unchanged, so their statistics stay as they are."""
+    from app.db import upsert
+    from app.models import KeyValue
+
     clean: dict[tuple[str, date], float] = {}
     skipped = 0
     for r in rows:
@@ -58,23 +67,39 @@ def import_chunk(db: Session, rows: list[list], replace_all: bool, source: str) 
             continue
         clean[(sym, date(int(mon[1]), int(mon[2]), 1))] = close
     syms = {s for s, _ in clean}
+    pending = db.get(KeyValue, PENDING_KEY)
+    state = dict(pending.value) if pending and not replace_all else {"full": False, "keys": {}}
     if replace_all:
         db.execute(delete(SeasonalityStat))
         db.execute(delete(MarketMonth))
         db.execute(delete(MonthlyClose))
-    elif syms:
-        db.execute(delete(MonthlyClose).where(MonthlyClose.symbol.in_(syms)))
+        state["full"] = True
+        existing: set[tuple[str, date]] = set()
+    else:
+        existing = set()
+        sl = sorted(syms)
+        for i in range(0, len(sl), 1000):
+            existing |= set(db.execute(select(MonthlyClose.symbol, MonthlyClose.month)
+                                       .where(MonthlyClose.symbol.in_(sl[i:i + 1000]))).all())
     now = datetime.now(timezone.utc)
-    vals = [{"symbol": s, "month": m, "close": c, "provider": source[:32], "retrieved_at": now}
-            for (s, m), c in clean.items()]
+    new = {k: c for k, c in clean.items() if k not in existing}
+    vals = [{"symbol": s, "month": m, "close": c, "provider": source[:32], "retrieved_at": now} for (s, m), c in new.items()]
     for i in range(0, len(vals), 20_000):
         db.execute(insert(MonthlyClose), vals[i:i + 20_000])
+    keys = state.setdefault("keys", {})
+    for s, m in new:
+        if m.month not in keys.setdefault(s, []):
+            keys[s].append(m.month)
+    upsert(db, KeyValue, [{"key": PENDING_KEY, "value": state, "updated_at": now}])
     db.commit()
-    return {"stored": len(vals), "symbols": len(syms), "skipped": skipped}
+    return {"stored": len(vals), "already_stored": len(clean) - len(new), "symbols": len(syms), "skipped": skipped}
 
 
 def finish_import(db: Session, source: str, last_date: date | None) -> dict:
-    """Drop a partial final month, record which months are loaded, and rebuild the statistics."""
+    """Drop a partial final month, record which months are loaded, and recalculate: everything after a
+    "start over" import, otherwise only the stocks and calendar months that gained data."""
+    from app.models import KeyValue
+
     dropped = None
     last_month = db.scalar(select(func.max(MonthlyClose.month)))
     if last_month and last_date and (last_date.year, last_date.month) == (last_month.year, last_month.month) \
@@ -87,21 +112,51 @@ def finish_import(db: Session, source: str, last_date: date | None) -> dict:
     if counts:
         db.execute(insert(MarketMonth), [{"month": m, "session": month_last_session(m), "symbols": n,
                                           "provider": source[:32], "retrieved_at": now} for m, n in counts])
+    pending = db.get(KeyValue, PENDING_KEY)
+    state = dict(pending.value) if pending else {"full": True, "keys": {}}
+    if pending:
+        db.delete(pending)
     db.commit()
-    stats = recompute(db)
-    return {"stats": stats, "partial_month_dropped": dropped}
+    keys = {s: set(c) for s, c in (state.get("keys") or {}).items()}
+    if state.get("full") or not db.scalar(select(SeasonalityStat.symbol).limit(1)):
+        return {"stats": recompute(db), "mode": "full", "partial_month_dropped": dropped}
+    if not keys:
+        return {"stats": 0, "mode": "nothing new", "partial_month_dropped": dropped}
+    return {"stats": recompute(db, keys), "mode": "incremental", "new_stock_months": sum(map(len, keys.values())),
+            "partial_month_dropped": dropped}
 
 
 def months_loaded(db: Session) -> set[date]:
     return set(db.scalars(select(MarketMonth.month)).all())
 
 
-def recompute(db: Session) -> int:
-    """Rebuild seasonality_stats from monthly_closes (vectorised with pandas)."""
+def _prev_cal(m: int) -> int:
+    return 12 if m == 1 else m - 1
+
+
+def recompute(db: Session, only: dict[str, set[int]] | None = None) -> int:
+    """Rebuild seasonality_stats from monthly_closes (vectorised with pandas). With ``only`` (stock ->
+    calendar months that gained data) just those stocks' statistics for those calendar months are
+    recalculated, reading only the closes they need (that month and the month before, in every year);
+    every other statistic is left unchanged."""
     q = (select(MonthlyClose.symbol, MonthlyClose.month, MonthlyClose.close)
          .where(MonthlyClose.month.in_(select(MarketMonth.month))))
-    df = pd.DataFrame(db.execute(q).all(), columns=["symbol", "month", "close"])
-    db.execute(delete(SeasonalityStat))
+    syms: list[str] = []
+    cals: set[int] = set()
+    if only is not None:
+        syms = sorted(only)
+        cals = set().union(*only.values()) if only else set()
+        need = cals | {_prev_cal(c) for c in cals}
+        q = q.where(extract("month", MonthlyClose.month).in_(sorted(need)))
+        frames = [pd.DataFrame(db.execute(q.where(MonthlyClose.symbol.in_(syms[i:i + 1000]))).all(),
+                               columns=["symbol", "month", "close"]) for i in range(0, len(syms), 1000)]
+        df = pd.concat(frames) if frames else pd.DataFrame(columns=["symbol", "month", "close"])
+        for i in range(0, len(syms), 1000):
+            db.execute(delete(SeasonalityStat).where(SeasonalityStat.symbol.in_(syms[i:i + 1000]),
+                                                     SeasonalityStat.month.in_(sorted(cals))))
+    else:
+        df = pd.DataFrame(db.execute(q).all(), columns=["symbol", "month", "close"])
+        db.execute(delete(SeasonalityStat))
     if df.empty:
         db.commit()
         return 0
@@ -118,6 +173,9 @@ def recompute(db: Session) -> int:
     long = long[long["ret"].abs() <= MAX_ABS_MONTHLY_RETURN]
     long["cal"] = long["month"].dt.month
     long["year"] = long["month"].dt.year
+    if only is not None:
+        long = long[long["cal"].isin(cals)]
+        last_close = _latest_closes(db, syms)
     g = long.groupby(["symbol", "cal"])["ret"]
     stats = pd.DataFrame({"years": g.count(), "avg": g.mean(), "median": g.median(),
                           "win_rate": g.apply(lambda s: (s > 0).mean() * 100), "best": g.max(), "worst": g.min()})
@@ -148,8 +206,26 @@ def recompute(db: Session) -> int:
     from app.db import upsert
 
     upsert(db, SeasonalityStat, rows)  # another request may be recomputing at the same moment
+    if only is not None:  # the price column's fallback (latest close) for these stocks' other months too
+        lc = [{"s": s, "c": float(c)} for s, c in last_close.items() if pd.notna(c)]
+        for i in range(0, len(lc), 1000):
+            t = SeasonalityStat.__table__
+            db.execute(update(t).where(t.c.symbol == bindparam("s")).values(last_close=bindparam("c")), lc[i:i + 1000])
     db.commit()
     return len(rows)
+
+
+def _latest_closes(db: Session, syms: list[str]) -> pd.Series:
+    """Latest stored month-end close per stock (one grouped query per 1,000 stocks)."""
+    out: dict[str, float] = {}
+    for i in range(0, len(syms), 1000):
+        part = syms[i:i + 1000]
+        last = (select(MonthlyClose.symbol, func.max(MonthlyClose.month).label("m"))
+                .where(MonthlyClose.symbol.in_(part), MonthlyClose.month.in_(select(MarketMonth.month)))
+                .group_by(MonthlyClose.symbol).subquery())
+        out |= dict(db.execute(select(MonthlyClose.symbol, MonthlyClose.close).join(
+            last, (MonthlyClose.symbol == last.c.symbol) & (MonthlyClose.month == last.c.m))).all())
+    return pd.Series(out, dtype=float)
 
 
 def coverage(db: Session) -> dict:
