@@ -315,6 +315,29 @@ def hide_non_compliant(db: Session, rows: list[dict], key: str = "symbol") -> li
     return out
 
 
+def _trade_plan(db: Session, bars: list) -> dict | None:
+    """Stop loss and Target 1 from the daily bars, by the same rules as the scan's trade plan (stop just below
+    the nearest validated support zone, Target 1 = next resistance zone). None when there is no support zone
+    or too little history: nothing is invented."""
+    if len(bars) < 60:
+        return None
+    import pandas as pd
+
+    from app.screening import technicals as tech
+    from app.services.engine import load_config
+
+    df = pd.DataFrame([{"open": b.open, "high": b.high, "low": b.low, "close": b.close, "volume": b.volume} for b in bars],
+                      index=pd.to_datetime([b.session for b in bars]))
+    try:
+        plan = tech.analyze(df, load_config(db).technical).get("trade_plan")
+    except Exception:  # noqa: BLE001 - a bad series never breaks the panel
+        return None
+    if not plan:
+        return None
+    return {"stop_loss": plan["stop_loss"], "target1": plan.get("target1"), "entry": plan["entry"],
+            "as_of": df.index[-1].date().isoformat(), "method": plan.get("method")}
+
+
 def shariah_map(db: Session, symbols: set[str]) -> dict[str, str]:
     """Colour status per ticker from the internal Shariah engine, for the methodology chosen in Settings;
     tickers it has not screened yet fall back to the latest scan-time screen."""
@@ -411,6 +434,7 @@ async def stock_summary(db: Session, ds, ticker: str) -> dict:
     out["bars"] = [{"time": x.session.isoformat(), "open": x.open, "high": x.high, "low": x.low, "close": x.close,
                     "volume": x.volume} for x in bars]
     out["bars_provider"] = bars[-1].provider if bars else None
+    out["trade_plan"] = _trade_plan(db, bars)
 
     out["news"] = (news[0] if news else [])[:8]
     out["options"] = None if not orow else {

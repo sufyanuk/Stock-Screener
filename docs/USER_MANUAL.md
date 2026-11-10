@@ -45,6 +45,14 @@ purchases of the last 90 days, and earnings this week):
   letter. Loaded with SentiSense's screener (all rated stocks in one request) or per stock if the screener is not
   on your plan. A research score, not a buy/sell recommendation.
 
+**Stock side panel — Trade plan** — click any ticker: under the price figures, **Stop loss** and **Target 1** are
+filled in from the daily chart by the same rules as the scan's trade plan (stop just below the nearest validated
+support zone, i.e. zone low − ½ × ATR14; Target 1 = the next resistance zone), with their distance from the price and
+the reward-to-risk ratio. Both can be edited; if there is no support zone, no stop is suggested. **Size this trade**
+takes your account size and risk per trade (remembered on this device) and shows the shares to buy (risk ÷ (price −
+stop), never more than the account can buy), the position value, the loss at the stop and the profit at Target 1.
+Fees and slippage are not included (the Calculators tab handles those).
+
 **Basket** — hover over any ticker anywhere in the app and click the **+** that appears to put it in the
 basket (a **✓** shows it is already there; click it to take it out). The **Basket** tab (with a count) lists them
 with company name and when each was added, and has **Clear basket**. The basket is kept on the server (same on

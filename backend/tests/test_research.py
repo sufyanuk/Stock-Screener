@@ -426,3 +426,26 @@ def test_company_quote_takes_debt_to_equity_from_finnhub():
     assert q["debt_to_equity"] == 1.4  # no quarterly figure: latest annual
     q, _ = asyncio.run(ds({}).company_quote("AAPL"))
     assert q["debt_to_equity"] is None
+
+
+def test_stock_panel_trade_plan(client, db):
+    from datetime import timedelta
+
+    import numpy as np
+
+    from app.models import DailyBar
+    from app.services import research as rs
+
+    # price oscillates between support ~20 and resistance ~25, ending just above support
+    closes = 22.5 + 2.5 * np.sin(np.arange(300) / 8.0)
+    closes[-6:] = [21.0, 20.6, 20.3, 20.1, 20.2, 20.3]
+    start = rs.today_ny() - timedelta(days=360)
+    days = [start + timedelta(days=i) for i in range(400) if (start + timedelta(days=i)).weekday() < 5][:300]
+    bars = [DailyBar(ticker="OSC", session=day, open=c * 0.995, high=c * 1.01, low=c * 0.99, close=c, volume=1e6,
+                     provider="test") for day, c in zip(days, closes)]
+    plan = rs._trade_plan(db, bars)
+    assert plan["stop_loss"] < 20.3 and plan["target1"] > 20.3 and plan["as_of"] == days[-1].isoformat()
+    assert rs._trade_plan(db, bars[:40]) is None  # too little history: nothing invented
+    rising = [DailyBar(ticker="UP", session=day, open=c, high=c * 1.01, low=c * 0.99, close=c, volume=1e6, provider="t")
+              for day, c in zip(days, np.linspace(10, 40, 300))]
+    assert rs._trade_plan(db, rising) is None or rs._trade_plan(db, rising)["stop_loss"] < 40

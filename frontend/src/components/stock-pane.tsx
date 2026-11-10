@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useMemo } from "react";
 import { PriceChart, type Bar } from "@/components/charts";
 import { TickerSearch } from "@/components/ticker-search";
+import { TradePlanCard, type TradePlan } from "@/components/trade-plan";
 import { Badge, Empty, ErrorBox, Stat, Ticker } from "@/components/ui";
 import { useApi } from "@/lib/api";
 import { compact, nf, pct, tone, usd } from "@/lib/format";
@@ -11,7 +12,7 @@ import { daysUntil, usePane } from "@/lib/pane-context";
 type Summary = {
   ticker: string; name: string | null; price: number | null; price_source: string | null; day_change_pct: number | null;
   pe: number | null; market_cap: number | null; year_high: number | null; year_low: number | null;
-  debt_to_equity: number | null;
+  debt_to_equity: number | null; trade_plan: TradePlan;
   analysts: { counts: Record<string, number> | null; total: number | null; recommending_buy: number | null; target_avg: number | null; target_high: number | null; target_low: number | null };
   earnings: { date: string; time_of_day: string | null; eps_estimate: number | null; source: string } | null;
   bars: Bar[]; bars_provider: string | null; news: { title: string; url: string; published: string; publisher: string }[];
@@ -129,6 +130,8 @@ export function StockPane() {
               <Stat label="Market cap" value={d.market_cap ? `$${compact(d.market_cap)}` : "—"} />
               <Stat label="52-week range" value={<span className="text-sm">{d.year_low || d.year_high ? `${usd(d.year_low)} – ${usd(d.year_high)}` : "—"}</span>} />
             </div>
+
+            <TradePlanCard key={d.ticker} price={d.price} plan={d.trade_plan} />
 
             <div className={`rounded-lg border p-3 ${n !== null && n <= 7 ? "border-warn/50 bg-warn/10" : "border-line bg-panel-2"}`}>
               <div className="text-[11px] uppercase tracking-wide text-muted">Upcoming earnings</div>
