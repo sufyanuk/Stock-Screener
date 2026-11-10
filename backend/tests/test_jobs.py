@@ -98,3 +98,36 @@ def test_sec_data_is_downloaded_only_by_the_weekly_job(db, monkeypatch):
 
     assert asyncio.run(jobs.run("shariah-weekly")) == 0  # Sunday: SEC figures downloaded again
     assert len(fake.calls) >= len(shs.frame_plan(TODAY))
+
+
+def test_backup_schedules_run_only_when_the_main_run_was_missed(db, monkeypatch):
+    import app.main as main
+    from app import jobs
+    from app.models import ScanRun, Security
+    from app.services import shariah as shs
+    from tests.conftest import FakeDataSource
+
+    fake = FakeSec()
+
+    class DS(FakeDataSource):
+        sec = fake
+
+    monkeypatch.setattr(main, "make_datasource", lambda: DS())
+    monkeypatch.setattr(shs, "_today", lambda: TODAY)
+    for c, t in fake.names.items():
+        db.add(Security(ticker=t, cik=str(c).zfill(10), name=t, exchange="Nasdaq"))
+    db.commit()
+    scans = lambda: db.query(ScanRun).filter(ScanRun.triggered_by == "github-actions").count()  # noqa: E731
+
+    assert asyncio.run(jobs.run("nightly-backup")) == 0  # main run missed: the backup does the work
+    db.expire_all()
+    assert scans() == 1
+    assert asyncio.run(jobs.run("nightly-backup")) == 0  # already ran today: nothing happens
+    db.expire_all()
+    assert scans() == 1
+
+    assert asyncio.run(jobs.run("shariah-weekly")) == 0
+    fake.calls.clear()
+    assert asyncio.run(jobs.run("shariah-weekly-backup")) == 0  # weekly refresh already done
+    assert fake.calls == []
+    assert jobs.main(["jobs", "nightly-backup-x"]) == 2

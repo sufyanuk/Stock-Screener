@@ -98,10 +98,44 @@ async def earnings(deadline: float) -> None:
 
 
 LOADS = {"shariah": shariah, "ratings": ratings, "insiders": insiders, "earnings": earnings}
-JOBS = ["nightly", "scan", "shariah-weekly", *LOADS]
+JOBS = ["nightly", "scan", "shariah-weekly", "nightly-backup", "shariah-weekly-backup", *LOADS]
+
+
+def _already_ran(job: str) -> str | None:
+    """For the backup schedules (GitHub can skip a scheduled run): why the main run already covered today."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import func, select
+
+    from app import market_calendar as mc
+    from app.models import ScanRun, SecFrameLoad
+
+    with _session() as db:
+        if job == "nightly-backup":
+            today = datetime.now(mc.NY).date()
+            for (started,) in db.execute(select(ScanRun.started_at).where(
+                    ScanRun.kind == "close", ScanRun.triggered_by == "github-actions",
+                    ScanRun.started_at >= datetime.now(timezone.utc) - timedelta(days=2))).all():
+                st = started if started.tzinfo else started.replace(tzinfo=timezone.utc)
+                if st.astimezone(mc.NY).date() == today:
+                    return f"the nightly scan already ran today ({st.isoformat()})"
+        else:
+            last = db.scalar(select(func.max(SecFrameLoad.loaded_at)))
+            if last is not None:
+                last = last if last.tzinfo else last.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) - last < timedelta(hours=20):
+                    return f"the weekly SEC refresh already ran ({last.isoformat()})"
+    return None
 
 
 async def run(job: str, minutes: float = 100) -> int:
+    if job.endswith("-backup"):
+        why = _already_ran(job)
+        if why:
+            log.info("%s: nothing to do, %s", job, why)
+            return 0
+        job = job.removesuffix("-backup")
+        log.info("the scheduled %s run was missed: running it now", job)
     deadline = time.time() + minutes * 60
     failed = 0
     steps = ([("scan", None), *LOADS.items()] if job == "nightly"

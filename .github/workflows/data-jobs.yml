@@ -6,6 +6,9 @@ on:
   schedule:
     - cron: "40 21 * * 1-5"  # weekdays ~21:40 UTC, after the US close: scan, prices, ratings (no SEC download)
     - cron: "17 4 * * 0"     # Sundays ~04:17 UTC: download the SEC figures for the Shariah engine again
+    # Backups: GitHub can delay or skip a scheduled run. These run the job only if the one above did not.
+    - cron: "40 23 * * 1-5"
+    - cron: "17 7 * * 0"
   workflow_dispatch:
     inputs:
       job:
@@ -46,4 +49,9 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Check the database secret
         run: test -n "$DATABASE_URL" || { echo "::error::Add the DATABASE_URL secret (see docs/USER_MANUAL.md)"; exit 1; }
-      - run: python -m app.jobs "${{ inputs.job || (github.event.schedule == '17 4 * * 0' && 'shariah-weekly') || 'nightly' }}"
+      - run: >-
+          python -m app.jobs "${{ inputs.job
+          || (github.event.schedule == '17 4 * * 0' && 'shariah-weekly')
+          || (github.event.schedule == '40 23 * * 1-5' && 'nightly-backup')
+          || (github.event.schedule == '17 7 * * 0' && 'shariah-weekly-backup')
+          || 'nightly' }}"
