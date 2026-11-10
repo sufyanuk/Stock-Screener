@@ -45,6 +45,11 @@ purchases of the last 90 days, and earnings this week):
   letter. Loaded with SentiSense's screener (all rated stocks in one request) or per stock if the screener is not
   on your plan. A research score, not a buy/sell recommendation.
 
+**Basket** — hover over any ticker anywhere in the app and click the **+** that appears to put it in the
+basket (a **✓** shows it is already there; click it to take it out). The **Basket** tab (with a count) lists them
+with company name and when each was added, and has **Clear basket**. The basket is kept on the server (same on
+every device) until the next nightly scan, which empties it.
+
 **Seasonality** — works only from the price-history CSV you import at the top of the tab; no price API
 is used. When an import finishes, the statistics are calculated once and kept (in the database and the
 browser's daily cache) until the next CSV import; opening the tab or changing filters only reads them. A

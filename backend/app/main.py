@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 
@@ -461,6 +462,73 @@ def health(db: Session = Depends(get_db)):
         return out | {"db": "ok", "provider_health": health_rows(db), "options_source": src}
     except Exception as e:
         return out | {"db": f"error: {type(e).__name__}: {str(e)[:300]}", "provider_health": []}
+
+
+# ------------------------------------------------------------------ basket (kept until the next nightly scan)
+TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
+
+
+def _last_nightly_start(db: Session) -> datetime | None:
+    """Start of the latest nightly (after-close) scan: basket items added before it have expired."""
+    t = db.scalar(select(func.max(ScanRun.started_at)).where(ScanRun.kind == "close"))
+    return t if t is None or t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def basket_items(db: Session) -> list:
+    from app.models import BasketItem
+
+    q = select(BasketItem).order_by(BasketItem.added_at.desc())
+    if (since := _last_nightly_start(db)) is not None:
+        q = q.where(BasketItem.added_at > since)
+    return list(db.scalars(q).all())
+
+
+@app.get("/api/basket")
+def basket(db: Session = Depends(get_db), _: User = Depends(current_user)):
+    from app.services import research as rs
+
+    items = basket_items(db)
+    syms = [i.ticker for i in items]
+    names = dict(db.execute(select(Security.ticker, Security.name).where(Security.ticker.in_(syms))).all()) if syms else {}
+    sh = rs.shariah_map(db, set(syms))
+    return {"items": [{"symbol": i.ticker, "name": names.get(i.ticker), "added_at": i.added_at.isoformat(),
+                       "shariah_status": sh.get(i.ticker)} for i in items],
+            "note": "Tickers stay in the basket until the next nightly scan."}
+
+
+class BasketAdd(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=16)
+
+
+@app.post("/api/basket")
+def basket_add(p: BasketAdd, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    from app.db import upsert
+    from app.models import BasketItem
+
+    sym = p.symbol.strip().upper()
+    if not TICKER_RE.match(sym):
+        raise HTTPException(422, "not a ticker")
+    upsert(db, BasketItem, [{"ticker": sym, "added_at": datetime.now(timezone.utc)}])
+    db.commit()
+    return {"added": sym, "count": len(basket_items(db))}
+
+
+@app.delete("/api/basket/{symbol}")
+def basket_remove(symbol: str, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    from app.models import BasketItem
+
+    db.execute(delete(BasketItem).where(BasketItem.ticker == symbol.strip().upper()))
+    db.commit()
+    return {"removed": symbol.upper(), "count": len(basket_items(db))}
+
+
+@app.delete("/api/basket")
+def basket_clear(db: Session = Depends(get_db), _: User = Depends(current_user)):
+    from app.models import BasketItem
+
+    db.execute(delete(BasketItem))
+    db.commit()
+    return {"count": 0}
 
 
 # ------------------------------------------------------------------ recommendations

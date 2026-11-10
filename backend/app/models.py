@@ -539,3 +539,11 @@ class KeyValue(Base):
     key: Mapped[str] = mapped_column(String(100), primary_key=True)
     value: Mapped[dict] = mapped_column(Json)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class BasketItem(Base):
+    """A ticker the user put in the basket (hover "+" on any ticker). Kept until the next nightly scan."""
+
+    __tablename__ = "basket_items"
+    ticker: Mapped[str] = mapped_column(String(16), primary_key=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

@@ -5,6 +5,7 @@ import { ReactNode, useEffect, useState } from "react";
 import { StockPane } from "@/components/stock-pane";
 import { TickerSearch } from "@/components/ticker-search";
 import { api, JOBS_ON_GITHUB, useApi } from "@/lib/api";
+import { BasketProvider, useBasket } from "@/lib/basket";
 import { PaneProvider, usePane } from "@/lib/pane-context";
 
 const NAV = [
@@ -12,6 +13,7 @@ const NAV = [
   ["/options", "Unusual Options"],
   ["/insiders", "Insider Buying"],
   ["/watchlist", "Watchlist"],
+  ["/basket", "Basket"],
   ["/earnings", "Earnings"],
   ["/ratings", "Ratings"],
   ["/seasonality", "Seasonality"],
@@ -25,6 +27,7 @@ export function Shell({ children }: { children: ReactNode }) {
   // Personal app: no sign-in. Access is restricted by Vercel Authentication on the deployment.
   return (
     <PaneProvider>
+    <BasketProvider>
     <div className="min-h-screen">
       <nav className="sticky top-0 z-20 border-b border-line bg-bg/90 backdrop-blur">
         <div className="mx-auto flex max-w-[1900px] items-center gap-4 px-4 py-2.5">
@@ -38,7 +41,7 @@ export function Shell({ children }: { children: ReactNode }) {
             {NAV.map(([href, label]) => (
               <Link key={href} href={href} onClick={() => setMenu(false)}
                 className={`rounded-md px-2.5 py-1.5 text-sm ${path.startsWith(href) ? "bg-panel-2 text-ink" : "text-muted hover:text-ink"}`}>
-                {label}
+                {label}{href === "/basket" && <BasketCount />}
               </Link>
             ))}
           </div>
@@ -52,8 +55,14 @@ export function Shell({ children }: { children: ReactNode }) {
         <ProviderStatus />
       </footer>
     </div>
+    </BasketProvider>
     </PaneProvider>
   );
+}
+
+function BasketCount() {
+  const n = useBasket()?.symbols.size ?? 0;
+  return n ? <span className="ml-1 rounded bg-accent/20 px-1 text-[11px] text-accent">{n}</span> : null;
 }
 
 const PROVIDERS: [string, string][] = [["alpaca", "Alpaca"], ["finnhub", "Finnhub"], ["tiingo", "Tiingo"], ["sentisense", "SentiSense"], ["alphavantage", "Alpha Vantage"],

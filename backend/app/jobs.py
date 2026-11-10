@@ -48,6 +48,17 @@ async def scan(kind: str = "manual") -> None:
     from app.main import _do_scan
 
     log.info("scan: %s", await _do_scan(kind, "github-actions"))
+    if kind == "close":  # the nightly scan empties the basket (items added before it started)
+        from sqlalchemy import delete
+
+        from app.main import _last_nightly_start
+        from app.models import BasketItem
+
+        with _session() as db:
+            if (since := _last_nightly_start(db)) is not None:
+                n = db.execute(delete(BasketItem).where(BasketItem.added_at <= since)).rowcount
+                db.commit()
+                log.info("basket: %s ticker(s) cleared by the nightly scan", n)
 
 
 async def shariah(deadline: float, weekly: bool = False) -> None:

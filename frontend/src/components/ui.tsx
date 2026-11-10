@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { ReactNode, useState } from "react";
+import { useBasket } from "@/lib/basket";
 import { earningsLabel, usePane } from "@/lib/pane-context";
 
 export function Card({ title, right, children, className = "" }: { title?: ReactNode; right?: ReactNode; children: ReactNode; className?: string }) {
@@ -49,14 +50,30 @@ export function EarningsMarker({ symbol }: { symbol: string }) {
 
 /** Ticker coloured by Shariah status. Clicking opens the stock in the right-hand panel
  *  (ctrl/cmd-click opens the full analysis page). */
+/** Hover "+" on a ticker: add it to the basket (✓ = already in the basket; click again to remove). */
+function BasketToggle({ symbol }: { symbol: string }) {
+  const basket = useBasket();
+  if (!basket) return null;
+  const inBasket = basket.has(symbol);
+  return (
+    <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); void basket.toggle(symbol); }}
+      title={inBasket ? "In the basket — click to remove" : "Add to basket (kept until the next nightly scan)"}
+      aria-label={inBasket ? `Remove ${symbol} from the basket` : `Add ${symbol} to the basket`}
+      className={`ml-1 inline-grid h-4 w-4 place-items-center rounded border align-middle text-[10px] leading-none ${inBasket
+        ? "border-accent/60 bg-accent/20 text-accent" : "border-line text-muted opacity-0 hover:text-ink focus:opacity-100 group-hover:opacity-100"}`}>
+      {inBasket ? "✓" : "+"}
+    </button>
+  );
+}
+
 export function Ticker({ symbol, status, link = true, className = "" }: { symbol: string; status?: string | null; link?: boolean; className?: string }) {
   const pane = usePane();
   const title = status === "Compliant" ? "Shariah-compliant" : status === "Non-Compliant" ? "Not Shariah-compliant" : "Shariah status not available";
   const cls = `font-semibold ${shariahTone(status)} ${className}`;
   const active = pane?.selected === symbol.toUpperCase();
-  if (!link) return <span className="whitespace-nowrap"><span title={title} className={cls}>{symbol}</span><EarningsMarker symbol={symbol} /></span>;
+  if (!link) return <span className="group whitespace-nowrap"><span title={title} className={cls}>{symbol}</span><EarningsMarker symbol={symbol} /><BasketToggle symbol={symbol} /></span>;
   return (
-    <span className="whitespace-nowrap">
+    <span className="group whitespace-nowrap">
       <Link href={`/stock/${symbol}`} title={`${title} — click for details`}
         className={`${cls} hover:underline ${active ? "rounded bg-panel-2 px-1 underline" : ""}`}
         onClick={(e) => {
@@ -67,6 +84,7 @@ export function Ticker({ symbol, status, link = true, className = "" }: { symbol
         {symbol}
       </Link>
       <EarningsMarker symbol={symbol} />
+      <BasketToggle symbol={symbol} />
     </span>
   );
 }

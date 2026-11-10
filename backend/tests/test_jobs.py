@@ -131,3 +131,35 @@ def test_backup_schedules_run_only_when_the_main_run_was_missed(db, monkeypatch)
     assert asyncio.run(jobs.run("shariah-weekly-backup")) == 0  # weekly refresh already done
     assert fake.calls == []
     assert jobs.main(["jobs", "nightly-backup-x"]) == 2
+
+
+def test_basket_is_kept_until_the_next_nightly_scan(client, db, monkeypatch):  # noqa: F811
+    from datetime import datetime, timedelta, timezone
+
+    import app.main as main
+    from app import jobs
+    from app.models import BasketItem, ScanRun
+    from tests.conftest import FakeDataSource
+
+    monkeypatch.setattr(main, "make_datasource", lambda: FakeDataSource())
+    h = _auth(client)
+    assert client.post("/api/basket", headers=h, json={"symbol": "aapl"}).json() == {"added": "AAPL", "count": 1}
+    client.post("/api/basket", headers=h, json={"symbol": "MSFT"})
+    client.post("/api/basket", headers=h, json={"symbol": "AAPL"})  # again: no duplicate
+    assert client.post("/api/basket", headers=h, json={"symbol": "no way!"}).status_code == 422
+    b = client.get("/api/basket", headers=h).json()
+    assert [i["symbol"] for i in b["items"]] == ["AAPL", "MSFT"]
+    assert client.delete("/api/basket/MSFT", headers=h).json()["count"] == 1
+
+    # an older nightly scan does not touch items added after it
+    db.add(ScanRun(kind="close", status="ok", triggered_by="github-actions", session_date=TODAY, config_snapshot={},
+                   started_at=datetime.now(timezone.utc) - timedelta(days=1)))
+    db.commit()
+    assert [i["symbol"] for i in client.get("/api/basket", headers=h).json()["items"]] == ["AAPL"]
+
+    asyncio.run(jobs.scan("close"))  # the next nightly scan empties the basket
+    db.expire_all()
+    assert client.get("/api/basket", headers=h).json()["items"] == [] and db.query(BasketItem).count() == 0
+    client.post("/api/basket", headers=h, json={"symbol": "NVDA"})  # added after it: kept
+    assert [i["symbol"] for i in client.get("/api/basket", headers=h).json()["items"]] == ["NVDA"]
+    assert client.delete("/api/basket", headers=h).json() == {"count": 0}
