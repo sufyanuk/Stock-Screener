@@ -54,7 +54,7 @@ def test_stock_panel_summary(client, db):
     run_scan(db)
     client.get("/api/earnings/markers", headers=h)
     s = client.get("/api/stocks/GOOD/summary", headers=h).json()
-    assert s["price"] == 20.3 and s["pe"] == 18.4 and s["float_ratio_pct"] == pytest.approx(15.0)
+    assert s["price"] == 20.3 and s["pe"] == 18.4 and "float_ratio_pct" not in s and "shariah" in s
     assert s["analysts"]["recommending_buy"] == 8 and s["analysts"]["counts"]["strong_buy"] == 3
     assert s["earnings"]["time_of_day"] == "post-market" and len(s["bars"]) > 100 and s["news"][0]["title"]
     assert s["insider_90d"]["purchases"] == 1 and s["shariah_status"] == "Compliant"

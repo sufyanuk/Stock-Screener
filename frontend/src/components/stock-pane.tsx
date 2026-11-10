@@ -11,7 +11,7 @@ import { daysUntil, usePane } from "@/lib/pane-context";
 type Summary = {
   ticker: string; name: string | null; price: number | null; price_source: string | null; day_change_pct: number | null;
   pe: number | null; market_cap: number | null; year_high: number | null; year_low: number | null;
-  float_ratio_pct: number | null; float_shares: number | null; shares_outstanding: number | null;
+  shariah: { methodology: string; status: string; label: string; reason: string | null } | null;
   analysts: { counts: Record<string, number> | null; total: number | null; recommending_buy: number | null; target_avg: number | null; target_high: number | null; target_low: number | null };
   earnings: { date: string; time_of_day: string | null; eps_estimate: number | null; source: string } | null;
   bars: Bar[]; bars_provider: string | null; news: { title: string; url: string; published: string; publisher: string }[];
@@ -94,7 +94,7 @@ export function StockPane() {
         <div className="text-sm font-semibold">Stock details</div>
         <TickerSearch />
         <p className="text-sm text-muted">
-          Click any ticker on the page, or search above, to see its price, P/E, float ratio, chart, analyst
+          Click any ticker on the page, or search above, to see its price, P/E, Shariah verdict, chart, analyst
           recommendations, next earnings date and recent news here.
         </p>
       </aside>
@@ -124,7 +124,10 @@ export function StockPane() {
 
             <div className="grid grid-cols-2 gap-2">
               <Stat label="P/E (TTM)" value={nf(d.pe, 1)} />
-              <Stat label="Float ratio" value={pct(d.float_ratio_pct, 1)} sub={d.float_shares ? `${compact(d.float_shares)} of ${compact(d.shares_outstanding)}` : undefined} />
+              <Stat label={`Shariah (${d.shariah?.methodology ?? "engine"})`}
+                value={<span className={`text-sm font-semibold ${d.shariah?.status === "HALAL" ? "text-bull" : d.shariah?.status === "NON_COMPLIANT" ? "text-bear" : d.shariah ? "text-warn" : "text-muted"}`}>
+                  {d.shariah ? (d.shariah.status === "HALAL" ? "Halal" : d.shariah.status === "NON_COMPLIANT" ? "Not compliant" : "Doubtful") : "Not screened"}</span>}
+                sub={d.shariah?.reason ?? undefined} />
               <Stat label="Market cap" value={d.market_cap ? `$${compact(d.market_cap)}` : "—"} />
               <Stat label="52-week range" value={<span className="text-sm">{d.year_low || d.year_high ? `${usd(d.year_low)} – ${usd(d.year_high)}` : "—"}</span>} />
             </div>

@@ -478,3 +478,31 @@ def test_rejected_price_keys_stop_and_record_nothing(db):
     assert asyncio.run(shs._load_prices(db, DS(), time.time() + 30, [])) == 3
     assert db.get(PriceSnapshot, "AAA").close == 10.0 and db.get(PriceSnapshot, "BBB").data == {"checked": True}
     assert shs._prices_fresh(db, _d.today()) == {"AAA", "BBB", "CCC"}
+
+
+def test_stock_panel_shows_the_shariah_verdict(client, db, monkeypatch):  # noqa: F811
+    import app.main as main
+    from app.models import Security
+    from app.services import research as rs
+    from app.services import shariah as shs
+    from tests.conftest import FakeDataSource
+
+    fake = FakeSec()
+
+    class DS(FakeDataSource):
+        sec = fake
+
+    monkeypatch.setattr(main, "make_datasource", lambda: DS())
+    monkeypatch.setattr(shs, "_today", lambda: TODAY)
+    for c, t in fake.names.items():
+        db.add(Security(ticker=t, cik=str(c).zfill(10), name=t, exchange="Nasdaq"))
+    db.commit()
+    h = _auth(client)
+    client.post("/api/shariah/load", headers=h, json={"max_seconds": 120})
+    client.put("/api/shariah/primary", headers=h, json={"methodology": "FTSE"})
+    good, debty = rs.shariah_verdict(db, "GOOD"), rs.shariah_verdict(db, "DEBTY")
+    assert good["methodology"] == "FTSE" and good["status"] == "HALAL"
+    assert debty["status"] == "NON_COMPLIANT" and debty["reason"].startswith("Debt / total assets: 35.0%")
+    assert rs.shariah_verdict(db, "NOPE") is None
+    s = client.get("/api/stocks/GOOD/summary", headers=h).json()
+    assert s["shariah"]["status"] == "HALAL" and "float_ratio_pct" not in s

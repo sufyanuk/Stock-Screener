@@ -315,6 +315,27 @@ def hide_non_compliant(db: Session, rows: list[dict], key: str = "symbol") -> li
     return out
 
 
+def shariah_verdict(db: Session, symbol: str) -> dict | None:
+    """The engine's verdict for one stock under the chosen methodology, with its main reason."""
+    from app.models import ShariahResultRow
+    from app.screening import shariah_engine as se
+    from app.services.engine import load_config
+
+    row = db.get(ShariahResultRow, symbol.upper())
+    if row is None:
+        return None
+    m = load_config(db).shariah.methodology
+    x = (row.data.get("methods") or {}).get(m) or {}
+    if not x:
+        return None
+    failed = [r for r in x.get("ratios") or [] if r.get("status") == "fail"]
+    reasons = x.get("reasons") or []
+    why = (f"{failed[0]['label']}: {failed[0]['value']:.1f}% (limit {failed[0]['limit']:g}%)" if failed and failed[0].get("value") is not None
+           else reasons[0] if reasons else None)
+    return {"methodology": m, "status": x.get("status"), "label": se.LABELS.get(x.get("status"), x.get("status")),
+            "reason": why}
+
+
 def shariah_map(db: Session, symbols: set[str]) -> dict[str, str]:
     """Colour status per ticker from the internal Shariah engine, for the methodology chosen in Settings;
     tickers it has not screened yet fall back to the latest scan-time screen."""
@@ -348,9 +369,8 @@ async def stock_summary(db: Session, ds, ticker: str) -> dict:
         return None
 
     ss_on = getattr(ds, "sentisense", None) is not None and hasattr(ds, "sentisense_info")
-    q, an, fl, news, ssr = await asyncio.gather(
-        safe("quote", ds.company_quote(t)), safe("analysts", ds.analyst(t)),
-        safe("float", ds.float_info(t)), safe("news", ds.news(t)),
+    q, an, news, ssr = await asyncio.gather(
+        safe("quote", ds.company_quote(t)), safe("analysts", ds.analyst(t)), safe("news", ds.news(t)),
         safe("sentisense", ds.sentisense_info(t), timeout=25) if ss_on else none())
     out["sentisense"] = ssr[0] if ssr else None
 
@@ -368,11 +388,8 @@ async def stock_summary(db: Session, ds, ticker: str) -> dict:
                 "pe": quote.get("pe"), "market_cap": quote.get("market_cap"),
                 "year_high": quote.get("year_high"), "year_low": quote.get("year_low")})
 
-    # float ratio
-    finfo = fl[0] if fl else {}
-    so, fs = finfo.get("outstanding_shares"), finfo.get("float_shares")
-    out["float_ratio_pct"] = (fs / so * 100) if so and fs else None
-    out["float_shares"], out["shares_outstanding"] = fs, so
+    # Shariah verdict from the internal engine, for the methodology chosen in Settings (no API call)
+    out["shariah"] = shariah_verdict(db, t)
 
     # analysts
     counts = (an[0].counts if an else None) or {}
