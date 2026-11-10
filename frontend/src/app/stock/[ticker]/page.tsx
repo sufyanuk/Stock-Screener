@@ -15,7 +15,7 @@ type StockResp = {
   news_error?: string; filings_error?: string;
 };
 
-const ORDER = ["options", "insider", "analyst", "technical", "float", "liquidity"];
+const ORDER = ["options", "insider", "analyst", "technical", "liquidity"];
 
 function CriterionCard({ c }: { c: Criterion }) {
   return (
@@ -169,12 +169,9 @@ export default function StockPage({ params }: { params: Promise<{ ticker: string
             <li key={i} className="flex justify-between border-b border-line py-1"><span>{a.date} · {a.firm}</span><span className={a.action === "upgrade" ? "text-bull" : a.action === "downgrade" ? "text-bear" : "text-muted"}>{a.action}: {a.from ?? "—"} → {a.to}</span></li>))}</ul> : null}
         </Card>
 
-        <Card title="Float & liquidity">
+        <Card title="Liquidity">
           <div className="grid grid-cols-3 gap-2">
             <Stat label="Shares outstanding" value={compact(fl.shares_outstanding)} />
-            <Stat label="Public float" value={compact(fl.float_shares)} />
-            <Stat label="Float ratio" value={pct(fl.float_ratio_pct, 1)} sub={fl.category} />
-            <Stat label="Short % float" value={pct(fl.short_pct_float, 1)} />
             <Stat label="Days to cover" value={nf(fl.days_to_cover, 1)} />
             <Stat label="Avg daily volume" value={compact(fl.avg_daily_volume)} />
           </div>
