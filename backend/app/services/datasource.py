@@ -309,16 +309,19 @@ class LiveDataSource:
                 sources.append("fmp")
             except ProviderError as e:
                 self.errors.append(str(e))
-        if self.finnhub and (out.get("pe") is None or out.get("market_cap") is None or not out.get("name")):
+        if self.finnhub:  # debt-to-equity (and anything FMP did not give) from Finnhub's metrics, cached 1 hour
             try:
-                m, pr = await self.finnhub.metrics(ticker), await self.finnhub.profile(ticker)
-                cap = pr.get("marketCapitalization")
-                out.setdefault("name", None)
-                out["name"] = out.get("name") or pr.get("name")
-                out["pe"] = out.get("pe") if out.get("pe") is not None else (m.get("peTTM") or m.get("peBasicExclExtraTTM"))
-                out["market_cap"] = out.get("market_cap") or (cap * 1e6 if cap else None)
-                out["year_high"] = out.get("year_high") or m.get("52WeekHigh")
-                out["year_low"] = out.get("year_low") or m.get("52WeekLow")
+                m = await self.finnhub.metrics(ticker)
+                de = m.get("totalDebt/totalEquityQuarterly")
+                out["debt_to_equity"] = de if de is not None else m.get("totalDebt/totalEquityAnnual")
+                if out.get("pe") is None or out.get("market_cap") is None or not out.get("name"):
+                    pr = await self.finnhub.profile(ticker)
+                    cap = pr.get("marketCapitalization")
+                    out["name"] = out.get("name") or pr.get("name")
+                    out["pe"] = out.get("pe") if out.get("pe") is not None else (m.get("peTTM") or m.get("peBasicExclExtraTTM"))
+                    out["market_cap"] = out.get("market_cap") or (cap * 1e6 if cap else None)
+                    out["year_high"] = out.get("year_high") or m.get("52WeekHigh")
+                    out["year_low"] = out.get("year_low") or m.get("52WeekLow")
                 sources.append("finnhub")
             except ProviderError as e:
                 self.errors.append(str(e))

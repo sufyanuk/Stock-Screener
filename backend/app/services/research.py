@@ -315,27 +315,6 @@ def hide_non_compliant(db: Session, rows: list[dict], key: str = "symbol") -> li
     return out
 
 
-def shariah_verdict(db: Session, symbol: str) -> dict | None:
-    """The engine's verdict for one stock under the chosen methodology, with its main reason."""
-    from app.models import ShariahResultRow
-    from app.screening import shariah_engine as se
-    from app.services.engine import load_config
-
-    row = db.get(ShariahResultRow, symbol.upper())
-    if row is None:
-        return None
-    m = load_config(db).shariah.methodology
-    x = (row.data.get("methods") or {}).get(m) or {}
-    if not x:
-        return None
-    failed = [r for r in x.get("ratios") or [] if r.get("status") == "fail"]
-    reasons = x.get("reasons") or []
-    why = (f"{failed[0]['label']}: {failed[0]['value']:.1f}% (limit {failed[0]['limit']:g}%)" if failed and failed[0].get("value") is not None
-           else reasons[0] if reasons else None)
-    return {"methodology": m, "status": x.get("status"), "label": se.LABELS.get(x.get("status"), x.get("status")),
-            "reason": why}
-
-
 def shariah_map(db: Session, symbols: set[str]) -> dict[str, str]:
     """Colour status per ticker from the internal Shariah engine, for the methodology chosen in Settings;
     tickers it has not screened yet fall back to the latest scan-time screen."""
@@ -388,8 +367,8 @@ async def stock_summary(db: Session, ds, ticker: str) -> dict:
                 "pe": quote.get("pe"), "market_cap": quote.get("market_cap"),
                 "year_high": quote.get("year_high"), "year_low": quote.get("year_low")})
 
-    # Shariah verdict from the internal engine, for the methodology chosen in Settings (no API call)
-    out["shariah"] = shariah_verdict(db, t)
+    # debt-to-equity: total debt ÷ shareholders' equity (Finnhub, latest quarter, else latest year)
+    out["debt_to_equity"] = quote.get("debt_to_equity")
 
     # analysts
     counts = (an[0].counts if an else None) or {}

@@ -54,7 +54,7 @@ def test_stock_panel_summary(client, db):
     run_scan(db)
     client.get("/api/earnings/markers", headers=h)
     s = client.get("/api/stocks/GOOD/summary", headers=h).json()
-    assert s["price"] == 20.3 and s["pe"] == 18.4 and "float_ratio_pct" not in s and "shariah" in s
+    assert s["price"] == 20.3 and s["pe"] == 18.4 and "float_ratio_pct" not in s and "debt_to_equity" in s
     assert s["analysts"]["recommending_buy"] == 8 and s["analysts"]["counts"]["strong_buy"] == 3
     assert s["earnings"]["time_of_day"] == "post-market" and len(s["bars"]) > 100 and s["news"][0]["title"]
     assert s["insider_90d"]["purchases"] == 1 and s["shariah_status"] == "Compliant"
@@ -393,3 +393,36 @@ def test_claim_once_lets_exactly_one_request_run(db):
     assert claim_once(db, "daily-scan:2026-11-08") is True
     assert claim_once(db, "daily-scan:2026-11-08") is False  # a second tab / instance at the same moment
     assert claim_once(db, "daily-scan:2026-11-09") is True
+
+
+def test_company_quote_takes_debt_to_equity_from_finnhub():
+    import asyncio
+
+    from app.services.datasource import LiveDataSource
+
+    class Fh:
+        name = "finnhub"
+
+        def __init__(self, m):
+            self.m = m
+
+        async def metrics(self, t):
+            return self.m
+
+        async def profile(self, t):
+            return {"name": "Apple Inc", "marketCapitalization": 3000000}
+
+        async def quote(self, t):
+            return {"price": 200.0, "day_change_pct": 1.0}
+
+    def ds(m):
+        d = object.__new__(LiveDataSource)
+        d.errors, d.fmp, d.alpaca, d.massive, d.finnhub = [], None, None, None, Fh(m)
+        return d
+
+    q, _ = asyncio.run(ds({"totalDebt/totalEquityQuarterly": 1.52, "totalDebt/totalEquityAnnual": 1.4, "peTTM": 30}).company_quote("AAPL"))
+    assert q["debt_to_equity"] == 1.52 and q["pe"] == 30 and q["price"] == 200.0
+    q, _ = asyncio.run(ds({"totalDebt/totalEquityAnnual": 1.4}).company_quote("AAPL"))
+    assert q["debt_to_equity"] == 1.4  # no quarterly figure: latest annual
+    q, _ = asyncio.run(ds({}).company_quote("AAPL"))
+    assert q["debt_to_equity"] is None
