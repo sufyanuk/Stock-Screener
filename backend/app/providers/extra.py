@@ -316,6 +316,16 @@ class SentiSense:
             raise ProviderError(self.name, f"screener HTTP {r.status_code}: {r.text[:200]}", r.status_code)
         return parse_sentisense_screener(r.json())
 
+    async def market_mood(self) -> dict | None:
+        """GET /api/v2/market-mood (free tier): 0-100 composite, phase, signals, sector scores."""
+        return parse_sentisense_mood(await self.http.get_json("/api/v2/market-mood", params={"days": 7}, cache_ttl=900))
+
+    async def market_breadth(self, scope: str = "sp500") -> dict | None:
+        """GET /api/v1/trackers/market-heatmap?scope=sp500: every index member's day move. Free keys get every
+        tile and the full meta (breadthUp / breadthDown); only the sentiment overlays are PRO."""
+        j = await self.http.get_json("/api/v1/trackers/market-heatmap", params={"scope": scope}, cache_ttl=900)
+        return parse_sentisense_breadth(j)
+
     async def insights(self, ticker: str, limit: int = 3) -> list[dict]:
         try:
             j = await self.http.get_json(f"/api/v1/insights/stock/{ticker}", cache_ttl=3600)
@@ -381,3 +391,35 @@ def parse_sentisense_screener(j) -> list[dict]:
         out.append({"ticker": str(sym).upper(), "rated": True, "letter": str(letter), "score": _f(r.get("ratingScore")),
                     "percentile": _f(r.get("ratingPercentile")), "company": r.get("companyName") or r.get("name")})
     return out
+
+
+def parse_sentisense_mood(j) -> dict | None:
+    m = (j or {}).get("market") if isinstance(j, dict) else None
+    if not isinstance(m, dict) or _f(m.get("currentScore")) is None:
+        return None
+    sig = [{"name": str(x.get("label") or x.get("key")), "value": _f(x.get("value")), "change": _f(x.get("change"))}
+           for x in m.get("signals") or [] if isinstance(x, dict)]
+    hist = [h for h in m.get("history") or [] if isinstance(h, dict) and h.get("date")]
+    return {"score": round(_f(m["currentScore"]), 1), "label": m.get("phase") if m.get("phase") not in (None, "---") else None,
+            "weekly_change": _f(m.get("weeklyChange")), "as_of": max((h["date"] for h in hist), default=None),
+            "components": sig}
+
+
+def parse_sentisense_breadth(j) -> dict | None:
+    d = (j or {}).get("data") if isinstance(j, dict) else None
+    if not isinstance(d, dict):
+        return None
+    meta, rows = d.get("meta") or {}, d.get("rows") or []
+    up, down = meta.get("breadthUp"), meta.get("breadthDown")
+    chg = [_f(r.get("changePercent")) for r in rows if isinstance(r, dict)]
+    chg = [c for c in chg if c is not None]
+    if up is None or down is None:  # count from the tiles when the rollup is absent
+        if not chg:
+            return None
+        up, down = sum(c > 0 for c in chg), sum(c < 0 for c in chg)
+    total = len(chg) if chg else int(meta.get("tileCount") or 0)
+    as_of = d.get("asOf")
+    if isinstance(as_of, (int, float)):
+        as_of = datetime.fromtimestamp(as_of / (1000 if as_of > 1e11 else 1), timezone.utc).date().isoformat()
+    return {"advancing": int(up), "declining": int(down), "unchanged": max(total - int(up) - int(down), 0),
+            "total": total, "as_of": str(as_of)[:10] if as_of else None}

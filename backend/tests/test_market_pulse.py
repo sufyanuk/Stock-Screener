@@ -88,3 +88,58 @@ def test_compute_stores_each_part_and_skips_what_is_missing(db, monkeypatch):
     assert out["mood"]["score"] is not None and out["fed"]["next_decision"] == "2026-12-09"
     assert out["macro"]["score"] is None and "FRED_API_KEY" in out["macro"]["missing"]  # no key: not invented
     assert mp.stored(db)["breadth"]["total"] == 3
+
+
+MOOD_JSON = {"market": {"currentScore": 28.6, "phase": "Fear", "weeklyChange": -4.1,
+                        "signals": [{"key": "spy_trend", "label": "S&P 500 Trend", "value": 31.0, "change": -2.0}],
+                        "history": [{"date": "2026-11-09", "score": 30}, {"date": "2026-11-10", "score": 28.6}]},
+             "sectors": {}}
+HEATMAP_JSON = {"isPreview": True, "previewReason": "PRO_REQUIRED",
+                "data": {"asOf": 1794355200000, "meta": {"breadthUp": 245, "breadthDown": 249, "tileCount": 499},
+                         "rows": [{"ticker": f"T{i}", "changePercent": c} for i, c in
+                                  enumerate([1.0] * 245 + [-1.0] * 249 + [0.0] * 5)]}}
+
+
+def test_sentisense_parsers():
+    from app.providers.extra import parse_sentisense_breadth, parse_sentisense_mood
+
+    m = parse_sentisense_mood(MOOD_JSON)
+    assert m["score"] == 28.6 and m["label"] == "Fear" and m["as_of"] == "2026-11-10"
+    assert m["components"][0]["name"] == "S&P 500 Trend"
+    b = parse_sentisense_breadth(HEATMAP_JSON)
+    assert (b["advancing"], b["declining"], b["unchanged"], b["total"]) == (245, 249, 5, 499)
+    assert parse_sentisense_mood({"market": {"currentScore": None}}) is None
+    assert parse_sentisense_breadth({"error": "x"}) is None
+
+
+def test_compute_prefers_sentisense_and_skips_alpaca(db, monkeypatch):
+    from app.providers.extra import parse_sentisense_breadth, parse_sentisense_mood
+
+    class SS:
+        async def market_mood(self):
+            return parse_sentisense_mood(MOOD_JSON)
+
+        async def market_breadth(self, scope="sp500"):
+            return parse_sentisense_breadth(HEATMAP_JSON)
+
+    class Alp:  # must not be needed
+        async def multi_snapshots(self, symbols):
+            raise AssertionError("Alpaca used although SentiSense answered")
+
+    class DS:
+        sentisense, alpaca = SS(), Alp()
+
+    class Resp:
+        status_code, text = 200, (Path(__file__).parent / "data" / "fomc_calendar.html").read_text()
+
+        def raise_for_status(self):
+            pass
+
+    async def fake_get(self, url, **k):
+        return Resp()
+
+    monkeypatch.setattr("httpx.AsyncClient.get", fake_get)
+    out = asyncio.run(mp.compute(db, DS(), date(2026, 11, 11)))
+    assert out["mood"]["label"] == "Fear" and out["mood"]["source"] == "SentiSense"
+    assert out["breadth"]["advancing"] == 245 and out["breadth"]["source"] == "SentiSense"
+    assert out["fed"]["next_decision"] == "2026-12-09" and not out["errors"]

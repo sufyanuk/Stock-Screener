@@ -3,16 +3,17 @@
 import { Card } from "@/components/ui";
 import { useApi } from "@/lib/api";
 
-type Comp = { name: string; value?: number; score?: number; detail?: string };
+type Comp = { name: string; value?: number; score?: number; detail?: string; change?: number | null };
 type Pulse = {
   computed_at: string | null;
-  breadth?: { advancing: number; declining: number; unchanged: number; total: number; as_of: string | null };
-  mood?: { score: number | null; label: string | null; components: Comp[] };
+  breadth?: { advancing: number; declining: number; unchanged: number; total: number; as_of: string | null; source?: string };
+  mood?: { score: number | null; label: string | null; components: Comp[]; source?: string; weekly_change?: number | null };
   macro?: { score: number | null; label: string | null; components: Comp[]; missing?: string };
   fed?: { next_decision: string | null; source: string };
 };
 
-const moodTone = (l: string | null | undefined) => (l?.includes("Fear") ? "text-bear" : l?.includes("Greed") ? "text-bull" : "text-ink");
+const moodTone = (l: string | null | undefined) =>
+  l && /Fear|Anxiety/.test(l) ? "text-bear" : l && /Greed|Optimism/.test(l) ? "text-bull" : "text-ink";
 const macroTone = (l: string | null | undefined) => (l === "Hostile" ? "text-bear" : l === "Supportive" ? "text-bull" : "text-ink");
 
 function fedLine(iso: string | null | undefined) {
@@ -28,7 +29,8 @@ export function MarketPulse() {
   const { data } = useApi<Pulse>("/market-pulse");
   if (!data || !data.computed_at) return null;  // nothing stored yet (first nightly run pending)
   const b = data.breadth, m = data.mood, mc = data.macro, fed = fedLine(data.fed?.next_decision);
-  const moodTip = m?.components.map((c) => `${c.name}: ${c.detail ?? `${c.value}`}`).join("\n");
+  const moodTip = [m?.source ? `Source: ${m.source}` : "", m?.weekly_change != null ? `Week: ${m.weekly_change > 0 ? "+" : ""}${m.weekly_change}` : "",
+    ...(m?.components ?? []).map((c) => `${c.name}: ${c.detail ?? `${c.value}`}`)].filter(Boolean).join("\n");
   const macroTip = mc?.components.map((c) => `${c.name}: ${c.detail} (${(c.score ?? 0) > 0 ? "+" : ""}${c.score})`).join("\n");
   const moved = b ? b.advancing + b.declining : 0;
   return (
@@ -54,11 +56,11 @@ export function MarketPulse() {
                 <div className="bg-muted/30" style={{ width: `${(b.unchanged / b.total) * 100}%` }} />
                 <div className="bg-bear/70" style={{ width: `${(b.declining / b.total) * 100}%` }} /></>}
             </div>
-            <div className="mt-1 text-xs text-muted">{b.unchanged} unchanged · S&amp;P 500{b.as_of ? ` · ${b.as_of}` : ""}</div>
+            <div className="mt-1 text-xs text-muted">{b.unchanged} unchanged · S&amp;P 500{b.as_of ? ` · ${b.as_of}` : ""}{b.source ? ` · ${b.source}` : ""}</div>
           </div>
         ) : <div className="self-center text-xs text-muted">S&amp;P 500 breadth not available yet.</div>}
       </div>
-      <p className="mt-2 text-[11px] text-muted">Updated by the nightly run ({new Date(data.computed_at).toLocaleString()}). Market Mood is this app&apos;s own breadth gauge (0 = extreme fear, 100 = extreme greed); hover the lines for details.</p>
+      <p className="mt-2 text-[11px] text-muted">Updated by the nightly run ({new Date(data.computed_at).toLocaleString()}). Market Mood {m?.source === "SentiSense" ? "and breadth from SentiSense" : "is the app\u2019s own breadth gauge"} (0 = extreme fear, 100 = extreme greed); macro from FRED; Fed from federalreserve.gov. Hover the lines for details.</p>
     </Card>
   );
 }

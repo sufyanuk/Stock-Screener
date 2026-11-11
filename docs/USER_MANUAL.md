@@ -15,13 +15,14 @@ be run by hand: GitHub → the repository → Actions → data-jobs → Run work
 from each tab: unusual options, insider buying (by % of outstanding
 shares), upcoming earnings and seasonality for this month.
 At the top, a **Market pulse** card (computed by the nightly job, so browsing costs nothing):
-- **Market Mood** — the app's own 0–100 fear/greed gauge from S&P 500 internals: % of stocks up on the day,
-  % above their 50- and 200-day averages, new 52-week highs vs lows, and SPY vs its 125-day average
-  (<25 Extreme Fear, <45 Fear, 45–55 Neutral, ≤75 Greed, above that Extreme Greed). Hover for the parts.
+- **Market Mood** — SentiSense's 0–100 Market Mood (social sentiment, market direction, risk appetite, social
+  momentum, S&P 500 trend, options flow): Extreme Fear ≤15, Fear ≤30, Anxiety ≤45, Neutral ≤55, Optimism ≤70,
+  Greed ≤85, above that Extreme Greed. If SentiSense is unavailable, the app's own breadth gauge is used instead.
 - **Macro backdrop** — −5…+5 from FRED data: 10-year yield trend, yield curve (10y−2y), high-yield credit
   spreads, the dollar and the Fed funds trend. ≤−2 Hostile, ≥+2 Supportive. Needs the free `FRED_API_KEY`.
 - **Fed** — the next FOMC decision day (from federalreserve.gov) and days until it.
-- **Breadth bar** — S&P 500 stocks advancing / declining / unchanged on the last session.
+- **Breadth bar** — S&P 500 stocks advancing / declining / unchanged on the last session (SentiSense market
+  heatmap; backup Alpaca). SentiSense has no macro score or Fed calendar, so those use FRED and the Fed's site.
 "View all →" opens the full tab.
 
 **Unusual Options** — import the day's unusual-options CSV at the top of this tab

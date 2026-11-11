@@ -2,8 +2,13 @@
 
 Computed by the nightly GitHub job and stored (kv_store "market_pulse"); the Dashboard only reads it.
 
-* **Breadth** — S&P 500 members up / down / unchanged on the day (Alpaca snapshots: price vs previous close).
-* **Market Mood (0–100)** — the app's own breadth-based gauge (not CNN's index): the average of
+* **Breadth** — S&P 500 members up / down / unchanged on the day, from SentiSense's market heatmap
+  (free tier). Backup: Alpaca snapshots (price vs previous close).
+* **Market Mood (0–100)** — SentiSense's Market Mood (/api/v2/market-mood, free tier): social sentiment, market
+  direction, risk appetite, social momentum, S&P 500 trend and options flow; phases Extreme Fear ≤15, Fear ≤30,
+  Anxiety ≤45, Neutral ≤55, Optimism ≤70, Greed ≤85, Extreme Greed. SentiSense has no macro score or Fed
+  calendar, so those two stay on FRED and federalreserve.gov.
+  Backup when SentiSense fails: the app's own breadth-based gauge: the average of
   (1) advancers as % of advancers + decliners, (2) % of members above their 50-day average,
   (3) % above their 200-day average, (4) members near 52-week highs as % of those near highs or lows
   (within 2%), (5) S&P 500 (SPY) versus its 125-day average, −10%…+10% mapped to 0…100.
@@ -172,15 +177,10 @@ def next_fed(dates: list[date], today: date) -> date | None:
 
 
 # ------------------------------------------------------------------ nightly computation
-async def compute(db: Session, ds, today: date | None = None) -> dict:
-    """Everything independently: a part that fails is left empty with its error, never invented."""
-    from app.db import upsert
-    from app.models import KeyValue
+async def _own_mood_breadth(db: Session, ds, alp, today: date, out: dict) -> None:
+    """Backup when SentiSense is unavailable: the app's own breadth and Market Mood from Alpaca prices."""
     from app.services import indexes as ix
 
-    today = today or date.today()
-    out: dict = {"computed_at": datetime.now(timezone.utc).isoformat(), "errors": []}
-    alp = getattr(ds, "alpaca", None)
     try:
         members = sorted(await ix.members(db, ds, "sp500"))
         if not members:
@@ -191,12 +191,39 @@ async def compute(db: Session, ds, today: date | None = None) -> dict:
         changes = {s: (snaps.get(s) or {}).get("day_change_pct") for s in members}
         br = breadth(changes)
         br["as_of"] = max((v.get("market_ts").date().isoformat() for v in snaps.values() if v.get("market_ts")), default=None)
-        out["breadth"] = br
+        if not out.get("breadth"):
+            out["breadth"] = br | {"source": "Alpaca"}
         bars = await alp.multi_daily_bars(members + ["SPY"], today - timedelta(days=400), today, "1Day")
         closes = {s: pd.Series([b[4] for b in rows], dtype=float) for s, rows in bars.items() if rows}
-        out["mood"] = mood(br, {s: c for s, c in closes.items() if s != "SPY"}, closes.get("SPY"))
+        if not out.get("mood"):
+            out["mood"] = mood(br, {s: c for s, c in closes.items() if s != "SPY"}, closes.get("SPY")) | {"source": "app's own"}
     except Exception as e:  # noqa: BLE001
         out["errors"].append(f"breadth/mood: {str(e)[:200]}")
+
+
+async def compute(db: Session, ds, today: date | None = None) -> dict:
+    """Everything independently: a part that fails is left empty with its error, never invented."""
+    from app.db import upsert
+    from app.models import KeyValue
+    today = today or date.today()
+    out: dict = {"computed_at": datetime.now(timezone.utc).isoformat(), "errors": []}
+    alp = getattr(ds, "alpaca", None)
+    ss = getattr(ds, "sentisense", None)
+    if ss is not None:  # SentiSense first: its Market Mood and S&P 500 breadth (free tier, 2 requests)
+        try:
+            out["mood"] = await ss.market_mood()
+            if out["mood"]:
+                out["mood"]["source"] = "SentiSense"
+        except Exception as e:  # noqa: BLE001
+            out["errors"].append(f"SentiSense mood: {str(e)[:150]}")
+        try:
+            out["breadth"] = await ss.market_breadth("sp500")
+            if out["breadth"]:
+                out["breadth"]["source"] = "SentiSense"
+        except Exception as e:  # noqa: BLE001
+            out["errors"].append(f"SentiSense breadth: {str(e)[:150]}")
+    if not out.get("mood") or not out.get("breadth"):
+        await _own_mood_breadth(db, ds, alp, today, out)
     key = get_settings().fred_api_key
     async with httpx.AsyncClient(timeout=30, headers=UA) as client:
         if key:
