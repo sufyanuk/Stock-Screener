@@ -4,6 +4,8 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 export JOBS_ON_GITHUB=1 APP_ENV="${APP_ENV:-production}" SINGLE_USER_MODE="${SINGLE_USER_MODE:-true}"
+# insider buying comes from SEC Form 4 (stored nightly by GitHub); overrides an older codespace setting
+export INSIDER_SOURCE=sec
 if [ -z "${DATABASE_URL:-}" ]; then
   echo "✗ DATABASE_URL is not set. Add it as a Codespaces secret (github.com → Settings → Codespaces → Secrets,"
   echo "  repository access: Stock-Screener), then stop and reopen this codespace." >&2
