@@ -144,3 +144,42 @@ def test_compute_prefers_sentisense_and_skips_alpaca(db, monkeypatch):
     assert out["mood"]["label"] == "Fear" and out["mood"]["source"] == "SentiSense"
     assert out["breadth"]["advancing"] == 245 and out["breadth"]["source"] == "SentiSense"
     assert out["fed"]["next_decision"] == "2026-12-09" and not out["errors"]
+
+
+def test_stale_sentisense_breadth_falls_back_to_alpaca(db, monkeypatch):
+    from app.models import IndexMember
+    from app.providers.extra import parse_sentisense_mood
+
+    for t in ("AAA", "BBB"):
+        db.add(IndexMember(index_code="sp500", symbol=t, name=t, source="test"))
+    db.commit()
+
+    class SS:
+        async def market_mood(self):
+            return parse_sentisense_mood(MOOD_JSON)
+
+        async def market_breadth(self, scope="sp500"):
+            return {"advancing": 9, "declining": 9, "unchanged": 0, "total": 18, "as_of": "2026-10-30"}
+
+    class Alp:
+        async def multi_snapshots(self, symbols):
+            return {"AAA": {"day_change_pct": 1.0}, "BBB": {"day_change_pct": -1.0}}
+
+        async def multi_daily_bars(self, symbols, start, end, timeframe="1Day"):
+            return {}
+
+    class DS:
+        sentisense, alpaca = SS(), Alp()
+
+    async def members(db, ds, code):
+        return {"AAA", "BBB"}
+
+    async def fake_get(self, url, **k):
+        raise RuntimeError("offline")
+
+    monkeypatch.setattr("httpx.AsyncClient.get", fake_get)
+    monkeypatch.setattr("app.services.indexes.members", members)
+    out = asyncio.run(mp.compute(db, DS(), date(2026, 11, 11)))
+    assert out["breadth"]["source"] == "Alpaca" and out["breadth"]["total"] == 2
+    assert out["mood"]["source"] == "SentiSense"  # mood stays on SentiSense
+    assert any("2026-10-30" in e for e in out["errors"])

@@ -193,9 +193,9 @@ async def _own_mood_breadth(db: Session, ds, alp, today: date, out: dict) -> Non
         br["as_of"] = max((v.get("market_ts").date().isoformat() for v in snaps.values() if v.get("market_ts")), default=None)
         if not out.get("breadth"):
             out["breadth"] = br | {"source": "Alpaca"}
-        bars = await alp.multi_daily_bars(members + ["SPY"], today - timedelta(days=400), today, "1Day")
-        closes = {s: pd.Series([b[4] for b in rows], dtype=float) for s, rows in bars.items() if rows}
-        if not out.get("mood"):
+        if not out.get("mood"):  # a year of bars is only needed for the app's own mood
+            bars = await alp.multi_daily_bars(members + ["SPY"], today - timedelta(days=400), today, "1Day")
+            closes = {s: pd.Series([b[4] for b in rows], dtype=float) for s, rows in bars.items() if rows}
             out["mood"] = mood(br, {s: c for s, c in closes.items() if s != "SPY"}, closes.get("SPY")) | {"source": "app's own"}
     except Exception as e:  # noqa: BLE001
         out["errors"].append(f"breadth/mood: {str(e)[:200]}")
@@ -217,9 +217,12 @@ async def compute(db: Session, ds, today: date | None = None) -> dict:
         except Exception as e:  # noqa: BLE001
             out["errors"].append(f"SentiSense mood: {str(e)[:150]}")
         try:
-            out["breadth"] = await ss.market_breadth("sp500")
-            if out["breadth"]:
-                out["breadth"]["source"] = "SentiSense"
+            br = await ss.market_breadth("sp500")
+            stale = br and br.get("as_of") and date.fromisoformat(br["as_of"]) < today - timedelta(days=4)
+            if stale:  # an old snapshot must not be shown as today's tape: use the backup instead
+                out["errors"].append(f"SentiSense breadth snapshot is from {br['as_of']}; used Alpaca instead")
+            elif br:
+                out["breadth"] = br | {"source": "SentiSense"}
         except Exception as e:  # noqa: BLE001
             out["errors"].append(f"SentiSense breadth: {str(e)[:150]}")
     if not out.get("mood") or not out.get("breadth"):

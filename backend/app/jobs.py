@@ -118,6 +118,8 @@ async def pulse(deadline: float) -> None:
                  (out.get("macro") or {}).get("score"), (out.get("fed") or {}).get("next_decision"))
         for e in out.get("errors") or []:
             log.warning("pulse: %s", e)
+        for e in out.get("errors") or []:
+            log.warning("pulse: %s", e)
 
 
 LOADS = {"pulse": pulse, "shariah": shariah, "ratings": ratings, "insiders": insiders, "earnings": earnings}
