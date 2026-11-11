@@ -14,7 +14,13 @@ if [ -z "${JWT_SECRET:-}" ]; then
   exit 0
 fi
 # Fetch the latest version and rebuild when it changed since the last build (so reopening the codespace is enough)
-git pull --ff-only -q 2>/dev/null || echo "! could not fetch the latest version (local changes?): starting the current one"
+if ! git pull --ff-only -q 2>/dev/null; then
+  # files changed inside the codespace (e.g. ones Next.js rewrites itself) block the update: set them aside and retry
+  git stash push -u -q -m "codespace-start $(date -u +%F-%H%M)" 2>/dev/null
+  git checkout -q main 2>/dev/null
+  git pull --ff-only -q 2>/dev/null || echo "! could not fetch the latest version: starting the current one"
+fi
+echo "Version: $(git log -1 --format='%h %s (%cd)' --date=short)"
 head="$(git rev-parse HEAD)"
 if [ ! -f frontend/.next/standalone/server.js ] || [ "$(cat frontend/.next/BUILT_COMMIT 2>/dev/null)" != "$head" ]; then
   echo "Building the latest version (about 3-5 minutes)…"
