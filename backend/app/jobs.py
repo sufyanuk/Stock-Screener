@@ -102,7 +102,9 @@ async def insiders(deadline: float) -> None:
 
     with _session() as db:
         eng = ScanEngine(db, _ds())
-        await eng.ingest_insiders([_date.today() - _td(days=i) for i in range(14)])
+        days = [_date.today() - _td(days=i) for i in range(14)]
+        # the SEC publishes no daily index on weekends, and today's appears only after the evening
+        await eng.ingest_insiders([d for d in days if d.weekday() < 5])
         for e in eng.errors:
             log.warning("insiders: %s", e)
         await _until_done("insider shares", lambda i: insiders_load_shares(top=100, db=db, _=None),
