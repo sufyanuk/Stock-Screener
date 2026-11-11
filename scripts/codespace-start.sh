@@ -29,16 +29,10 @@ if [ ! -f frontend/.next/standalone/server.js ] || [ "$(cat frontend/.next/BUILT
   python -m pip install --user -q -r backend/requirements.txt
   bash scripts/codespace-setup.sh && echo "$head" > frontend/.next/BUILT_COMMIT
 fi
-# Stop any earlier copy and wait until ports 8000/3000 are really free (a copy finishing background work can
-# hold the port for a while; after 15 s it is stopped by force)
-pkill -f "uvicorn app.main:app" 2>/dev/null; pkill -f "standalone/server.js" 2>/dev/null
-for i in $(seq 1 15); do
-  python3 -c "import socket
-for p in (8000, 3000):
-    s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('0.0.0.0', p)); s.close()" 2>/dev/null && break
-  [ "$i" = 15 ] && { pkill -9 -f "uvicorn app.main:app"; pkill -9 -f "standalone/server.js"; sleep 1; }
-  sleep 1
-done
+# Stop any earlier copy: by name, then whatever still listens on ports 8000/3000 (an old copy started another
+# way keeps serving the old version, and the new one cannot start)
+pkill -f "uvicorn app.main:app" 2>/dev/null; pkill -f "standalone/server.js" 2>/dev/null; sleep 1
+python3 scripts/free-ports.py 8000 3000 || echo "! an old copy is still running; stop and reopen the codespace"
 (cd backend && python -m alembic upgrade head >/tmp/screener-migrate.log 2>&1) || echo "! database update failed: see /tmp/screener-migrate.log"
 # setsid + nohup: keep both running after this script ends (Codespaces stops the startup command's own processes)
 # setsid -f forks into its own session and returns at once; nothing keeps this script's output open
