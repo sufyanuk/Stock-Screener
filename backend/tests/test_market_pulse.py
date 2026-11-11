@@ -95,8 +95,8 @@ MOOD_JSON = {"market": {"currentScore": 28.6, "phase": "Fear", "weeklyChange": -
                         "history": [{"date": "2026-11-09", "score": 30}, {"date": "2026-11-10", "score": 28.6}]},
              "sectors": {}}
 HEATMAP_JSON = {"isPreview": True, "previewReason": "PRO_REQUIRED",
-                "data": {"asOf": 1794355200000, "meta": {"breadthUp": 245, "breadthDown": 249, "tileCount": 499},
-                         "rows": [{"ticker": f"T{i}", "changePercent": c} for i, c in
+                "data": {"asOf": 1761782400000, "meta": {"breadthUp": 245, "breadthDown": 249, "tileCount": 499},
+                         "rows": [{"ticker": f"T{i}", "changePercent": c, "priceAsOf": 1794430800000} for i, c in
                                   enumerate([1.0] * 245 + [-1.0] * 249 + [0.0] * 5)]}}
 
 
@@ -108,6 +108,7 @@ def test_sentisense_parsers():
     assert m["components"][0]["name"] == "S&P 500 Trend"
     b = parse_sentisense_breadth(HEATMAP_JSON)
     assert (b["advancing"], b["declining"], b["unchanged"], b["total"]) == (245, 249, 5, 499)
+    assert b["as_of"] == "2026-11-11"  # from the quotes, not the older envelope stamp
     assert parse_sentisense_mood({"market": {"currentScore": None}}) is None
     assert parse_sentisense_breadth({"error": "x"}) is None
 

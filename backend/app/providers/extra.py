@@ -418,8 +418,13 @@ def parse_sentisense_breadth(j) -> dict | None:
             return None
         up, down = sum(c > 0 for c in chg), sum(c < 0 for c in chg)
     total = len(chg) if chg else int(meta.get("tileCount") or 0)
-    as_of = d.get("asOf")
-    if isinstance(as_of, (int, float)):
-        as_of = datetime.fromtimestamp(as_of / (1000 if as_of > 1e11 else 1), timezone.utc).date().isoformat()
+    def _day(v):
+        if isinstance(v, (int, float)) and v > 0:
+            return datetime.fromtimestamp(v / (1000 if v > 1e11 else 1), timezone.utc).date().isoformat()
+        return str(v)[:10] if v else None
+
+    # date the tiles by their own quotes (priceAsOf, epoch ms); the envelope's asOf can be an older stamp
+    quoted = [_day(r.get("priceAsOf")) for r in rows if isinstance(r, dict) and r.get("priceAsOf")]
+    as_of = max((q for q in quoted if q), default=None) or _day(d.get("asOf"))
     return {"advancing": int(up), "declining": int(down), "unchanged": max(total - int(up) - int(down), 0),
-            "total": total, "as_of": str(as_of)[:10] if as_of else None}
+            "total": total, "as_of": as_of}
