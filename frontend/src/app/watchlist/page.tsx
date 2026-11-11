@@ -58,14 +58,14 @@ function CustomWatchlist() {
         <div className="mt-3 overflow-x-auto">
           <table className="text-sm">
             <thead><tr>
-              {th("symbol", "Ticker")}{th("close", "Price")}{th("name", "Company")}{th("date", "Date")}{th("open", "Open")}{th("high", "High")}{th("low", "Low")}
+              {th("symbol", "Ticker")}{th("name", "Company")}{th("close", "Price")}{th("date", "Date")}{th("open", "Open")}{th("high", "High")}{th("low", "Low")}
               {th("close", "Close")}{th("change", "Change")}{th("volume", "Volume")}{th("note", "Note")}<th></th>
             </tr></thead>
             <tbody>{sorted.map((r) => (
               <tr key={r.symbol}>
                 <td><Ticker symbol={r.symbol} status={r.shariah_status} /></td>
-                <td className="num font-semibold">{usd(r.close)}</td>
                 <td className="max-w-44 truncate text-muted">{r.name ?? "—"}</td>
+                <td className="num font-semibold">{usd(r.close)}</td>
                 <td className="text-xs text-muted" title={r.bars_source ?? undefined}>{r.date ?? "—"}</td>
                 <td className="num">{usd(r.open)}</td><td className="num">{usd(r.high)}</td><td className="num">{usd(r.low)}</td>
                 <td className="num font-semibold">{usd(r.close)}</td>

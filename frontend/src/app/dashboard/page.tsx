@@ -51,8 +51,8 @@ export default function DashboardPage() {
           <SortTable rows={dash.data.watchlist} rowKey={(w) => w.ticker} initial="score"
             cols={[
               { key: "ticker", label: "Ticker", cell: (w) => <Ticker symbol={w.ticker} status={w.shariah_status} /> },
-              { key: "price", label: "Price", cell: (w) => usd(w.price), className: "num" },
               { key: "company", label: "Company", cell: (w) => <span className="block max-w-56 truncate text-muted">{w.company}</span> },
+              { key: "price", label: "Price", cell: (w) => usd(w.price), className: "num" },
               { key: "score", label: "Score", cell: (w) => nf(w.score, 1), className: "num" },
               { key: "fails", label: "Fails", sort: (w) => w.failures.length, cell: (w) => <span className="text-xs text-bear">{w.failures.join(", ")}</span> },
             ]} />

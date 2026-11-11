@@ -80,7 +80,7 @@ export default function EarningsPage() {
           <div className="overflow-x-auto">
             <table className="text-sm">
               <thead><tr>
-                {th("date", "Date")}{th("time_of_day", "Time")}{th("symbol", "Ticker")}{th("price", "Price")}{th("name", "Company")}{th("eps_estimate", "EPS est.")}
+                {th("date", "Date")}{th("time_of_day", "Time")}{th("symbol", "Ticker")}{th("name", "Company")}{th("price", "Price")}{th("eps_estimate", "EPS est.")}
                 {th("ins_value", "Insider buying")}{th("opt_chg", "Unusual options (1M vol Δ)")}{th("iv_rank", "IV rank")}{th("put_call", "P/C")}
                 {th("strong_buy", "No. of analysts: Strong Buy")}{th("buy", "Buy")}{th("analysts_total", "Total analysts")}
               </tr></thead>
@@ -91,8 +91,8 @@ export default function EarningsPage() {
                     <td className="num">{r.date} <span className="text-xs text-muted">{n <= 0 ? "today" : n === 1 ? "tomorrow" : `${n}d`}</span></td>
                     <td className="text-xs text-muted">{r.time_of_day?.replace("-", " ") ?? "—"}</td>
                     <td><Ticker symbol={r.symbol} status={r.shariah_status} /></td>
-                    <td className="num" title={r.price_as_of ? `Close on ${r.price_as_of}` : undefined}>{usd(r.price)}</td>
                     <td className="max-w-56 truncate text-muted">{r.name}</td>
+                    <td className="num" title={r.price_as_of ? `Close on ${r.price_as_of}` : undefined}>{usd(r.price)}</td>
                     <td className="num">{nf(r.eps_estimate, 2)}</td>
                     <td className="num">{r.insider ? <span className="text-bull" title={`${r.insider.purchases} purchase(s) by ${r.insider.insiders} insider(s), latest ${r.insider.latest}`}>
                       ${compact(r.insider.value)} <span className="text-xs text-muted">({compact(r.insider.shares)} sh)</span></span> : <span className="text-muted">—</span>}</td>

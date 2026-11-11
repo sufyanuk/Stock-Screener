@@ -136,7 +136,7 @@ export default function ShariahPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-wide text-muted">
-                  <th className="py-2 pr-3">Ticker</th><th className="num pr-3">Price</th><th className="pr-3">Company</th><th className="pr-3">Industry (SIC)</th>
+                  <th className="py-2 pr-3">Ticker</th><th className="pr-3">Company</th><th className="num pr-3">Price</th><th className="pr-3">Industry (SIC)</th>
                   <th className="pr-3">Result</th>
                   {(m?.tests ?? []).map((t) => <th key={t.key} className="num pr-3" title={t.label}>{t.label}<div className="normal-case">limit {t.op === "lt" ? "<" : "≤"} {t.limit}%</div></th>)}
                   <th className="pr-3">Why</th>
@@ -147,8 +147,8 @@ export default function ShariahPage() {
                   <Fragment key={r.symbol}>
                     <tr className="cursor-pointer border-t border-line hover:bg-panel-2" onClick={() => setOpen(open === r.symbol ? null : r.symbol)}>
                       <td className="py-1.5 pr-3"><Ticker symbol={r.symbol} link={false} /></td>
-                      <td className="num pr-3" title={r.price_as_of ? `Close on ${r.price_as_of}` : undefined}>{usd(r.price)}</td>
                       <td className="max-w-[16rem] truncate pr-3" title={r.name ?? ""}>{r.name ?? "—"}</td>
+                      <td className="num pr-3" title={r.price_as_of ? `Close on ${r.price_as_of}` : undefined}>{usd(r.price)}</td>
                       <td className="max-w-[14rem] truncate pr-3 text-muted" title={r.sic_description ?? ""}>{r.sic ? `${r.sic} ${r.sic_description ?? ""}` : "—"}</td>
                       <td className="pr-3"><Badge tone={TONE[r.status]}>{r.status_label}</Badge></td>
                       {(m?.tests ?? []).map((t) => {

@@ -92,15 +92,15 @@ function AnalystRatings() {
         <div className="overflow-x-auto">
           <table className="text-sm">
             <thead><tr>
-              {th("symbol", "Ticker")}{th("price", "Price")}{th("name", "Company")}{th("strong_buy", "Strong Buy")}{th("buy", "Buy")}{th("hold", "Hold")}
+              {th("symbol", "Ticker")}{th("name", "Company")}{th("price", "Price")}{th("strong_buy", "Strong Buy")}{th("buy", "Buy")}{th("hold", "Hold")}
               {th("sell", "Sell")}{th("strong_sell", "Strong Sell")}{th("total", "Total analysts")}{th("strong_buy_pct", "% Strong Buy")}
               {th("buy_pct", "% Buy + Strong Buy")}{th("provider", "Source")}{th("updated", "Updated")}
             </tr></thead>
             <tbody>{sorted.map((r) => (
               <tr key={r.symbol}>
                 <td><Ticker symbol={r.symbol} status={r.shariah_status} /></td>
-                <td className="num" title={r.price_as_of ? `Close on ${r.price_as_of}` : undefined}>{usd(r.price)}</td>
                 <td className="max-w-56 truncate text-muted">{r.name ?? "—"}</td>
+                <td className="num" title={r.price_as_of ? `Close on ${r.price_as_of}` : undefined}>{usd(r.price)}</td>
                 <td className="num"><Badge tone="bull">{r.strong_buy}</Badge></td>
                 <td className="num">{r.buy ?? "—"}</td><td className="num">{r.hold ?? "—"}</td>
                 <td className="num">{r.sell ?? "—"}</td><td className="num">{r.strong_sell ?? "—"}</td>
@@ -177,14 +177,14 @@ function SentiSenseRatings() {
         <div className="overflow-x-auto">
           <table className="text-sm">
             <thead><tr>
-              {th("symbol", "Ticker")}{th("price", "Price")}{th("name", "Company")}{th("letter", "Rating")}{th("score", "Score / 100")}{th("percentile", "Rank (percentile)")}
+              {th("symbol", "Ticker")}{th("name", "Company")}{th("price", "Price")}{th("letter", "Rating")}{th("score", "Score / 100")}{th("percentile", "Rank (percentile)")}
               {th("penalty_points", "Risk points")}{th("analyst_favorable_pct", "Favourable analysts")}{th("as_of", "As of")}
             </tr></thead>
             <tbody>{sorted.map((r) => (
               <tr key={r.symbol}>
                 <td><Ticker symbol={r.symbol} status={r.shariah_status} /></td>
-                <td className="num" title={r.price_as_of ? `Close on ${r.price_as_of}` : undefined}>{usd(r.price)}</td>
                 <td className="max-w-56 truncate text-muted">{r.name ?? "—"}</td>
+                <td className="num" title={r.price_as_of ? `Close on ${r.price_as_of}` : undefined}>{usd(r.price)}</td>
                 <td className={`text-lg font-bold ${LETTER_TONE[r.letter ?? ""] ?? "text-muted"}`}>{r.rated ? r.letter : <span className="text-xs font-normal" title={r.reason ?? ""}>not rated</span>}</td>
                 <td className="num">{nf(r.score, 1)}</td>
                 <td className="num">{r.percentile != null ? `${nf(r.percentile, 0)}th` : "—"}</td>

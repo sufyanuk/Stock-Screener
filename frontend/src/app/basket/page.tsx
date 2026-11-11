@@ -40,8 +40,8 @@ export default function BasketPage() {
           <SortTable rows={rows} rowKey={(r) => r.symbol} initial={null}
             cols={[
               { key: "symbol", label: "Ticker", cell: (r) => <Ticker symbol={r.symbol} status={r.shariah_status} /> },
-              { key: "price", label: "Price", className: "num", cell: (r) => <span title={r.price_as_of ? `Close on ${r.price_as_of}` : undefined}>{usd(r.price)}</span> },
               { key: "name", label: "Company", cell: (r) => r.name ?? "—" },
+              { key: "price", label: "Price", className: "num", cell: (r) => <span title={r.price_as_of ? `Close on ${r.price_as_of}` : undefined}>{usd(r.price)}</span> },
               { key: "added_at", label: "Added", cell: (r) => new Date(r.added_at).toLocaleString() },
               { key: "remove", label: "", cell: (r) => (
                 <button className="text-muted hover:text-bear" onClick={() => basket?.toggle(r.symbol)} aria-label={`Remove ${r.symbol}`}>✕ Remove</button>) },

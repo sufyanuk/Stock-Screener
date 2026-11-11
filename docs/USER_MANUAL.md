@@ -45,7 +45,8 @@ purchases of the last 90 days, and earnings this week):
   letter. Loaded with SentiSense's screener (all rated stocks in one request) or per stock if the screener is not
   on your plan. A research score, not a buy/sell recommendation.
 
-**Price column** — every table and dashboard card shows **Price** right after **Ticker**: the latest close
+**Price column** — every table and dashboard card shows **Price** right after **Ticker** (or right after **Company**
+when the table has a company column): the latest close
 stored by the nightly price refresh (hover for its date), or the price in the imported CSV where a tab is based on
 one (Unusual Options, Seasonality). On Insider Buying the insider's own purchase price is shown separately as
 **Buy price**. A stock with no stored price shows "—".
