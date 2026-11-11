@@ -286,3 +286,46 @@ def test_lots_of_one_filing_are_summed_before_the_one_percent_test(db):
     assert lots["co_reporters"] == ["Jane Trust"] and lots["owned_after"] == 115000
     assert round(lots["pct_outstanding"], 2) == 1.5  # passes "> 1%"; each lot alone (0.5%) would not
     assert any(r["accession"] == "0008-26-8" and r["pct_outstanding"] == 2.0 for r in rows)
+
+
+def test_otc_purchases_are_left_out(db, monkeypatch):
+    from datetime import date, timedelta
+
+    import app.main as m
+    from app.models import InsiderTransaction
+
+    today = date.today()
+    for acc, tk in (("0101-26-1", "LIST"), ("0102-26-1", "OTCX")):
+        db.add(InsiderTransaction(accession=acc, txn_index=0, owner_cik="0000000200", owner_name="Buyer", issuer_cik=tk,
+                                  ticker=tk, officer_title="CEO", is_director=False, is_officer=True,
+                                  is_ten_pct_owner=False, transaction_date=today, filing_date=today, code="P",
+                                  acquired_disposed="A", shares=100, price=1.0, shares_owned_after=100,
+                                  direct_indirect="D", security_title="Common", is_amendment=False,
+                                  is_derivative=False, footnotes=None))
+    db.commit()
+    monkeypatch.setattr(m, "listed_tickers", lambda db: {"LIST"})  # OTCX is not on a US exchange
+    stats: dict = {}
+    rows = m.latest_insider_buys(db, 90, 100, hide_non_compliant=False, stats=stats)
+    assert [r["ticker"] for r in rows] == ["LIST"] and stats["hidden_otc"] == 1
+    monkeypatch.setattr(m, "listed_tickers", lambda db: None)  # exchange list not loaded: nothing filtered
+    assert {r["ticker"] for r in m.latest_insider_buys(db, 90, 100, hide_non_compliant=False)} == {"LIST", "OTCX"}
+
+
+def test_nightly_scan_clears_csvs_uploaded_before_it(db):
+    from datetime import date, datetime, timedelta, timezone
+
+    from sqlalchemy import func, select
+
+    from app.jobs import clear_options_csv
+    from app.models import OptionsImportBatch, OptionsImportRow
+
+    start = datetime(2026, 11, 11, 21, 40, tzinfo=timezone.utc)
+    for name, at in (("old.csv", start - timedelta(hours=10)), ("during.csv", start + timedelta(minutes=5))):
+        b = OptionsImportBatch(filename=name, session_date=date(2026, 11, 11), row_count=1, percent_interpretation="x",
+                               summary={}, imported_by="me", imported_at=at)
+        b.rows = [OptionsImportRow(symbol="GOOD", name="Good", price=10.0)]
+        db.add(b)
+    db.commit()
+    assert clear_options_csv(db, start) == 1
+    assert [b.filename for b in db.scalars(select(OptionsImportBatch)).all()] == ["during.csv"]
+    assert db.scalar(select(func.count()).select_from(OptionsImportRow)) == 1  # the old rows went with it

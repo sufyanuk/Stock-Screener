@@ -20,6 +20,8 @@ export function OptionsImport({ isAdmin = true, open: openInit = true, onImporte
   async function scanNow() {
     // A new CSV changes the unusual-options criterion: rescan straight away so the Top 5 uses it.
     setScanMsg("Running a scan with the new CSV… this can take a few minutes.");
+    // the Dashboard watches for this scan and refreshes Near-qualified / Top 5 when it finishes
+    try { localStorage.setItem("scanRequestedAt", new Date().toISOString()); } catch { /* storage unavailable */ }
     try {
       const r = await api<{ queued: boolean; status?: string; via?: string }>("/scan", { method: "POST" });
       setScanMsg(r.via === "github" ? "Scan started on GitHub — it begins within about a minute and takes a few minutes; refresh the page to see the results."

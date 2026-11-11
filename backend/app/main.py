@@ -189,8 +189,17 @@ def shariah_statuses(db: Session, tickers: set[str]) -> dict[str, str]:
     return rs.shariah_map(db, set(tickers))
 
 
+def listed_tickers(db: Session) -> set[str] | None:
+    """Tickers listed on a US exchange (NYSE, Nasdaq, NYSE American, NYSE Arca) per the SEC's ticker/exchange
+    file. None when that list has not been loaded yet (then nothing is filtered rather than everything)."""
+    from app.providers.sec_edgar import US_EXCHANGES
+
+    listed = set(db.scalars(select(Security.ticker).where(Security.exchange.in_(US_EXCHANGES))).all())
+    return listed if len(listed) >= 1000 else None
+
+
 def latest_insider_buys(db: Session, days: int, limit: int, hide_non_compliant: bool = True,
-                        raw_rows: bool = False) -> list[dict]:
+                        raw_rows: bool = False, exclude_otc: bool = True, stats: dict | None = None) -> list[dict]:
     """Open-market purchases (Form 4 code P) filed in the last ``days``, newest filing first, at most ``limit``.
 
     One row per purchase filing: the SEC lists each lot of a purchase separately (and repeats them for every
@@ -240,7 +249,14 @@ def latest_insider_buys(db: Session, days: int, limit: int, hide_non_compliant: 
         seen[key] = f
     from app.services.research import shares_map
 
-    rows = list(seen.values())[:limit]
+    rows = list(seen.values())
+    listed = listed_tickers(db) if exclude_otc else None
+    if listed is not None:  # OTC / unlisted stocks (not on a US exchange) are left out
+        kept = [r for r in rows if r["ticker"] in listed]
+        if stats is not None:
+            stats["hidden_otc"] = len(rows) - len(kept)
+        rows = kept
+    rows = rows[:limit]
     from app.services.research import NON_COMPLIANT
 
     status = shariah_statuses(db, {r["ticker"] for r in rows})
@@ -391,7 +407,8 @@ async def insiders(top: int = 100, min_pct: float = 0.0, db: Session = Depends(g
     refresh_error = await _refresh_openinsider(db)
     top = min(max(top, 1), 500)
     # every purchase filing of the window (lots summed, joint filings merged), then non-compliant hidden
-    every = latest_insider_buys(db, INSIDER_WINDOW_DAYS, 5000, hide_non_compliant=False)
+    stats: dict = {}
+    every = latest_insider_buys(db, INSIDER_WINDOW_DAYS, 5000, hide_non_compliant=False, stats=stats)
     rows = [r for r in every if r["shariah_status"] != NON_COMPLIANT]
     pulled = db.scalar(select(func.count(func.distinct(InsiderTransaction.accession))).select_from(InsiderTransaction)
                        .where(InsiderTransaction.code == "P", InsiderTransaction.acquired_disposed == "A",
@@ -412,7 +429,7 @@ async def insiders(top: int = 100, min_pct: float = 0.0, db: Session = Depends(g
 
     attach_prices(db, shown, "ticker", field="last_price")  # "price" is the insider's purchase price
     return {"top": top, "min_pct": min_pct, "rows": shown, "total_purchases": len(rows), "url": OPENINSIDER_URL,
-            "matching": len(matching), "window_days": INSIDER_WINDOW_DAYS,
+            "matching": len(matching), "window_days": INSIDER_WINDOW_DAYS, "hidden_otc": stats.get("hidden_otc", 0),
             "screener_rows": pulled, "hidden_non_compliant": len(every) - len(rows),
             "merged_joint": max(0, pulled - len(every)),
             "pulled_at": h.last_success_at.isoformat() if h and h.last_success_at else None,

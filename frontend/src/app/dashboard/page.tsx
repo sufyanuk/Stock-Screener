@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import Link from "next/link";
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
 import { MarketPulse } from "@/components/market-pulse";
 import { ScanBar } from "@/components/scan-bar";
 import { Card, Empty, ErrorBox, SortTable, Ticker } from "@/components/ui";
@@ -28,6 +28,22 @@ function Mini({ title, href, rows, cols, empty, loading }: { title: string; href
 
 export default function DashboardPage() {
   const dash = useApi<Dashboard>("/dashboard");
+  const run = dash.data?.latest_run;
+  // After a CSV import starts a scan (here or on GitHub), check every 30 s until a newer scan has finished,
+  // so Near-qualified and the Top 5 update by themselves.
+  const waiting = (() => {
+    if (run?.status === "running") return true;
+    let asked: string | null = null;
+    try { asked = localStorage.getItem("scanRequestedAt"); } catch { /* storage unavailable */ }
+    if (!asked || Date.now() - Date.parse(asked) > 60 * 60e3) return false;  // give up after an hour
+    return !run?.finished_at || Date.parse(run.started_at) < Date.parse(asked) - 5 * 60e3;
+  })();
+  const { reload } = dash;
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setInterval(reload, 30e3);
+    return () => clearInterval(t);
+  }, [waiting, reload]);
   const imports = useApi<{ id: number }[]>("/options-imports");
   const latest = imports.data?.[0];
   const opts = useApi<{ data: any[] }>(latest ? `/options-imports/${latest.id}` : null);
@@ -48,7 +64,7 @@ export default function DashboardPage() {
       <ErrorBox error={dash.error} />
       <MarketPulse />
 
-      <Card title="Near-qualified — fails one or two rules">
+      <Card title="Near-qualified — fails one or two rules" right={waiting ? <span className="text-xs text-accent">Scan with the new CSV in progress — updates automatically…</span> : undefined}>
         {dash.data?.watchlist.length ? (
           <SortTable rows={dash.data.watchlist} rowKey={(w) => w.ticker} initial="score"
             cols={[

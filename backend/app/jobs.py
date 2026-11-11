@@ -59,6 +59,26 @@ async def scan(kind: str = "manual") -> None:
                 n = db.execute(delete(BasketItem).where(BasketItem.added_at <= since)).rowcount
                 db.commit()
                 log.info("basket: %s ticker(s) cleared by the nightly scan", n)
+                clear_options_csv(db, since)
+
+
+def clear_options_csv(db, since) -> int:
+    """After the nightly scan has used it, the imported unusual-options CSV is removed (every upload made
+    before that scan started; one uploaded while it ran is kept for the next day)."""
+    from datetime import timezone as _tz
+
+    from sqlalchemy import select
+
+    from app.models import OptionsImportBatch
+
+    since = since if since.tzinfo else since.replace(tzinfo=_tz.utc)
+    old = [b for b in db.scalars(select(OptionsImportBatch)).all()
+           if (b.imported_at if b.imported_at.tzinfo else b.imported_at.replace(tzinfo=_tz.utc)) <= since]
+    for b in old:
+        db.delete(b)  # its rows go with it
+    db.commit()
+    log.info("options CSV: %d upload(s) removed after the nightly scan", len(old))
+    return len(old)
 
 
 async def shariah(deadline: float, weekly: bool = False) -> None:
@@ -102,6 +122,7 @@ async def insiders(deadline: float) -> None:
 
     with _session() as db:
         eng = ScanEngine(db, _ds())
+        await eng.refresh_universe()  # SEC ticker/exchange list (one request): OTC stocks are left out of the tab
         days = [_date.today() - _td(days=i) for i in range(14)]
         # the SEC publishes no daily index on weekends, and today's appears only after the evening
         await eng.ingest_insiders([d for d in days if d.weekday() < 5])
@@ -112,9 +133,11 @@ async def insiders(deadline: float) -> None:
         from app.main import INSIDER_WINDOW_DAYS, latest_insider_buys
         from app.services.research import NON_COMPLIANT
 
-        rows = latest_insider_buys(db, INSIDER_WINDOW_DAYS, 5000, hide_non_compliant=False)
+        stats: dict = {}
+        rows = latest_insider_buys(db, INSIDER_WINDOW_DAYS, 5000, hide_non_compliant=False, stats=stats)
         shown = [r for r in rows if r["shariah_status"] != NON_COMPLIANT]
         big = sorted((r for r in shown if (r["pct_outstanding"] or 0) > 1), key=lambda r: -r["pct_outstanding"])
+        log.info("insiders: %d OTC/unlisted purchases left out", stats.get("hidden_otc", 0))
         log.info("insiders: %d purchases in %d days (%d after Shariah filter, %d without a share count); "
                  "%d above 1%% of outstanding: %s", len(rows), INSIDER_WINDOW_DAYS, len(shown),
                  sum(r["outstanding_shares"] is None for r in shown), len(big),

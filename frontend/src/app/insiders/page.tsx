@@ -12,7 +12,7 @@ type Row = {
   outstanding_shares: number | null; pct_outstanding: number | null;
 };
 type Resp = { top: number; min_pct: number; rows: Row[]; total_purchases: number; shares_missing: number; shares_unavailable: number;
-  latest_filing_date: string | null; source: string; url: string; insider_source?: string; matching?: number; window_days?: number; pulled_at: string | null; refresh_error: string | null;
+  latest_filing_date: string | null; source: string; url: string; insider_source?: string; matching?: number; window_days?: number; hidden_otc?: number; pulled_at: string | null; refresh_error: string | null;
   screener_rows: number; hidden_non_compliant: number; merged_joint: number };
 
 export default function InsidersPage() {
@@ -85,7 +85,7 @@ export default function InsidersPage() {
           {data.insider_source === "openinsider" ? <>Source: the top 100 results of <a className="text-accent hover:underline" href={data.url} target="_blank" rel="noopener noreferrer">this OpenInsider screener</a>
             {data.pulled_at ? ` (pulled ${data.pulled_at.slice(0, 16).replace("T", " ")} UTC)` : ""}.</>
             : <>Source: SEC EDGAR Form 4 filings, read every night by the GitHub data job (purchases filed in the last {data.window_days ?? 90} days, newest first; the lots of one filing are added together).</>}
-          {` ${data.merged_joint} joint filings of the same purchase merged, ${data.hidden_non_compliant} Shariah non-compliant hidden.`}
+          {` ${data.merged_joint} joint filings of the same purchase merged, ${data.hidden_non_compliant} Shariah non-compliant hidden${data.hidden_otc ? `, ${data.hidden_otc} OTC / unlisted stocks left out` : ""}.`}
           {onlyBig && ` Showing ${rows.length} of ${data.total_purchases} purchases above 1% of shares outstanding.`}
           {onlyBig && data.shares_unavailable > 0 && ` ${data.shares_unavailable} stock(s) have no shares-outstanding figure and are not shown.`}
           {data.refresh_error && <span className="text-warn"> {data.refresh_error}</span>}</p>}

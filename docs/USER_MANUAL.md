@@ -11,7 +11,8 @@ load; each tab shows the stored data. Importing an Unusual Options CSV starts a 
 (it begins within about a minute and takes a few minutes; refresh the page for the results). Any job can also
 be run by hand: GitHub → the repository → Actions → data-jobs → Run workflow. Every table column can be sorted by clicking its heading.
 
-**Dashboard** (opens first) — near-qualified stocks failing one or two rules (with reasons), and the top 5
+**Dashboard** (opens first) — near-qualified stocks failing one or two rules (with reasons; after a CSV import the
+card updates by itself when the new scan finishes), and the top 5
 from each tab: unusual options, insider buying (by % of outstanding
 shares), upcoming earnings and seasonality for this month.
 At the top, a **Market pulse** card (computed by the nightly job, so browsing costs nothing):
@@ -25,7 +26,7 @@ At the top, a **Market pulse** card (computed by the nightly job, so browsing co
   heatmap; backup Alpaca). SentiSense has no macro score or Fed calendar, so those use FRED and the Fed's site.
 "View all →" opens the full tab.
 
-**Unusual Options** — import the day's unusual-options CSV at the top of this tab
+**Unusual Options** — import the day's unusual-options CSV at the top of this tab (the nightly run removes it after its scan has used it, so import a fresh one each day)
 (choose the file, click **Preview** to check how it was read, e.g. +1,639% and IV rank 3.3, then
 **Import**; the box shows a one-line summary; import a new file each trading day). Below it, **Unusual-options criteria** sets the
 thresholds (1M volume change, IV rank, put/call, data source). The table lists the stocks in the latest file
@@ -35,7 +36,8 @@ calls/puts, put/call and IV rank.
 
 **Insider Buying** — the latest 100 open-market purchases (SEC Form 4 code P, filed in the last 2 years,
 newest first), read straight from SEC EDGAR filings by the nightly GitHub job (free, no key; filings already
-read are skipped). **Only above 1% of outstanding shares** is ticked by default and keeps purchases where the
+read are skipped). The lots of one filing are added together; OTC / unlisted stocks (not on NYSE, Nasdaq,
+NYSE American or NYSE Arca) are left out. The 1% filter looks at every purchase filed in the last 90 days. **Only above 1% of outstanding shares** is ticked by default and keeps purchases where the
 shares bought are more than 1% of the company's shares outstanding. Columns include Outstanding shares
 and % of outstanding (shares bought ÷ shares outstanding). Share counts are looked up automatically and cached for 30 days, from (in order) the SEC figures already
 loaded by the Shariah engine (balance sheet, filing cover page, quarterly weighted-average shares), Massive
