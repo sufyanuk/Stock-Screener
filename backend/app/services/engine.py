@@ -134,8 +134,12 @@ class ScanEngine:
             if not res:
                 continue
             txns, _, processed, remaining = res
-            for acc in processed - done:
-                self.db.add(ProcessedFiling(accession=acc, filed=d))
+            new = processed - done
+            if new:  # a filing can be listed in the SEC index under two dates: record each accession once
+                seen = set(self.db.scalars(select(ProcessedFiling.accession)
+                                           .where(ProcessedFiling.accession.in_(new))).all())
+                for acc in new - seen:
+                    self.db.add(ProcessedFiling(accession=acc, filed=d))
             if budget is not None:
                 budget = max(0, budget - len(processed - done))
             if remaining:

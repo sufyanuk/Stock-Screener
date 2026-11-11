@@ -240,3 +240,19 @@ def test_sec_copy_replaces_an_openinsider_copy_of_the_same_filing(db):
     rows = db.scalars(select(InsiderTransaction).where(InsiderTransaction.accession == "0001-26-1")).all()
     assert {r.owner_cik for r in rows} == {"9", "10"}  # only the SEC copy (2 joint owners) remains
     assert db.scalar(select(func.count()).select_from(InsiderTransaction)) == 4
+
+
+def test_filing_listed_under_two_dates_is_recorded_once(db):
+    import asyncio
+    from datetime import timedelta
+
+    from sqlalchemy import func, select
+
+    from app.models import ProcessedFiling
+    from app.services.engine import ScanEngine
+    from tests.conftest import AS_OF, FakeDataSource
+
+    db.add(ProcessedFiling(accession="0001-26-1", filed=AS_OF - timedelta(days=1)))  # read before, other date
+    db.commit()
+    asyncio.run(ScanEngine(db, FakeDataSource()).ingest_insiders([AS_OF]))  # must not hit the unique key
+    assert db.scalar(select(func.count()).select_from(ProcessedFiling)) == 3
