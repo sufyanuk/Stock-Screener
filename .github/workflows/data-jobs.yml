@@ -15,7 +15,7 @@ on:
         description: "Which job"
         type: choice
         default: nightly
-        options: [nightly, scan, shariah, shariah-weekly, ratings, insiders, earnings]
+        options: [nightly, scan, pulse, shariah, shariah-weekly, ratings, insiders, earnings]
 
 concurrency:
   group: data-jobs  # one job at a time; a scan requested during the nightly run waits for it
@@ -39,6 +39,7 @@ jobs:
       TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
       ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
       SENTISENSE_API_KEY: ${{ secrets.SENTISENSE_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

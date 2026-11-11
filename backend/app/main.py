@@ -467,6 +467,15 @@ def health(db: Session = Depends(get_db)):
         return out | {"db": f"error: {type(e).__name__}: {str(e)[:300]}", "provider_health": []}
 
 
+# ------------------------------------------------------------------ dashboard market pulse
+@app.get("/api/market-pulse")
+def market_pulse(db: Session = Depends(get_db), _: User = Depends(current_user)):
+    """S&P 500 breadth, Market Mood, Macro backdrop and the next Fed decision, as stored by the nightly job."""
+    from app.services import market_pulse as mp
+
+    return mp.stored(db) or {"computed_at": None}
+
+
 # ------------------------------------------------------------------ basket (kept until the next nightly scan)
 TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
 

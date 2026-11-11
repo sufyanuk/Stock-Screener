@@ -3,7 +3,7 @@
     python -m app.jobs nightly      # scan + every data load below
     python -m app.jobs scan         # one scan (after a CSV import)
     python -m app.jobs shariah-weekly     # Sundays: download the SEC figures again
-    python -m app.jobs shariah | ratings | insiders | earnings
+    python -m app.jobs pulse | shariah | ratings | insiders | earnings
 
 Each loader is resumable and is called repeatedly until it reports nothing left (or the job's time is up),
 so whole-market loads that need several 5-minute Vercel requests finish in one run here.
@@ -108,7 +108,19 @@ async def earnings(deadline: float) -> None:
                           lambda r: r.get("remaining", 0) == 0 or r.get("fetched") == 0, deadline, rounds=10)
 
 
-LOADS = {"shariah": shariah, "ratings": ratings, "insiders": insiders, "earnings": earnings}
+async def pulse(deadline: float) -> None:
+    """Dashboard market pulse: S&P 500 breadth, Market Mood, Macro backdrop, next Fed decision."""
+    from app.services import market_pulse as mp
+
+    with _session() as db:
+        out = await mp.compute(db, _ds())
+        log.info("pulse: breadth %s, mood %s, macro %s, fed %s", out.get("breadth"), (out.get("mood") or {}).get("score"),
+                 (out.get("macro") or {}).get("score"), (out.get("fed") or {}).get("next_decision"))
+        for e in out.get("errors") or []:
+            log.warning("pulse: %s", e)
+
+
+LOADS = {"pulse": pulse, "shariah": shariah, "ratings": ratings, "insiders": insiders, "earnings": earnings}
 JOBS = ["nightly", "scan", "shariah-weekly", "nightly-backup", "shariah-weekly-backup", *LOADS]
 
 

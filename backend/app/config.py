@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     finnhub_api_key: str = ""  # analyst ratings (first choice), stock prices (fallback)
     tiingo_api_key: str = ""  # historical prices (first choice)
     sentisense_api_key: str = ""  # SentiSense Rating + AI insights (stock panel)
+    fred_api_key: str = ""  # FRED (St. Louis Fed) — Dashboard macro backdrop; free key
 
     smtp_host: str = ""
     smtp_port: int = 587

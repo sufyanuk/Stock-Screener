@@ -14,6 +14,14 @@ be run by hand: GitHub → the repository → Actions → data-jobs → Run work
 **Dashboard** (opens first) — near-qualified stocks failing one or two rules (with reasons), and the top 5
 from each tab: unusual options, insider buying (by % of outstanding
 shares), upcoming earnings and seasonality for this month.
+At the top, a **Market pulse** card (computed by the nightly job, so browsing costs nothing):
+- **Market Mood** — the app's own 0–100 fear/greed gauge from S&P 500 internals: % of stocks up on the day,
+  % above their 50- and 200-day averages, new 52-week highs vs lows, and SPY vs its 125-day average
+  (<25 Extreme Fear, <45 Fear, 45–55 Neutral, ≤75 Greed, above that Extreme Greed). Hover for the parts.
+- **Macro backdrop** — −5…+5 from FRED data: 10-year yield trend, yield curve (10y−2y), high-yield credit
+  spreads, the dollar and the Fed funds trend. ≤−2 Hostile, ≥+2 Supportive. Needs the free `FRED_API_KEY`.
+- **Fed** — the next FOMC decision day (from federalreserve.gov) and days until it.
+- **Breadth bar** — S&P 500 stocks advancing / declining / unchanged on the last session.
 "View all →" opens the full tab.
 
 **Unusual Options** — import the day's unusual-options CSV at the top of this tab
@@ -120,7 +128,8 @@ Disclaimer: research tool only, not investment advice. Shariah screening is not 
    New repository secret. Add each of these with the same value as in Vercel (Vercel hides sensitive values,
    so copy them from each provider's dashboard): `DATABASE_URL` (Neon console → Connect → connection string),
    `SEC_USER_AGENT`, `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`, `FINNHUB_API_KEY`, `MASSIVE_API_KEY`,
-   `FMP_API_KEY`, `TIINGO_API_KEY`, `ALPHAVANTAGE_API_KEY`, `SENTISENSE_API_KEY`. Only `DATABASE_URL` is
+   `FMP_API_KEY`, `TIINGO_API_KEY`, `ALPHAVANTAGE_API_KEY`, `SENTISENSE_API_KEY`, `FRED_API_KEY` (free:
+   fred.stlouisfed.org → My Account → API Keys; powers the Dashboard's Macro backdrop). Only `DATABASE_URL` is
    required; a missing key just skips that data source.
 2. **Token so the app can start a scan after a CSV import** — GitHub → your profile → Settings → Developer
    settings → Personal access tokens → Fine-grained tokens → Generate new token. Repository access: only

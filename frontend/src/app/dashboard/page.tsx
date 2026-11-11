@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import Link from "next/link";
 import { ReactNode } from "react";
+import { MarketPulse } from "@/components/market-pulse";
 import { ScanBar } from "@/components/scan-bar";
 import { Card, Empty, ErrorBox, SortTable, Ticker } from "@/components/ui";
 import { useApi } from "@/lib/api";
@@ -45,6 +46,7 @@ export default function DashboardPage() {
         <ScanBar title="Dashboard" onScanned={() => { dash.reload(); ins.reload(); }} />
       </div>
       <ErrorBox error={dash.error} />
+      <MarketPulse />
 
       <Card title="Near-qualified — fails one or two rules">
         {dash.data?.watchlist.length ? (
