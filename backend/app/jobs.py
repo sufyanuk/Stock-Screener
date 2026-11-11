@@ -107,8 +107,18 @@ async def insiders(deadline: float) -> None:
         await eng.ingest_insiders([d for d in days if d.weekday() < 5])
         for e in eng.errors:
             log.warning("insiders: %s", e)
-        await _until_done("insider shares", lambda i: insiders_load_shares(top=100, db=db, _=None),
+        await _until_done("insider shares", lambda i: insiders_load_shares(top=2000, db=db, _=None),
                           lambda r: r.get("remaining", 0) == 0 or r.get("fetched") == 0, deadline, rounds=10)
+        from app.main import INSIDER_WINDOW_DAYS, latest_insider_buys
+        from app.services.research import NON_COMPLIANT
+
+        rows = latest_insider_buys(db, INSIDER_WINDOW_DAYS, 5000, hide_non_compliant=False)
+        shown = [r for r in rows if r["shariah_status"] != NON_COMPLIANT]
+        big = sorted((r for r in shown if (r["pct_outstanding"] or 0) > 1), key=lambda r: -r["pct_outstanding"])
+        log.info("insiders: %d purchases in %d days (%d after Shariah filter, %d without a share count); "
+                 "%d above 1%% of outstanding: %s", len(rows), INSIDER_WINDOW_DAYS, len(shown),
+                 sum(r["outstanding_shares"] is None for r in shown), len(big),
+                 ", ".join(f'{r["ticker"]} {r["pct_outstanding"]:.1f}% ({r["filing_date"]})' for r in big[:15]))
 
 
 async def earnings(deadline: float) -> None:

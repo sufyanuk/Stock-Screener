@@ -256,3 +256,33 @@ def test_filing_listed_under_two_dates_is_recorded_once(db):
     db.commit()
     asyncio.run(ScanEngine(db, FakeDataSource()).ingest_insiders([AS_OF]))  # must not hit the unique key
     assert db.scalar(select(func.count()).select_from(ProcessedFiling)) == 3
+
+
+def test_lots_of_one_filing_are_summed_before_the_one_percent_test(db):
+    from datetime import date, timedelta
+
+    from app.main import latest_insider_buys
+    from app.models import InsiderTransaction, SharesOutstanding
+
+    today = date.today()
+    base = dict(issuer_cik="0000000042", ticker="LOTS", officer_title="CEO", is_director=False, is_officer=True,
+                is_ten_pct_owner=False, transaction_date=today - timedelta(days=2), filing_date=today - timedelta(days=1),
+                code="P", acquired_disposed="A", direct_indirect="D", security_title="Common", is_amendment=False,
+                is_derivative=False, footnotes=None)
+    # 1.5% of 1,000,000 shares bought in 3 lots of 5,000, reported jointly by the CEO and her trust
+    for owner, cik in (("Jane CEO", "0000000100"), ("Jane Trust", "0000000101")):
+        for i, px in enumerate((10.0, 11.0, 12.0)):
+            db.add(InsiderTransaction(accession="0009-26-9", txn_index=i, owner_cik=cik, owner_name=owner,
+                                      shares=5000, price=px, shares_owned_after=100000 + 5000 * (i + 1), **base))
+    # an older purchase filed 60 days ago (outside a 100-row window in practice, inside the 90-day window)
+    db.add(InsiderTransaction(accession="0008-26-8", txn_index=0, owner_cik="0000000102", owner_name="Old Buyer",
+                              shares=20000, price=5.0, shares_owned_after=50000,
+                              **(base | {"filing_date": today - timedelta(days=60), "transaction_date": today - timedelta(days=61)})))
+    db.add(SharesOutstanding(ticker="LOTS", shares=1_000_000, source="test"))
+    db.commit()
+    rows = latest_insider_buys(db, 90, 100, hide_non_compliant=False)
+    lots = next(r for r in rows if r["accession"] == "0009-26-9")
+    assert lots["shares"] == 15000 and round(lots["price"], 2) == 11.0 and lots["value"] == 165000
+    assert lots["co_reporters"] == ["Jane Trust"] and lots["owned_after"] == 115000
+    assert round(lots["pct_outstanding"], 2) == 1.5  # passes "> 1%"; each lot alone (0.5%) would not
+    assert any(r["accession"] == "0008-26-8" and r["pct_outstanding"] == 2.0 for r in rows)

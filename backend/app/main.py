@@ -191,29 +191,56 @@ def shariah_statuses(db: Session, tickers: set[str]) -> dict[str, str]:
 
 def latest_insider_buys(db: Session, days: int, limit: int, hide_non_compliant: bool = True,
                         raw_rows: bool = False) -> list[dict]:
-    """Open-market purchases (Form 4 code P) filed in the last ``days``; joint/indirect reports of one
-    purchase are shown once, with the co-reporters listed."""
+    """Open-market purchases (Form 4 code P) filed in the last ``days``, newest filing first, at most ``limit``.
+
+    One row per purchase filing: the SEC lists each lot of a purchase separately (and repeats them for every
+    co-reporting owner), so the lots of a filing are summed (shares, value, weighted-average price) before the
+    "% of outstanding" test. Joint or indirect filings of the same purchase by other entities are shown once,
+    with the co-reporters listed. ``raw_rows`` is kept for callers; it no longer changes the result."""
     since = date.today() - timedelta(days=days)
     buys = db.scalars(select(InsiderTransaction).where(InsiderTransaction.code == "P", InsiderTransaction.acquired_disposed == "A",
                                                        InsiderTransaction.is_derivative.is_(False),
                                                        InsiderTransaction.filing_date >= since)
-                      .order_by(InsiderTransaction.filing_date.desc(), InsiderTransaction.direct_indirect)
-                      .limit(limit if raw_rows else limit * 8)).all()
-    seen: dict[tuple, dict] = {}
+                      .order_by(InsiderTransaction.filing_date.desc(), InsiderTransaction.accession,
+                                InsiderTransaction.direct_indirect, InsiderTransaction.txn_index)
+                      .limit(50000)).all()
+    filings: dict[str, dict] = {}
     for b in buys:
-        key = (b.issuer_cik, b.transaction_date, round(b.shares, 4), round(b.price or 0, 4))
-        if key in seen:
-            if b.owner_name not in seen[key]["co_reporters"] and b.owner_name != seen[key]["owner"]:
-                seen[key]["co_reporters"].append(b.owner_name)
+        f = filings.get(b.accession)
+        if f is None:
+            f = filings[b.accession] = {
+                "ticker": b.ticker, "issuer_cik": b.issuer_cik, "owner": b.owner_name, "co_reporters": [],
+                "title": b.officer_title or ("Director" if b.is_director else "10% Owner" if b.is_ten_pct_owner else ""),
+                "transaction_date": b.transaction_date, "filing_date": b.filing_date.isoformat(),
+                "shares": 0.0, "value": 0.0, "owned_after": b.shares_owned_after, "accession": b.accession,
+                "_lots": set()}
+        if b.owner_name != f["owner"] and b.owner_name not in f["co_reporters"]:
+            f["co_reporters"].append(b.owner_name)
+        if b.txn_index in f["_lots"]:
+            continue  # the same lot repeated for another reporting owner
+        f["_lots"].add(b.txn_index)
+        f["shares"] += b.shares
+        f["value"] += (b.price or 0) * b.shares
+        if b.transaction_date >= f["transaction_date"]:
+            f["transaction_date"] = b.transaction_date
+            if b.shares_owned_after is not None:
+                f["owned_after"] = b.shares_owned_after
+    seen: dict[tuple, dict] = {}
+    for f in filings.values():
+        f.pop("_lots")
+        f["price"] = f["value"] / f["shares"] if f["shares"] else None
+        key = (f["issuer_cik"], f["transaction_date"], round(f["shares"], 4), round(f["price"] or 0, 4))
+        if key in seen:  # the same purchase filed again by a related entity (trust, fund, spouse)
+            k = seen[key]
+            for n in [f["owner"], *f["co_reporters"]]:
+                if n != k["owner"] and n not in k["co_reporters"]:
+                    k["co_reporters"].append(n)
             continue
-        seen[key] = {"ticker": b.ticker, "owner": b.owner_name, "co_reporters": [],
-                     "title": b.officer_title or ("Director" if b.is_director else "10% Owner" if b.is_ten_pct_owner else ""),
-                     "transaction_date": b.transaction_date.isoformat(), "filing_date": b.filing_date.isoformat(),
-                     "shares": b.shares, "price": b.price, "value": (b.price or 0) * b.shares,
-                     "owned_after": b.shares_owned_after, "accession": b.accession}
+        f["transaction_date"] = f["transaction_date"].isoformat()
+        seen[key] = f
     from app.services.research import shares_map
 
-    rows = list(seen.values()) if raw_rows else list(seen.values())[:limit]
+    rows = list(seen.values())[:limit]
     from app.services.research import NON_COMPLIANT
 
     status = shariah_statuses(db, {r["ticker"] for r in rows})
@@ -352,23 +379,27 @@ async def _refresh_openinsider(db: Session) -> str | None:
         return f"OpenInsider refresh failed: {str(e)[:150]}"
 
 
+INSIDER_WINDOW_DAYS = 90  # the Insider Buying tab looks at purchases filed in the last 90 days
+
+
 @app.get("/api/insiders")
 async def insiders(top: int = 100, min_pct: float = 0.0, db: Session = Depends(get_db), _: User = Depends(current_user)):
-    """The OpenInsider screener's top results (latest open-market purchases, newest filing first), refreshed
-    at most every 6 hours. ``min_pct`` > 0 keeps purchases above that % of shares outstanding."""
+    """Open-market purchases filed in the last ``INSIDER_WINDOW_DAYS`` days (one row per purchase filing,
+    newest first). ``min_pct`` > 0 keeps purchases above that % of shares outstanding; at most ``top`` are shown."""
     from app.services.research import NON_COMPLIANT
 
     refresh_error = await _refresh_openinsider(db)
     top = min(max(top, 1), 500)
-    # the latest ``top`` screener rows (one row per filer), then joint filings merged and non-compliant hidden
-    every = latest_insider_buys(db, 730, top, hide_non_compliant=False, raw_rows=True)
+    # every purchase filing of the window (lots summed, joint filings merged), then non-compliant hidden
+    every = latest_insider_buys(db, INSIDER_WINDOW_DAYS, 5000, hide_non_compliant=False)
     rows = [r for r in every if r["shariah_status"] != NON_COMPLIANT]
-    pulled = min(top, db.scalar(select(func.count()).select_from(InsiderTransaction)
-                                .where(InsiderTransaction.code == "P", InsiderTransaction.acquired_disposed == "A",
-                                       InsiderTransaction.is_derivative.is_(False),
-                                       InsiderTransaction.filing_date >= date.today() - timedelta(days=730))) or 0)
+    pulled = db.scalar(select(func.count(func.distinct(InsiderTransaction.accession))).select_from(InsiderTransaction)
+                       .where(InsiderTransaction.code == "P", InsiderTransaction.acquired_disposed == "A",
+                              InsiderTransaction.is_derivative.is_(False),
+                              InsiderTransaction.filing_date >= date.today() - timedelta(days=INSIDER_WINDOW_DAYS))) or 0
     missing = sorted({r["ticker"] for r in rows if r["outstanding_shares"] is None})
-    shown = rows if min_pct <= 0 else [r for r in rows if r["pct_outstanding"] is not None and r["pct_outstanding"] > min_pct]
+    matching = rows if min_pct <= 0 else [r for r in rows if r["pct_outstanding"] is not None and r["pct_outstanding"] > min_pct]
+    shown = matching[:top]
     last = db.scalar(select(func.max(InsiderTransaction.filing_date)))
     from app.services.research import shares_map
 
@@ -381,6 +412,7 @@ async def insiders(top: int = 100, min_pct: float = 0.0, db: Session = Depends(g
 
     attach_prices(db, shown, "ticker", field="last_price")  # "price" is the insider's purchase price
     return {"top": top, "min_pct": min_pct, "rows": shown, "total_purchases": len(rows), "url": OPENINSIDER_URL,
+            "matching": len(matching), "window_days": INSIDER_WINDOW_DAYS,
             "screener_rows": pulled, "hidden_non_compliant": len(every) - len(rows),
             "merged_joint": max(0, pulled - len(every)),
             "pulled_at": h.last_success_at.isoformat() if h and h.last_success_at else None,
@@ -399,7 +431,7 @@ async def insiders_load_shares(top: int = 100, db: Session = Depends(get_db), _:
         return OFFLOADED
     from app.services.research import load_shares
 
-    rows = latest_insider_buys(db, 730, min(max(top, 1), 500), raw_rows=True)
+    rows = latest_insider_buys(db, INSIDER_WINDOW_DAYS, 5000)[:min(max(top, 1), 2000)]
     return await load_shares(db, make_datasource(), [r["ticker"] for r in rows if r["outstanding_shares"] is None])
 
 

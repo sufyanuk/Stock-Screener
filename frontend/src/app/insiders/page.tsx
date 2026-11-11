@@ -12,7 +12,7 @@ type Row = {
   outstanding_shares: number | null; pct_outstanding: number | null;
 };
 type Resp = { top: number; min_pct: number; rows: Row[]; total_purchases: number; shares_missing: number; shares_unavailable: number;
-  latest_filing_date: string | null; source: string; url: string; insider_source?: string; pulled_at: string | null; refresh_error: string | null;
+  latest_filing_date: string | null; source: string; url: string; insider_source?: string; matching?: number; window_days?: number; pulled_at: string | null; refresh_error: string | null;
   screener_rows: number; hidden_non_compliant: number; merged_joint: number };
 
 export default function InsidersPage() {
@@ -48,7 +48,8 @@ export default function InsidersPage() {
       <ScanBar title="Latest insider buying" subtitle={data ? `${data.source}${data.latest_filing_date ? ` · latest filing ${data.latest_filing_date}` : ""}` : undefined} onScanned={reload} />
       <ErrorBox error={error} />
       <CriteriaCard title="Insider-buying criteria (used for the Top 5)" tab="Insider Buying" sections={["insider"]} />
-      <Card title={onlyBig ? `${rows.length} of the top 100 purchases above 1% of outstanding shares` : `Latest ${rows.length} insider purchases`} right={
+      <Card title={data ? (onlyBig ? `${data.matching ?? rows.length} purchase${(data.matching ?? rows.length) === 1 ? "" : "s"} above 1% of outstanding shares (last ${data.window_days ?? 90} days)${(data.matching ?? 0) > rows.length ? ` · newest ${rows.length} shown` : ""}`
+          : `Latest ${rows.length} of ${data.total_purchases} insider purchases (last ${data.window_days ?? 90} days)`) : "Insider purchases"} right={
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <label className="flex items-center gap-1.5"><input type="checkbox" checked={onlyBig} onChange={(e) => setOnlyBig(e.target.checked)} />Only above 1% of outstanding shares</label>
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by ticker or insider" className="w-48" />
@@ -83,7 +84,7 @@ export default function InsidersPage() {
         {data && <p className="mt-2 text-xs text-muted">
           {data.insider_source === "openinsider" ? <>Source: the top 100 results of <a className="text-accent hover:underline" href={data.url} target="_blank" rel="noopener noreferrer">this OpenInsider screener</a>
             {data.pulled_at ? ` (pulled ${data.pulled_at.slice(0, 16).replace("T", " ")} UTC)` : ""}.</>
-            : <>Source: SEC EDGAR Form 4 filings, read every night by the GitHub data job (the latest 100 purchases filed in the last 2 years, newest first).</>}
+            : <>Source: SEC EDGAR Form 4 filings, read every night by the GitHub data job (purchases filed in the last {data.window_days ?? 90} days, newest first; the lots of one filing are added together).</>}
           {` ${data.merged_joint} joint filings of the same purchase merged, ${data.hidden_non_compliant} Shariah non-compliant hidden.`}
           {onlyBig && ` Showing ${rows.length} of ${data.total_purchases} purchases above 1% of shares outstanding.`}
           {onlyBig && data.shares_unavailable > 0 && ` ${data.shares_unavailable} stock(s) have no shares-outstanding figure and are not shown.`}
