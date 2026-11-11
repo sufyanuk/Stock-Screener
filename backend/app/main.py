@@ -387,6 +387,7 @@ async def insiders(top: int = 100, min_pct: float = 0.0, db: Session = Depends(g
             "refresh_error": refresh_error,
             "shares_missing": len(unknown), "shares_unavailable": len(missing) - len(unknown),
             "latest_filing_date": last.isoformat() if last else None,
+            "insider_source": get_settings().insider_source,
             "source": ("OpenInsider screener (SEC Form 4 open-market purchases, code P)"
                        if get_settings().insider_source == "openinsider" else "SEC EDGAR Form 4 (open-market purchases, code P)")}
 

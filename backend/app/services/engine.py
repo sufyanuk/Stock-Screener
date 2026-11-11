@@ -140,6 +140,9 @@ class ScanEngine:
                 budget = max(0, budget - len(processed - done))
             if remaining:
                 self.errors.append(f"insider filings for {d}: {remaining} not yet fetched; continuing next run")
+            fresh = {t.accession for t in txns} - done
+            if fresh:  # the SEC's own copy of a filing replaces an earlier OpenInsider copy of it (no double count)
+                self.db.execute(delete(InsiderTransaction).where(InsiderTransaction.accession.in_(fresh)))
             existing = set(self.db.execute(select(InsiderTransaction.accession, InsiderTransaction.txn_index,
                                                   InsiderTransaction.owner_cik)
                                            .where(InsiderTransaction.filing_date == d)).all())

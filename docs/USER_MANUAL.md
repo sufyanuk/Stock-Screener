@@ -33,9 +33,9 @@ that meet the criteria (and price < $100) — "Passes rules only" is ticked by d
 imported stock — sorted by 1-month options volume change, with price,
 calls/puts, put/call and IV rank.
 
-**Insider Buying** — the top 100 results of the OpenInsider screener (open-market purchases, SEC Form 4
-code P, filed in the last 2 years, newest first; link shown under the table), pulled when you open the tab
-and refreshed at most every 6 hours. **Only above 1% of outstanding shares** is ticked by default and keeps purchases where the
+**Insider Buying** — the latest 100 open-market purchases (SEC Form 4 code P, filed in the last 2 years,
+newest first), read straight from SEC EDGAR filings by the nightly GitHub job (free, no key; filings already
+read are skipped). **Only above 1% of outstanding shares** is ticked by default and keeps purchases where the
 shares bought are more than 1% of the company's shares outstanding. Columns include Outstanding shares
 and % of outstanding (shares bought ÷ shares outstanding). Share counts are looked up automatically and cached for 30 days, from (in order) the SEC figures already
 loaded by the Shariah engine (balance sheet, filing cover page, quarterly weighted-average shares), Massive
@@ -108,8 +108,8 @@ expectancy (R-multiples, profit factor, break-even win rate, Monte-Carlo risk of
 scenario grid).
 
 **Data APIs** — the footer shows which data APIs are connected (● = key set). Stock prices come from
-Alpaca (Finnhub fallback), price history from Tiingo (Alpha Vantage fallback), insider buying from OpenInsider
-(SEC EDGAR fallback), analyst ratings from Finnhub, and fundamentals (P/E, market cap, float) from FMP. With a SentiSense key, the stock panel also shows the
+Alpaca (Finnhub fallback), price history from Tiingo (Alpha Vantage fallback), insider buying from SEC EDGAR Form 4
+(OpenInsider optional with INSIDER_SOURCE=openinsider), analyst ratings from Finnhub, and fundamentals (P/E, market cap, float) from FMP. With a SentiSense key, the stock panel also shows the
 SentiSense Rating (A–F letter, 0–100 score and rank, risk adjustments; a research score, not a buy/sell call)
 and its top AI-generated insights. Keys are set in
 Vercel → Settings → Environment Variables (see docs/SETUP.md).

@@ -217,3 +217,26 @@ def test_owner_user_survives_concurrent_creation(db):
     finally:
         auth.select = real
     assert u.email == "owner@local" and db.query(User).count() == 1
+
+
+def test_sec_copy_replaces_an_openinsider_copy_of_the_same_filing(db):
+    import asyncio
+
+    from sqlalchemy import func, select
+
+    from app.models import InsiderTransaction
+    from app.services.engine import ScanEngine
+    from tests.conftest import AS_OF, FakeDataSource
+
+    # an OpenInsider-style row for filing 0001-26-1 (aggregated, hashed owner id) from before the switch
+    db.add(InsiderTransaction(accession="0001-26-1", txn_index=0, owner_cik="abcdef0123", issuer_cik="GOOD",
+                              ticker="GOOD", owner_name="Jane Doe", officer_title="CEO", is_director=False,
+                              is_officer=True, is_ten_pct_owner=False, transaction_date=AS_OF, filing_date=AS_OF,
+                              code="P", acquired_disposed="A", shares=100, price=10.0, shares_owned_after=1000,
+                              direct_indirect="D", security_title="Common", is_amendment=False, is_derivative=False,
+                              footnotes=None))
+    db.commit()
+    asyncio.run(ScanEngine(db, FakeDataSource()).ingest_insiders([AS_OF]))
+    rows = db.scalars(select(InsiderTransaction).where(InsiderTransaction.accession == "0001-26-1")).all()
+    assert {r.owner_cik for r in rows} == {"9", "10"}  # only the SEC copy (2 joint owners) remains
+    assert db.scalar(select(func.count()).select_from(InsiderTransaction)) == 4

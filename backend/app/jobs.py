@@ -93,9 +93,18 @@ async def ratings(deadline: float) -> None:
 
 
 async def insiders(deadline: float) -> None:
+    """SEC Form 4 open-market purchases of the last 14 days (filings already read are skipped, so after the
+    first run only the new day's filings are fetched), then shares outstanding for the latest buyers."""
+    from datetime import date as _date, timedelta as _td
+
     from app.main import insiders_load_shares
+    from app.services.engine import ScanEngine
 
     with _session() as db:
+        eng = ScanEngine(db, _ds())
+        await eng.ingest_insiders([_date.today() - _td(days=i) for i in range(14)])
+        for e in eng.errors:
+            log.warning("insiders: %s", e)
         await _until_done("insider shares", lambda i: insiders_load_shares(top=100, db=db, _=None),
                           lambda r: r.get("remaining", 0) == 0 or r.get("fetched") == 0, deadline, rounds=10)
 
@@ -116,8 +125,6 @@ async def pulse(deadline: float) -> None:
         out = await mp.compute(db, _ds())
         log.info("pulse: breadth %s, mood %s, macro %s, fed %s", out.get("breadth"), (out.get("mood") or {}).get("score"),
                  (out.get("macro") or {}).get("score"), (out.get("fed") or {}).get("next_decision"))
-        for e in out.get("errors") or []:
-            log.warning("pulse: %s", e)
         for e in out.get("errors") or []:
             log.warning("pulse: %s", e)
 

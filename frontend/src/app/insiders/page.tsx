@@ -12,11 +12,11 @@ type Row = {
   outstanding_shares: number | null; pct_outstanding: number | null;
 };
 type Resp = { top: number; min_pct: number; rows: Row[]; total_purchases: number; shares_missing: number; shares_unavailable: number;
-  latest_filing_date: string | null; source: string; url: string; pulled_at: string | null; refresh_error: string | null;
+  latest_filing_date: string | null; source: string; url: string; insider_source?: string; pulled_at: string | null; refresh_error: string | null;
   screener_rows: number; hidden_non_compliant: number; merged_joint: number };
 
 export default function InsidersPage() {
-  // The OpenInsider screener's top 100 results (latest purchase filings), pulled at most every 6 hours.
+  // The latest 100 open-market purchases from SEC Form 4 filings, collected by the nightly GitHub job.
   const [onlyBig, setOnlyBig] = useState(true);
   const { data, error, reload } = useApi<Resp>(`/insiders?top=100&min_pct=${onlyBig ? 1 : 0}`);
   const [q, setQ] = useState("");
@@ -48,7 +48,7 @@ export default function InsidersPage() {
       <ScanBar title="Latest insider buying" subtitle={data ? `${data.source}${data.latest_filing_date ? ` · latest filing ${data.latest_filing_date}` : ""}` : undefined} onScanned={reload} />
       <ErrorBox error={error} />
       <CriteriaCard title="Insider-buying criteria (used for the Top 5)" tab="Insider Buying" sections={["insider"]} />
-      <Card title={onlyBig ? `${rows.length} of the top 100 purchases above 1% of outstanding shares` : `Top ${rows.length} insider purchases (OpenInsider screener)`} right={
+      <Card title={onlyBig ? `${rows.length} of the top 100 purchases above 1% of outstanding shares` : `Latest ${rows.length} insider purchases`} right={
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <label className="flex items-center gap-1.5"><input type="checkbox" checked={onlyBig} onChange={(e) => setOnlyBig(e.target.checked)} />Only above 1% of outstanding shares</label>
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by ticker or insider" className="w-48" />
@@ -77,13 +77,14 @@ export default function InsidersPage() {
             </table>
           </div>
         ) : <Empty>{!data ? "Loading…" : data.total_purchases === 0
-          ? `No purchases pulled from OpenInsider yet${data.refresh_error ? ` (${data.refresh_error})` : ""}.`
+          ? `No purchases collected yet — the nightly job fills this from SEC filings${data.refresh_error ? ` (${data.refresh_error})` : ""}.`
           : `None of the ${data.total_purchases} purchases is above ${data.min_pct}% of shares outstanding${data.shares_missing ? " (still looking up share counts…)" : ""}.`}</Empty>}
         {busy && <p className="mt-2 text-xs text-muted">{busy}</p>}
         {data && <p className="mt-2 text-xs text-muted">
-          Source: the top 100 results of <a className="text-accent hover:underline" href={data.url} target="_blank" rel="noopener noreferrer">this OpenInsider screener</a> (purchases filed in the last 2 years, newest first),
-          {data.pulled_at ? ` pulled ${data.pulled_at.slice(0, 16).replace("T", " ")} UTC` : ""}; refreshed at most every 6 hours.
-          {` Of ${data.screener_rows} screener rows: ${data.merged_joint} joint filings of the same purchase merged, ${data.hidden_non_compliant} Shariah non-compliant hidden.`}
+          {data.insider_source === "openinsider" ? <>Source: the top 100 results of <a className="text-accent hover:underline" href={data.url} target="_blank" rel="noopener noreferrer">this OpenInsider screener</a>
+            {data.pulled_at ? ` (pulled ${data.pulled_at.slice(0, 16).replace("T", " ")} UTC)` : ""}.</>
+            : <>Source: SEC EDGAR Form 4 filings, read every night by the GitHub data job (the latest 100 purchases filed in the last 2 years, newest first).</>}
+          {` ${data.merged_joint} joint filings of the same purchase merged, ${data.hidden_non_compliant} Shariah non-compliant hidden.`}
           {onlyBig && ` Showing ${rows.length} of ${data.total_purchases} purchases above 1% of shares outstanding.`}
           {onlyBig && data.shares_unavailable > 0 && ` ${data.shares_unavailable} stock(s) have no shares-outstanding figure and are not shown.`}
           {data.refresh_error && <span className="text-warn"> {data.refresh_error}</span>}</p>}
