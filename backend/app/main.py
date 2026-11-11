@@ -211,7 +211,8 @@ def latest_insider_buys(db: Session, days: int, limit: int, hide_non_compliant: 
                                                        InsiderTransaction.is_derivative.is_(False),
                                                        InsiderTransaction.filing_date >= since)
                       .order_by(InsiderTransaction.filing_date.desc(), InsiderTransaction.accession,
-                                InsiderTransaction.direct_indirect, InsiderTransaction.txn_index)
+                                InsiderTransaction.direct_indirect, InsiderTransaction.txn_index,
+                                InsiderTransaction.owner_cik)  # a fixed order: the same main owner every time
                       .limit(50000)).all()
     filings: dict[str, dict] = {}
     for b in buys:
@@ -806,8 +807,11 @@ async def manual_scan(bg: BackgroundTasks, u: User = Depends(current_user), db: 
     if _offloaded() and await dispatch_job("scan"):
         return {"queued": True, "via": "github"}
     if _serverless():
-        # No GitHub token: run inside the request (serverless instances may be frozen after the response).
-        return {"queued": False, **await _do_scan("manual", u.email)}
+        # Never scan on Vercel: one scan uses minutes of its monthly CPU allowance. Without a GitHub token the
+        # new CSV is used by the nightly scan instead.
+        return {"queued": False, "via": "none", "status": "skipped",
+                "reason": "Scans don't run on Vercel. Add GITHUB_DISPATCH_TOKEN to start one on GitHub right after "
+                          "an import; otherwise the nightly scan uses the new CSV."}
     bg.add_task(_do_scan, "manual", u.email)
     return {"queued": True}
 
@@ -842,6 +846,8 @@ async def cron_scan(authorization: str | None = Header(default=None), db: Sessio
     secret = get_settings().cron_secret
     if not secret or authorization != f"Bearer {secret}":
         raise HTTPException(401, "invalid cron secret")
+    if _offloaded():  # scans run on GitHub Actions, never on Vercel (its CPU allowance is small)
+        return {"skipped": "scans run on GitHub Actions"}
     kind = cron_kind(datetime.now(timezone.utc))
     if kind is None:
         return {"skipped": "market closed or outside scan windows"}

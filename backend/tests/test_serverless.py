@@ -329,3 +329,27 @@ def test_nightly_scan_clears_csvs_uploaded_before_it(db):
     assert clear_options_csv(db, start) == 1
     assert [b.filename for b in db.scalars(select(OptionsImportBatch)).all()] == ["during.csv"]
     assert db.scalar(select(func.count()).select_from(OptionsImportRow)) == 1  # the old rows went with it
+
+
+def test_vercel_never_runs_a_scan_itself(client, db, monkeypatch):
+    """On Vercel a scan would use minutes of the monthly CPU allowance: without a GitHub token it is skipped."""
+    import app.main as main
+    from sqlalchemy import func, select
+
+    from app.models import ScanRun
+
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setattr(main, "dispatch_job", lambda job: _false())
+    app_user = main.app.dependency_overrides
+    app_user[main.current_user] = lambda: None
+    try:
+        r = client.post("/api/scan").json()
+        assert r["via"] == "none" and r["status"] == "skipped" and "GITHUB_DISPATCH_TOKEN" in r["reason"]
+        assert db.scalar(select(func.count()).select_from(ScanRun)) == 0
+        assert client.post("/api/scan/daily").json()["ran"] is False
+    finally:
+        app_user.clear()
+
+
+async def _false():
+    return False

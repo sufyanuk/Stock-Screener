@@ -28,6 +28,7 @@ export default function EarningsPage() {
     try {
       for (let i = 0; i < 10; i++) {
         const r = await api<{ fetched: number; remaining: number; errors: string[] }>("/earnings/load-analysts?days=7&limit=100", { method: "POST" });
+        if ((r as { skipped?: boolean }).skipped) break;  // loads run on GitHub: stop at once
         setBusy(`Loaded ${r.fetched}; ${r.remaining} remaining…`);
         if (r.remaining === 0 || r.fetched === 0) {
           setBusy(r.errors.length && r.fetched === 0 ? `Could not load: ${r.errors[0]}` : null);

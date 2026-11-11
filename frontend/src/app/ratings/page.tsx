@@ -57,6 +57,7 @@ function AnalystRatings() {
     try {
       for (let i = 0; i < 25; i++) {
         const r = await api<{ fetched: number; remaining: number; errors: string[] }>("/ratings/analysts/load?limit=100", { method: "POST" });
+        if ((r as { skipped?: boolean }).skipped) break;  // loads run on GitHub: stop at once
         setBusy(`Loaded ${r.fetched}; ${r.remaining} remaining…`);
         reload();
         if (r.remaining === 0 || r.fetched === 0) {
@@ -138,6 +139,7 @@ function SentiSenseRatings() {
     try {
       for (let i = 0; i < 8; i++) {
         const r = await api<{ fetched: number; remaining: number; mode: string | null; errors: string[] }>("/ratings/sentisense/load", { method: "POST" });
+        if ((r as { skipped?: boolean }).skipped) break;  // loads run on GitHub: stop at once
         reload();
         setBusy(r.mode === "per-stock" && r.remaining ? `Loaded ${r.fetched} more; ${r.remaining} remaining…` : null);
         if (r.errors.length && r.fetched === 0) { setBusy(`SentiSense: ${r.errors[0]}`); break; }

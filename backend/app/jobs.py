@@ -216,7 +216,26 @@ async def run(job: str, minutes: float = 100) -> int:
         except Exception:  # noqa: BLE001 - one failing load must not stop the others
             log.exception("%s failed", name)
             failed += 1
+    db_report()
     return 1 if failed else 0
+
+
+def db_report() -> None:
+    """One line on the database size (Neon free plan: 0.5 GB) and its largest tables."""
+    from sqlalchemy import text
+
+    try:
+        with _session() as db:
+            if db.bind.dialect.name != "postgresql":
+                return
+            total = db.execute(text("SELECT pg_database_size(current_database())")).scalar()
+            top = db.execute(text(
+                "SELECT relname, pg_total_relation_size(relid) FROM pg_catalog.pg_statio_user_tables "
+                "ORDER BY 2 DESC LIMIT 8")).all()
+        log.info("database: %.1f MB of 512 MB; largest: %s", total / 2**20,
+                 ", ".join(f"{n} {b / 2**20:.1f} MB" for n, b in top))
+    except Exception as e:  # noqa: BLE001 - a report must never fail a job
+        log.warning("database size report failed: %s", e)
 
 
 def main(argv: list[str]) -> int:

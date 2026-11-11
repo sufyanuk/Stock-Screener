@@ -20,12 +20,15 @@ export function OptionsImport({ isAdmin = true, open: openInit = true, onImporte
   async function scanNow() {
     // A new CSV changes the unusual-options criterion: rescan straight away so the Top 5 uses it.
     setScanMsg("Running a scan with the new CSV… this can take a few minutes.");
-    // the Dashboard watches for this scan and refreshes Near-qualified / Top 5 when it finishes
-    try { localStorage.setItem("scanRequestedAt", new Date().toISOString()); } catch { /* storage unavailable */ }
     try {
-      const r = await api<{ queued: boolean; status?: string; via?: string }>("/scan", { method: "POST" });
-      setScanMsg(r.via === "github" ? "Scan started on GitHub — it begins within about a minute and takes a few minutes; refresh the page to see the results."
-        : r.queued ? "Scan started — results appear when it finishes." : `Scan finished (${r.status}).`);
+      const r = await api<{ queued: boolean; status?: string; via?: string; reason?: string }>("/scan", { method: "POST" });
+      if (r.via !== "none") {
+        // the Dashboard watches for this scan and refreshes Near-qualified / Top 5 when it finishes
+        try { localStorage.setItem("scanRequestedAt", new Date().toISOString()); } catch { /* storage unavailable */ }
+      }
+      setScanMsg(r.via === "none" ? (r.reason ?? "The nightly scan will use the new CSV.")
+        : r.via === "github" ? "Scan started on GitHub — it begins within about a minute; the Dashboard updates by itself when it finishes."
+        : r.queued ? "Scan started — the Dashboard updates by itself when it finishes." : `Scan finished (${r.status}).`);
     } catch (e) {
       const m = (e as Error).message;
       setScanMsg(/already running/i.test(m) ? "A scan is already running — it will use the new CSV." : `Scan could not start: ${m}`);
