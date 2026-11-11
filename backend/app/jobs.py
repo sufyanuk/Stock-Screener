@@ -179,6 +179,7 @@ async def run(job: str, minutes: float = 100) -> int:
 
 def main(argv: list[str]) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # its request lines carry API keys in URLs
     job = argv[1] if len(argv) > 1 else "nightly"
     if job not in JOBS:
         print(f"usage: python -m app.jobs [{'|'.join(JOBS)}]", file=sys.stderr)

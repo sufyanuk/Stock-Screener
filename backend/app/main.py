@@ -30,6 +30,7 @@ from app.tools.pnl import Dividend, Fill, summarize
 from app.tools.position import PositionInput, calculate_position
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+logging.getLogger("httpx").setLevel(logging.WARNING)  # its request lines carry API keys in URLs
 log = logging.getLogger("app")
 MIGRATION_ERROR: str | None = None
 
