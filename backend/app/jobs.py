@@ -121,6 +121,15 @@ async def insiders(deadline: float) -> None:
     from app.services.engine import ScanEngine
 
     with _session() as db:
+        from sqlalchemy import delete, or_
+
+        from app.models import InsiderTransaction
+
+        # keep storage small: only purchases are used, and only the last two years are ever shown
+        gone = db.execute(delete(InsiderTransaction).where(or_(
+            InsiderTransaction.code != "P", InsiderTransaction.filing_date < _date.today() - _td(days=730)))).rowcount
+        db.commit()
+        log.info("insiders: %d stored transactions removed (not purchases, or older than 2 years)", gone)
         eng = ScanEngine(db, _ds())
         await eng.refresh_universe()  # SEC ticker/exchange list (one request): OTC stocks are left out of the tab
         days = [_date.today() - _td(days=i) for i in range(14)]

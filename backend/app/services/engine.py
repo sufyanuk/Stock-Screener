@@ -134,6 +134,8 @@ class ScanEngine:
             if not res:
                 continue
             txns, _, processed, remaining = res
+            txns = [t for t in txns if t.code == "P"]  # only open-market purchases are used: sales, grants
+            # and exercises would take most of the database storage
             new = processed - done
             if new:  # a filing can be listed in the SEC index under two dates: record each accession once
                 seen = set(self.db.scalars(select(ProcessedFiling.accession)
