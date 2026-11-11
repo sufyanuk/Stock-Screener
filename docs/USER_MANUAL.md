@@ -137,7 +137,8 @@ Disclaimer: research tool only, not investment advice. Shariah screening is not 
 2. **Token so the app can start a scan after a CSV import** — GitHub → your profile → Settings → Developer
    settings → Personal access tokens → Fine-grained tokens → Generate new token. Repository access: only
    Stock-Screener. Permissions: Actions → Read and write. Copy the token into Vercel → stock_screener →
-   Settings → Environment Variables as `GITHUB_DISPATCH_TOKEN` (Production, Sensitive), then redeploy.
+   Settings → Environment Variables as `GITHUB_DISPATCH_TOKEN` (Production, Sensitive), then redeploy. For a codespace, add the same token
+   as a Codespaces secret named `SCAN_DISPATCH_TOKEN` (Codespaces secret names cannot start with GITHUB).
    Without it, a CSV import runs the scan on Vercel instead.
 3. **First run** — Actions → data-jobs → Run workflow → `nightly`. It loads everything (the first Shariah
    load takes longest); the log shows each step.

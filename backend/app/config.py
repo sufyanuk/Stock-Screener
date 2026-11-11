@@ -12,7 +12,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -63,7 +63,9 @@ class Settings(BaseSettings):
     # Heavy data jobs run on GitHub Actions (.github/workflows/data-jobs.yml), not on Vercel. A fine-grained
     # token with "Actions: read and write" on the repository lets the app start a job (e.g. a scan after a
     # CSV import) straight away.
-    github_dispatch_token: str = ""
+    # Codespaces secret names cannot start with "GITHUB", so SCAN_DISPATCH_TOKEN is accepted too.
+    github_dispatch_token: str = Field("", validation_alias=AliasChoices("GITHUB_DISPATCH_TOKEN", "SCAN_DISPATCH_TOKEN",
+                                                                         "github_dispatch_token"))
     github_repo: str = "sufyanuk/Stock-Screener"
     github_workflow: str = "data-jobs.yml"
     github_ref: str = "main"
