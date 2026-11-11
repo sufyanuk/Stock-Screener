@@ -45,15 +45,15 @@ export default function OptionsPage() {
           <div className="overflow-x-auto">
             <table className="text-sm">
               <thead><tr>
-                {th("symbol", "Ticker")}{th("name", "Company")}{th("price", "Price")}{th("pct_change", "Day")}
+                {th("symbol", "Ticker")}{th("price", "Price")}{th("name", "Company")}{th("pct_change", "Day")}
                 {th("vol_change_1m_pct", "1M vol Δ")}{th("options_volume", "Options vol")}{th("call_volume", "Calls")}{th("put_volume", "Puts")}
                 {th("pc_ratio", "P/C")}{th("iv_rank", "IV rank")}{th("rules", "Rules")}
               </tr></thead>
               <tbody>{sorted.map((r) => (
                 <tr key={r.symbol}>
                   <td><Ticker symbol={r.symbol} status={r.shariah_status} /></td>
-                  <td className="max-w-56 truncate text-muted">{r.name}</td>
                   <td className="num">{usd(r.price)}</td>
+                  <td className="max-w-56 truncate text-muted">{r.name}</td>
                   <td className={`num ${tone(r.pct_change)}`}>{pct(r.pct_change, 2, true)}</td>
                   <td className={`num ${tone(r.vol_change_1m_pct)}`}>{pct(r.vol_change_1m_pct, 0, true)}</td>
                   <td className="num">{compact(r.options_volume)}</td>

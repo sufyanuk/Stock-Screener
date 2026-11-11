@@ -265,7 +265,7 @@ def _store_frame(db: Session, taxonomy: str, tag: str, unit: str, period: str, r
 
 PRICE_SOURCE = "alpaca-latest"  # latest price per stock for market cap (AAOIFI)
 PRICE_TICKER_RE = re.compile(r"^[A-Z]{1,5}(\.[A-Z])?$")
-PRICE_MAX_AGE_DAYS = 3
+PRICE_MAX_AGE_HOURS = 12  # each nightly run fetches the latest close (also shown as the Price column in every tab)
 
 
 def _price_universe(db: Session) -> list[str]:
@@ -274,10 +274,11 @@ def _price_universe(db: Session) -> list[str]:
 
 
 def _prices_fresh(db: Session, today: date) -> set[str]:
-    """Stocks priced in the last few days, or checked and found to have no price (close 0 marked 'checked').
+    """Stocks priced in the last 12 hours, or checked and found to have no price (close 0 marked 'checked').
     A close-0 row without that mark (e.g. written while the price API was rejecting the keys) is retried."""
+    since = datetime.now(timezone.utc) - timedelta(hours=PRICE_MAX_AGE_HOURS)
     rows = db.execute(select(PriceSnapshot.symbol, PriceSnapshot.close, PriceSnapshot.data).where(
-        PriceSnapshot.as_of >= today - timedelta(days=PRICE_MAX_AGE_DAYS))).all()
+        PriceSnapshot.source == PRICE_SOURCE, PriceSnapshot.imported_at >= since)).all()
     return {s for s, c, d in rows if (c or 0) > 0 or (d or {}).get("checked")}
 
 

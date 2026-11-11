@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Badge, Card, Empty, ErrorBox, ShariahLegend, Ticker, useSort } from "@/components/ui";
 import { api, JOBS_ON_GITHUB, useApi } from "@/lib/api";
-import { nf } from "@/lib/format";
+import { nf, usd } from "@/lib/format";
 
 type Sub = "analysts" | "sentisense";
 
@@ -42,6 +42,7 @@ export default function RatingsPage() {
 type ARow = {
   symbol: string; name: string | null; strong_buy: number; buy: number | null; hold: number | null; sell: number | null; strong_sell: number | null;
   total: number; strong_buy_pct: number | null; buy_pct: number | null; provider: string; retrieved_at: string; shariah_status: string | null;
+  price: number | null; price_as_of?: string | null;
 };
 
 function AnalystRatings() {
@@ -91,13 +92,14 @@ function AnalystRatings() {
         <div className="overflow-x-auto">
           <table className="text-sm">
             <thead><tr>
-              {th("symbol", "Ticker")}{th("name", "Company")}{th("strong_buy", "Strong Buy")}{th("buy", "Buy")}{th("hold", "Hold")}
+              {th("symbol", "Ticker")}{th("price", "Price")}{th("name", "Company")}{th("strong_buy", "Strong Buy")}{th("buy", "Buy")}{th("hold", "Hold")}
               {th("sell", "Sell")}{th("strong_sell", "Strong Sell")}{th("total", "Total analysts")}{th("strong_buy_pct", "% Strong Buy")}
               {th("buy_pct", "% Buy + Strong Buy")}{th("provider", "Source")}{th("updated", "Updated")}
             </tr></thead>
             <tbody>{sorted.map((r) => (
               <tr key={r.symbol}>
                 <td><Ticker symbol={r.symbol} status={r.shariah_status} /></td>
+                <td className="num" title={r.price_as_of ? `Close on ${r.price_as_of}` : undefined}>{usd(r.price)}</td>
                 <td className="max-w-56 truncate text-muted">{r.name ?? "—"}</td>
                 <td className="num"><Badge tone="bull">{r.strong_buy}</Badge></td>
                 <td className="num">{r.buy ?? "—"}</td><td className="num">{r.hold ?? "—"}</td>
@@ -119,6 +121,7 @@ function AnalystRatings() {
 type SRow = {
   symbol: string; name: string | null; rated: boolean; letter: string | null; score: number | null; percentile: number | null;
   penalty_points: number | null; analyst_favorable_pct: number | null; as_of: string | null; reason: string | null; source: string; shariah_status: string | null;
+  price: number | null; price_as_of?: string | null;
 };
 const LETTERS = ["A", "B", "C", "D", "F"];
 const LETTER_TONE: Record<string, string> = { A: "text-bull", B: "text-bull", C: "text-warn", D: "text-bear", F: "text-bear" };
@@ -174,12 +177,13 @@ function SentiSenseRatings() {
         <div className="overflow-x-auto">
           <table className="text-sm">
             <thead><tr>
-              {th("symbol", "Ticker")}{th("name", "Company")}{th("letter", "Rating")}{th("score", "Score / 100")}{th("percentile", "Rank (percentile)")}
+              {th("symbol", "Ticker")}{th("price", "Price")}{th("name", "Company")}{th("letter", "Rating")}{th("score", "Score / 100")}{th("percentile", "Rank (percentile)")}
               {th("penalty_points", "Risk points")}{th("analyst_favorable_pct", "Favourable analysts")}{th("as_of", "As of")}
             </tr></thead>
             <tbody>{sorted.map((r) => (
               <tr key={r.symbol}>
                 <td><Ticker symbol={r.symbol} status={r.shariah_status} /></td>
+                <td className="num" title={r.price_as_of ? `Close on ${r.price_as_of}` : undefined}>{usd(r.price)}</td>
                 <td className="max-w-56 truncate text-muted">{r.name ?? "—"}</td>
                 <td className={`text-lg font-bold ${LETTER_TONE[r.letter ?? ""] ?? "text-muted"}`}>{r.rated ? r.letter : <span className="text-xs font-normal" title={r.reason ?? ""}>not rated</span>}</td>
                 <td className="num">{nf(r.score, 1)}</td>

@@ -449,3 +449,19 @@ def test_stock_panel_trade_plan(client, db):
     rising = [DailyBar(ticker="UP", session=day, open=c, high=c * 1.01, low=c * 0.99, close=c, volume=1e6, provider="t")
               for day, c in zip(days, np.linspace(10, 40, 300))]
     assert rs._trade_plan(db, rising) is None or rs._trade_plan(db, rising)["stop_loss"] < 40
+
+
+def test_attach_prices_uses_stored_prices_only(db):
+    from datetime import date as d
+
+    from app.models import PriceSnapshot
+    from app.services import research as rs
+
+    db.add(PriceSnapshot(symbol="AAA", as_of=d(2026, 11, 10), close=12.5, data={}, source="alpaca-latest"))
+    db.add(PriceSnapshot(symbol="ZERO", as_of=d(2026, 11, 10), close=0.0, data={"checked": True}, source="alpaca-latest"))
+    db.commit()
+    rows = rs.attach_prices(db, [{"symbol": "AAA"}, {"symbol": "ZERO"}, {"symbol": "CSV", "price": 3.0}, {"symbol": "NONE"}])
+    assert rows[0]["price"] == 12.5 and rows[0]["price_as_of"] == "2026-11-10"
+    assert rows[1]["price"] is None and rows[2]["price"] == 3.0 and rows[3]["price"] is None  # no price invented
+    ins = rs.attach_prices(db, [{"ticker": "AAA", "price": 9.0}], "ticker", field="last_price")
+    assert ins[0]["price"] == 9.0 and ins[0]["last_price"] == 12.5  # insider purchase price kept apart

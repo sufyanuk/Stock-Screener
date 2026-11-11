@@ -17,6 +17,8 @@ function Mini({ title, href, rows, cols, empty, loading }: { title: string; href
       {rows === undefined || (loading && !rows.length) ? <Empty>Loading…</Empty> : rows.length ? (
         <SortTable rows={rows} limit={5} rowKey={(r, i) => (r.symbol ?? r.ticker) + i}
           cols={[{ key: "ticker", label: "Ticker", sort: (r) => r.symbol ?? r.ticker, cell: (r) => <Ticker symbol={r.symbol ?? r.ticker} status={r.shariah_status} /> },
+            // insider rows carry "price" = the insider's purchase price; their current price is "last_price"
+            { key: "price", label: "Price", className: "num", sort: (r) => ("last_price" in r ? r.last_price : r.price), cell: (r) => usd("last_price" in r ? r.last_price : r.price) },
             ...cols.map((c) => ({ key: c.label, label: c.label, cell: c.cell, sort: c.sort, className: "num" }))]} />
       ) : <Empty>{empty}</Empty>}
     </Card>
@@ -49,8 +51,8 @@ export default function DashboardPage() {
           <SortTable rows={dash.data.watchlist} rowKey={(w) => w.ticker} initial="score"
             cols={[
               { key: "ticker", label: "Ticker", cell: (w) => <Ticker symbol={w.ticker} status={w.shariah_status} /> },
-              { key: "company", label: "Company", cell: (w) => <span className="block max-w-56 truncate text-muted">{w.company}</span> },
               { key: "price", label: "Price", cell: (w) => usd(w.price), className: "num" },
+              { key: "company", label: "Company", cell: (w) => <span className="block max-w-56 truncate text-muted">{w.company}</span> },
               { key: "score", label: "Score", cell: (w) => nf(w.score, 1), className: "num" },
               { key: "fails", label: "Fails", sort: (w) => w.failures.length, cell: (w) => <span className="text-xs text-bear">{w.failures.join(", ")}</span> },
             ]} />
@@ -59,7 +61,7 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Mini title="Unusual options — top 5" href="/options" rows={optRows} empty="No stocks in the latest options CSV meet the criteria."
-          cols={[{ label: "Price", cell: (r) => usd(r.price), sort: (r) => r.price }, { label: "1M vol Δ", sort: (r) => r.vol_change_1m_pct, cell: (r) => <span className={tone(r.vol_change_1m_pct)}>{pct(r.vol_change_1m_pct, 0, true)}</span> },
+          cols={[{ label: "1M vol Δ", sort: (r) => r.vol_change_1m_pct, cell: (r) => <span className={tone(r.vol_change_1m_pct)}>{pct(r.vol_change_1m_pct, 0, true)}</span> },
             { label: "IV rank", cell: (r) => nf(r.iv_rank, 0), sort: (r) => r.iv_rank }, { label: "P/C", cell: (r) => nf(r.pc_ratio, 2), sort: (r) => r.pc_ratio }]} />
         <Mini title="Insider buying — top 5 by % of outstanding" href="/insiders" rows={insRows} empty="No insider purchases above 1% of outstanding shares."
           cols={[{ label: "Insider", sort: (r) => r.owner, cell: (r) => <span className="block max-w-36 truncate text-left text-muted">{r.owner}</span> },
@@ -71,7 +73,7 @@ export default function DashboardPage() {
             { label: "Options 1M Δ", sort: (r) => r.options?.vol_change_1m_pct, cell: (r) => r.options ? pct(r.options.vol_change_1m_pct, 0, true) : "—" },
             { label: "Strong Buy", sort: (r) => r.analysts?.strong_buy, cell: (r) => r.analysts?.strong_buy ?? "—" }]} />
         <Mini title={`Seasonality — best in ${seas.data?.month_name ?? ""}`} href="/seasonality" rows={seas.data?.ranked} empty="Import a price-history CSV on the Seasonality tab."
-          cols={[{ label: "Price", cell: (r) => usd(r.last_close), sort: (r) => r.last_close }, { label: "Avg return", sort: (r) => r.avg, cell: (r) => <span className={tone(r.avg)}>{pct(r.avg, 2, true)}</span> },
+          cols={[{ label: "Avg return", sort: (r) => r.avg, cell: (r) => <span className={tone(r.avg)}>{pct(r.avg, 2, true)}</span> },
             { label: "% years up", cell: (r) => `${nf(r.win_rate, 0)}%`, sort: (r) => r.win_rate }, { label: "Years", cell: (r) => r.years, sort: (r) => r.years }]} />
       </div>
     </div>

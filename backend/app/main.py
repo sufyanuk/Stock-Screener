@@ -376,6 +376,9 @@ async def insiders(top: int = 100, min_pct: float = 0.0, db: Session = Depends(g
     from app.models import ProviderHealth
 
     h = db.get(ProviderHealth, "openinsider")
+    from app.services.research import attach_prices
+
+    attach_prices(db, shown, "ticker", field="last_price")  # "price" is the insider's purchase price
     return {"top": top, "min_pct": min_pct, "rows": shown, "total_purchases": len(rows), "url": OPENINSIDER_URL,
             "screener_rows": pulled, "hidden_non_compliant": len(every) - len(rows),
             "merged_joint": max(0, pulled - len(every)),
@@ -491,8 +494,9 @@ def basket(db: Session = Depends(get_db), _: User = Depends(current_user)):
     syms = [i.ticker for i in items]
     names = dict(db.execute(select(Security.ticker, Security.name).where(Security.ticker.in_(syms))).all()) if syms else {}
     sh = rs.shariah_map(db, set(syms))
-    return {"items": [{"symbol": i.ticker, "name": names.get(i.ticker), "added_at": i.added_at.isoformat(),
-                       "shariah_status": sh.get(i.ticker)} for i in items],
+    rows = [{"symbol": i.ticker, "name": names.get(i.ticker), "added_at": i.added_at.isoformat(),
+             "shariah_status": sh.get(i.ticker)} for i in items]
+    return {"items": rs.attach_prices(db, rows),
             "note": "Tickers stay in the basket until the next nightly scan."}
 
 
@@ -1066,7 +1070,7 @@ async def earnings_upcoming(days: int = 7, db: Session = Depends(get_db), _: Use
                                                      "sell": a.sell, "strong_sell": a.strong_sell,
                                                      "retrieved_at": a.retrieved_at.isoformat()}})
     src = db.scalars(select(EarningsEvent.provider).limit(1)).first()
-    rows = rs.hide_non_compliant(db, rows)  # scan results hide non-compliant stocks
+    rows = rs.attach_prices(db, rs.hide_non_compliant(db, rows))  # scan results hide non-compliant stocks
     return {"days": days, "rows": rows, "refresh": refresh, "earnings_source": src,
             "options_import": {"id": batch.id, "filename": batch.filename, "session_date": batch.session_date.isoformat()} if batch else None,
             "analysts_missing": sum(1 for s in syms if s not in an), "insider_window_days": 90}
@@ -1123,7 +1127,11 @@ def ratings_analysts(min_strong_buy: int = 1, db: Session = Depends(get_db), _: 
     """Stocks with at least ``min_strong_buy`` analysts rating Strong Buy (cached counts)."""
     from app.services import ratings
 
-    return ratings.analyst_rows(db, max(1, min_strong_buy))
+    from app.services.research import attach_prices
+
+    out = ratings.analyst_rows(db, max(1, min_strong_buy))
+    attach_prices(db, out["rows"])
+    return out
 
 
 @app.post("/api/ratings/analysts/load")
@@ -1139,7 +1147,11 @@ async def ratings_analysts_load(limit: int = 100, db: Session = Depends(get_db),
 def ratings_sentisense(db: Session = Depends(get_db), _: User = Depends(current_user)):
     from app.services import ratings
 
-    return ratings.sentisense_rows(db)
+    from app.services.research import attach_prices
+
+    out = ratings.sentisense_rows(db)
+    attach_prices(db, out["rows"])
+    return out
 
 
 @app.post("/api/ratings/sentisense/load")
@@ -1366,6 +1378,9 @@ def shariah_list(methodology: str = "FTSE", status: str | None = None, q: str | 
                     "sic_description": r.data.get("sic_description"), "period_end": r.data.get("period_end"),
                     "status": x["status"], "status_label": se.LABELS[x["status"]], "business": x["business"],
                     "ratios": x["ratios"], "reasons": x["reasons"]})
+    from app.services.research import attach_prices
+
+    attach_prices(db, out)
     return {"methodology": m, "rows": out, "total": total, "counts": counts, "labels": se.LABELS,
             "methodologies": _methods_info(db), "load": shs.status_cached(db), "primary": load_config(db).shariah.methodology,
             "disclaimer": se.DISCLAIMER}

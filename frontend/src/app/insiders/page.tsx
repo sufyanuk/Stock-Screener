@@ -8,7 +8,7 @@ import { compact, nf, usd } from "@/lib/format";
 
 type Row = {
   ticker: string; owner: string; co_reporters: string[]; title: string; transaction_date: string; filing_date: string;
-  shares: number; price: number | null; value: number; owned_after: number | null; accession: string; shariah_status: string | null;
+  shares: number; price: number | null; last_price: number | null; last_price_as_of?: string | null; value: number; owned_after: number | null; accession: string; shariah_status: string | null;
   outstanding_shares: number | null; pct_outstanding: number | null;
 };
 type Resp = { top: number; min_pct: number; rows: Row[]; total_purchases: number; shares_missing: number; shares_unavailable: number;
@@ -57,12 +57,13 @@ export default function InsidersPage() {
           <div className="overflow-x-auto">
             <table className="text-sm">
               <thead><tr>
-                {th("ticker", "Ticker")}{th("owner", "Insider")}{th("title", "Role")}{th("transaction_date", "Trade")}{th("filing_date", "Filed")}
-                {th("shares", "Shares")}{th("outstanding_shares", "Outstanding shares")}{th("pct_outstanding", "% of outstanding")}{th("price", "Price")}{th("value", "Value")}{th("owned_after", "Owned after")}{th("accession", "Filing")}
+                {th("ticker", "Ticker")}{th("last_price", "Price")}{th("owner", "Insider")}{th("title", "Role")}{th("transaction_date", "Trade")}{th("filing_date", "Filed")}
+                {th("shares", "Shares")}{th("outstanding_shares", "Outstanding shares")}{th("pct_outstanding", "% of outstanding")}{th("price", "Buy price")}{th("value", "Value")}{th("owned_after", "Owned after")}{th("accession", "Filing")}
               </tr></thead>
               <tbody>{sorted.map((b) => (
                 <tr key={b.accession + b.owner + b.transaction_date}>
                   <td><Ticker symbol={b.ticker} status={b.shariah_status} /></td>
+                  <td className="num" title={b.last_price_as_of ? `Close on ${b.last_price_as_of}` : undefined}>{usd(b.last_price)}</td>
                   <td className="max-w-52 truncate" title={b.co_reporters.length ? `Also reported by: ${b.co_reporters.join(", ")}` : undefined}>
                     {b.owner}{b.co_reporters.length ? <span className="text-muted"> (+{b.co_reporters.length} joint)</span> : null}</td>
                   <td className="max-w-40 truncate text-muted">{b.title}</td>

@@ -2,9 +2,10 @@
 import { useEffect } from "react";
 import { Button, Card, Empty, ErrorBox, ShariahLegend, SortTable, Ticker } from "@/components/ui";
 import { api, useApi } from "@/lib/api";
+import { usd } from "@/lib/format";
 import { useBasket } from "@/lib/basket";
 
-type Item = { symbol: string; name: string | null; added_at: string; shariah_status: string | null };
+type Item = { symbol: string; name: string | null; added_at: string; shariah_status: string | null; price: number | null; price_as_of?: string | null };
 
 export default function BasketPage() {
   const basket = useBasket();
@@ -39,6 +40,7 @@ export default function BasketPage() {
           <SortTable rows={rows} rowKey={(r) => r.symbol} initial={null}
             cols={[
               { key: "symbol", label: "Ticker", cell: (r) => <Ticker symbol={r.symbol} status={r.shariah_status} /> },
+              { key: "price", label: "Price", className: "num", cell: (r) => <span title={r.price_as_of ? `Close on ${r.price_as_of}` : undefined}>{usd(r.price)}</span> },
               { key: "name", label: "Company", cell: (r) => r.name ?? "—" },
               { key: "added_at", label: "Added", cell: (r) => new Date(r.added_at).toLocaleString() },
               { key: "remove", label: "", cell: (r) => (

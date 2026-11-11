@@ -2,7 +2,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Badge, Button, Card, Empty, ErrorBox, Field, ShariahLegend, Ticker } from "@/components/ui";
 import { api, JOBS_ON_GITHUB, useApi } from "@/lib/api";
-import { compact, nf } from "@/lib/format";
+import { compact, nf, usd } from "@/lib/format";
 
 type Status = "HALAL" | "NON_COMPLIANT" | "DOUBTFUL";
 type Test = { key: string; label: string; numerator: string; denominator: string; op: "lt" | "le"; limit: number };
@@ -10,7 +10,7 @@ type Method = { key: string; label: string; source: string | null; configured: b
   business_tolerance_pct: number | null; tests: Test[]; builtin: boolean };
 type Ratio = { key: string; label: string; value: number | null; limit: number; op: string; status: string };
 type Row = { symbol: string; name: string | null; sic: string | null; sic_description: string | null; period_end: string | null;
-  status: Status; status_label: string; business: string; ratios: Ratio[]; reasons: string[] };
+  status: Status; status_label: string; business: string; ratios: Ratio[]; reasons: string[]; price?: number | null; price_as_of?: string | null };
 type Load = { frames_total: number; frames_done: number; companies_total: number; companies_done: number; results: number;
   prices_total: number; prices_done: number; filings_total: number; filings_done: number;
   computed_at: string | null };
@@ -136,7 +136,7 @@ export default function ShariahPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-wide text-muted">
-                  <th className="py-2 pr-3">Ticker</th><th className="pr-3">Company</th><th className="pr-3">Industry (SIC)</th>
+                  <th className="py-2 pr-3">Ticker</th><th className="num pr-3">Price</th><th className="pr-3">Company</th><th className="pr-3">Industry (SIC)</th>
                   <th className="pr-3">Result</th>
                   {(m?.tests ?? []).map((t) => <th key={t.key} className="num pr-3" title={t.label}>{t.label}<div className="normal-case">limit {t.op === "lt" ? "<" : "≤"} {t.limit}%</div></th>)}
                   <th className="pr-3">Why</th>
@@ -147,6 +147,7 @@ export default function ShariahPage() {
                   <Fragment key={r.symbol}>
                     <tr className="cursor-pointer border-t border-line hover:bg-panel-2" onClick={() => setOpen(open === r.symbol ? null : r.symbol)}>
                       <td className="py-1.5 pr-3"><Ticker symbol={r.symbol} link={false} /></td>
+                      <td className="num pr-3" title={r.price_as_of ? `Close on ${r.price_as_of}` : undefined}>{usd(r.price)}</td>
                       <td className="max-w-[16rem] truncate pr-3" title={r.name ?? ""}>{r.name ?? "—"}</td>
                       <td className="max-w-[14rem] truncate pr-3 text-muted" title={r.sic_description ?? ""}>{r.sic ? `${r.sic} ${r.sic_description ?? ""}` : "—"}</td>
                       <td className="pr-3"><Badge tone={TONE[r.status]}>{r.status_label}</Badge></td>
@@ -157,7 +158,7 @@ export default function ShariahPage() {
                       })}
                       <td className="max-w-[28rem] truncate pr-3 text-xs text-muted" title={r.reasons.join("\n")}>{r.reasons[0] ?? "Passes every test"}</td>
                     </tr>
-                    {open === r.symbol && <tr><td colSpan={5 + (m?.tests.length ?? 0)} className="bg-panel-2 p-3"><div className="sticky left-0 max-w-[min(1100px,calc(100vw-3rem))]"><Detail symbol={r.symbol} /></div></td></tr>}
+                    {open === r.symbol && <tr><td colSpan={6 + (m?.tests.length ?? 0)} className="bg-panel-2 p-3"><div className="sticky left-0 max-w-[min(1100px,calc(100vw-3rem))]"><Detail symbol={r.symbol} /></div></td></tr>}
                   </Fragment>
                 ))}
               </tbody>

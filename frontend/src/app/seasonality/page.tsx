@@ -62,8 +62,8 @@ export default function SeasonalityPage() {
           <SortTable rows={data.ranked} rowKey={(e) => e.symbol} initial={null} limit={500}
             cols={[
               { key: "symbol", label: "Ticker", cell: (e) => <Ticker symbol={e.symbol} status={e.shariah_status} /> },
-              { key: "name", label: "Company", cell: (e) => <span className="block max-w-[18rem] truncate" title={e.name ?? ""}>{e.name ?? "—"}</span> },
               { key: "price", label: "Price", cell: (e) => <span title={e.price_as_of ? `Close on ${e.price_as_of.slice(0, 10)}` : "Last month-end close in the CSV"}>{usd(e.price)}</span>, className: "num" },
+              { key: "name", label: "Company", cell: (e) => <span className="block max-w-[18rem] truncate" title={e.name ?? ""}>{e.name ?? "—"}</span> },
               { key: "years", label: "Total Years", cell: (e) => e.years, className: "num" },
               { key: "count", label: `Total Positive Years`, cell: (e) => e.count, className: "num" },
               { key: "pct", label: `% Positive`, cell: (e) => <span className={`rounded px-1.5 py-0.5 font-semibold bg-bull/10`}>{e.pct === null ? "—" : `${nf(e.pct, 2)}%`}</span>, className: "num" },

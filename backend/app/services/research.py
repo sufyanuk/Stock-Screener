@@ -301,6 +301,26 @@ def options_rows(db: Session, symbols: list[str]) -> tuple[OptionsImportBatch | 
 NON_COMPLIANT = "Non-Compliant"
 
 
+def attach_prices(db: Session, rows: list[dict], key: str = "symbol", field: str = "price") -> list[dict]:
+    """Add each row's latest stored price (``price``, ``price_as_of``) from the nightly price refresh — no API
+    call. Rows that already carry a price (e.g. from an imported CSV or the scan) keep it."""
+    from app.models import PriceSnapshot
+
+    need = {r.get(key) for r in rows if r.get(key) and r.get(field) is None}
+    found: dict[str, tuple] = {}
+    sl = sorted(need)
+    for i in range(0, len(sl), 1000):
+        for sym, c, d in db.execute(select(PriceSnapshot.symbol, PriceSnapshot.close, PriceSnapshot.as_of).where(
+                PriceSnapshot.symbol.in_(sl[i:i + 1000]), PriceSnapshot.close > 0)).all():
+            found[sym] = (c, d)
+    for r in rows:
+        if r.get(field) is None and r.get(key) in found:
+            c, d = found[r[key]]
+            r[field], r[f"{field}_as_of"] = c, d.isoformat() if d else None
+        r.setdefault(field, None)
+    return rows
+
+
 def hide_non_compliant(db: Session, rows: list[dict], key: str = "symbol") -> list[dict]:
     """Scan results never show stocks that are NON-COMPLIANT under the chosen Shariah methodology
     (doubtful and not-yet-screened stocks stay visible, coloured amber / blue)."""
