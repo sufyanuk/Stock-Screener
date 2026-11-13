@@ -47,7 +47,8 @@ export default function DashboardPage() {
   const imports = useApi<{ id: number }[]>("/options-imports");
   const latest = imports.data?.[0];
   const opts = useApi<{ data: any[] }>(latest ? `/options-imports/${latest.id}` : null);
-  const ins = useApi<{ rows: any[] }>("/insiders");
+  // same rule as the Insider Buying tab: purchases above 1% of outstanding shares in the last 90 days
+  const ins = useApi<{ rows: any[] }>("/insiders?min_pct=1");
   const earn = useApi<{ rows: any[] }>("/earnings/upcoming?days=7");
   const month = new Date().getMonth() + 1;
   const seas = useApi<{ month_name: string; ranked: any[] }>(`/seasonality?month=${month}&min_years=5&min_price=5&max_price=100&limit=5`);
