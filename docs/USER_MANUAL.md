@@ -35,8 +35,9 @@ imported stock — sorted by 1-month options volume change, with price,
 calls/puts, put/call and IV rank.
 
 **Insider Buying** — the latest 100 open-market purchases (SEC Form 4 code P, filed in the last 2 years,
-newest first), read straight from SEC EDGAR filings by the nightly GitHub job (free, no key; filings already
-read are skipped). The lots of one filing are added together; OTC / unlisted stocks (not on NYSE, Nasdaq,
+newest first), read straight from SEC EDGAR filings by GitHub twice a day, every day including weekends:
+about 7:20 am New York time (before the open) and about 4:05 pm (after the close), plus the weekday nightly run
+(free, no key; filings already read are skipped). GitHub can start scheduled runs late. The lots of one filing are added together; OTC / unlisted stocks (not on NYSE, Nasdaq,
 NYSE American or NYSE Arca) are left out. The 1% filter looks at every purchase filed in the last 90 days. **Only above 1% of outstanding shares** is ticked by default and keeps purchases where the
 shares bought are more than 1% of the company's shares outstanding. Columns include Outstanding shares
 and % of outstanding (shares bought ÷ shares outstanding). Share counts are looked up automatically and cached for 30 days, from (in order) the SEC figures already

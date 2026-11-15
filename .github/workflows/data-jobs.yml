@@ -9,6 +9,9 @@ on:
     # Backups: GitHub can delay or skip a scheduled run. These run the job only if the one above did not.
     - cron: "40 23 * * 1-5"
     - cron: "17 7 * * 0"
+    # Insider buying (SEC Form 4) twice a day, every day including weekends:
+    - cron: "23 12 * * *"    # ~12:23 UTC = 7:23 am New York (8:23 am in summer): before the 9:30 open
+    - cron: "7 21 * * *"     # ~21:07 UTC = 4:07 pm New York (5:07 pm in summer): after the 4:00 close
   workflow_dispatch:
     inputs:
       job:
@@ -55,4 +58,6 @@ jobs:
           || (github.event.schedule == '17 4 * * 0' && 'shariah-weekly')
           || (github.event.schedule == '40 23 * * 1-5' && 'nightly-backup')
           || (github.event.schedule == '17 7 * * 0' && 'shariah-weekly-backup')
+          || (github.event.schedule == '23 12 * * *' && 'insiders')
+          || (github.event.schedule == '7 21 * * *' && 'insiders')
           || 'nightly' }}"
