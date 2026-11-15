@@ -146,6 +146,9 @@ def db(tmp_path):
 
     url = os.environ.get("TEST_DATABASE_URL") or f"sqlite:///{tmp_path}/t.db"
     reset_engine_for_tests(url)
+    from app.services import research as _rs
+
+    _rs._LIVE_CACHE.clear()  # the stock panel's 10-minute cache must not leak between tests
     Base.metadata.drop_all(engine())
     Base.metadata.create_all(engine())
     s = SessionLocal()

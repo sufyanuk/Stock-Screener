@@ -1099,10 +1099,11 @@ def journal_summary(db: Session = Depends(get_db), u: User = Depends(current_use
 
 # ------------------------------------------------------------------ research: side panel, earnings, seasonality
 @app.get("/api/stocks/{ticker}/summary")
-async def stock_panel(ticker: str, db: Session = Depends(get_db), _: User = Depends(current_user)):
+async def stock_panel(ticker: str, fast: bool = False, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    """The stock side panel. ``fast=1``: stored data only (opens at once); without it live data is added."""
     from app.services.research import stock_summary
 
-    return await stock_summary(db, make_datasource(), ticker)
+    return await stock_summary(db, make_datasource(), ticker, fast=fast)
 
 
 @app.get("/api/earnings/markers")

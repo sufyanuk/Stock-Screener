@@ -376,11 +376,22 @@ def shariah_map(db: Session, symbols: set[str]) -> dict[str, str]:
 
 
 # ------------------------------------------------------------------ stock side-panel
-async def stock_summary(db: Session, ds, ticker: str) -> dict:
-    t = ticker.upper()
-    out: dict = {"ticker": t, "errors": [], "sources": {}}
+_LIVE_CACHE: dict[str, tuple[float, dict]] = {}
+LIVE_TTL = 600  # seconds: reopening a stock within 10 minutes shows the panel at once
 
-    async def safe(name, coro, timeout=12):
+
+async def stock_summary(db: Session, ds, ticker: str, fast: bool = False) -> dict:
+    """The stock panel. ``fast``: stored data only (no outside call) so the panel opens at once; the full
+    version then adds live price, metrics, analysts, news and SentiSense, each waiting at most a few seconds.
+    The full version is kept for 10 minutes per ticker."""
+    import time
+
+    t = ticker.upper()
+    if not fast and (hit := _LIVE_CACHE.get(t)) and time.time() - hit[0] < LIVE_TTL:
+        return hit[1]
+    out: dict = {"ticker": t, "errors": [], "sources": {}, "fast": fast}
+
+    async def safe(name, coro, timeout=8):
         try:
             return await asyncio.wait_for(coro, timeout)
         except (ProviderError, asyncio.TimeoutError, Exception) as e:  # one failing source never breaks the panel
@@ -390,10 +401,18 @@ async def stock_summary(db: Session, ds, ticker: str) -> dict:
     async def none():
         return None
 
-    ss_on = getattr(ds, "sentisense", None) is not None and hasattr(ds, "sentisense_info")
-    q, an, news, ssr = await asyncio.gather(
-        safe("quote", ds.company_quote(t)), safe("analysts", ds.analyst(t)), safe("news", ds.news(t)),
-        safe("sentisense", ds.sentisense_info(t), timeout=25) if ss_on else none())
+    since = today_ny() - timedelta(days=370)
+    bars = db.scalars(select(DailyBar).where(DailyBar.ticker == t, DailyBar.session >= since)
+                      .order_by(DailyBar.session)).all()
+    need_chart = len(bars) < 30 and not fast
+    ss_on = getattr(ds, "sentisense", None) is not None and hasattr(ds, "sentisense_info") and not fast
+    if fast:
+        q = an = news = ssr = chart = None
+    else:  # every live source at once (the chart too), so the wait is the slowest one, not their sum
+        q, an, news, ssr, chart = await asyncio.gather(
+            safe("quote", ds.company_quote(t)), safe("analysts", ds.analyst(t)), safe("news", ds.news(t)),
+            safe("sentisense", ds.sentisense_info(t), timeout=10) if ss_on else none(),
+            safe("chart", ds.bars(t, since, today_ny()), timeout=10) if need_chart else none())
     out["sentisense"] = ssr[0] if ssr else None
 
     # price & P/E
@@ -403,8 +422,17 @@ async def stock_summary(db: Session, ds, ticker: str) -> dict:
     b, orow = options_rows(db, [t])
     orow = orow.get(t)
     price, price_src = quote.get("price"), (q[1].provider if q and quote.get("price") else None)
+    if price is None:  # the nightly stored price
+        stored = attach_prices(db, [{"symbol": t}])[0]
+        if stored.get("price") is not None:
+            price, price_src = stored["price"], f"stored close ({stored.get('price_as_of')})"
     if price is None and orow and orow.price is not None:
         price, price_src = orow.price, f"CSV import #{b.id} ({b.session_date.isoformat()})"
+    if not quote.get("name"):
+        from app.models import Security
+
+        sec = db.get(Security, t)
+        quote = quote | {"name": sec.name if sec else None}
     out.update({"name": quote.get("name"), "price": price, "price_source": price_src,
                 "day_change_pct": quote.get("day_change_pct") if quote.get("price") else (orow.pct_change if orow else None),
                 "pe": quote.get("pe"), "market_cap": quote.get("market_cap"),
@@ -416,7 +444,10 @@ async def stock_summary(db: Session, ds, ticker: str) -> dict:
     # analysts
     counts = (an[0].counts if an else None) or {}
     targets = (an[0].targets if an else None) or {}
-    if counts:
+    if not an and (snap := db.get(AnalystSnapshot, t)) is not None:  # stored counts (nightly ratings load)
+        counts = {k: getattr(snap, k) or 0 for k in ("strong_buy", "buy", "hold", "sell", "strong_sell")}
+        counts = counts if any(counts.values()) else {}
+    elif counts:
         db.merge(AnalystSnapshot(symbol=t, strong_buy=counts.get("strong_buy"), buy=counts.get("buy"),
                                  hold=counts.get("hold"), sell=counts.get("sell"), strong_sell=counts.get("strong_sell"),
                                  provider=an[1].provider, retrieved_at=_now()))
@@ -437,12 +468,9 @@ async def stock_summary(db: Session, ds, ticker: str) -> dict:
     else:
         out["earnings"] = None
 
-    # chart: stored bars, else fetch one year
-    since = today_ny() - timedelta(days=370)
-    bars = db.scalars(select(DailyBar).where(DailyBar.ticker == t, DailyBar.session >= since)
-                      .order_by(DailyBar.session)).all()
-    if len(bars) < 30:
-        res = await safe("chart", ds.bars(t, since, today_ny()), timeout=15)
+    # chart: stored bars, else the year fetched above
+    if need_chart:
+        res = chart
         if res and len(res[0]):
             df, prov = res
             for ts, r in df.iterrows():
@@ -462,4 +490,8 @@ async def stock_summary(db: Session, ds, ticker: str) -> dict:
         "put_call": orow.pc_ratio, "session": b.session_date.isoformat()}
     out["insider_90d"] = insider_summary(db, [t]).get(t)
     out["shariah_status"] = shariah_map(db, {t}).get(t)
+    if not fast and q is not None:  # keep a good live answer for 10 minutes
+        _LIVE_CACHE[t] = (time.time(), out)
+        if len(_LIVE_CACHE) > 300:
+            _LIVE_CACHE.pop(min(_LIVE_CACHE, key=lambda k: _LIVE_CACHE[k][0]))
     return out

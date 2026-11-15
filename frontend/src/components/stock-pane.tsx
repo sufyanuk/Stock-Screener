@@ -85,8 +85,15 @@ function AnalystBar({ counts }: { counts: Record<string, number> }) {
 export function StockPane() {
   const pane = usePane();
   const t = pane?.selected ?? null;
-  const { data, error, loading } = useApi<Summary>(t ? `/stocks/${encodeURIComponent(t)}/summary` : null);
-  const d = data && data.ticker === t ? data : null;
+  // stored data first (opens at once), then the live version (price, metrics, news, SentiSense) replaces it
+  const fast = useApi<Summary>(t ? `/stocks/${encodeURIComponent(t)}/summary?fast=1` : null);
+  const live = useApi<Summary>(t ? `/stocks/${encodeURIComponent(t)}/summary` : null);
+  const liveD = live.data && live.data.ticker === t ? live.data : null;
+  const fastD = fast.data && fast.data.ticker === t ? fast.data : null;
+  const d = liveD ?? fastD;
+  const loading = !d && (fast.loading || live.loading);
+  const updating = !liveD && live.loading;
+  const error = d ? null : (live.error ?? fast.error);
   const levels = useMemo(() => [], []);
   if (!pane) return null;
   if (!t)
@@ -108,6 +115,7 @@ export function StockPane() {
         <div className="min-w-0">
           <div className="text-xl"><Ticker symbol={t} status={d?.shariah_status} link={false} /></div>
           <div className="truncate text-sm text-muted">{d?.name ?? (loading ? "Loading…" : "")}</div>
+          {updating && d && <div className="text-[11px] text-accent">Updating live price, news and ratings…</div>}
         </div>
         <button aria-label="Close panel" className="rounded-md px-2 text-lg text-muted hover:bg-panel-2 hover:text-ink" onClick={() => pane.select(null)}>×</button>
       </header>
