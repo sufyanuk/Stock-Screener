@@ -65,7 +65,7 @@ export default function DashboardPage() {
       <ErrorBox error={dash.error} />
       <MarketPulse />
 
-      <Card title="Near-qualified — fails one or two rules" right={waiting ? <span className="text-xs text-accent">Scan with the new CSV in progress — updates automatically…</span> : undefined}>
+      <Card title="Near-qualified — fails one or two rules">
         {dash.data?.watchlist.length ? (
           <SortTable rows={dash.data.watchlist} rowKey={(w) => w.ticker} initial="score"
             cols={[
