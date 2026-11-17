@@ -183,18 +183,19 @@ def _already_ran(job: str) -> str | None:
 
     from sqlalchemy import func, select
 
-    from app import market_calendar as mc
     from app.models import ScanRun, SecFrameLoad
 
     with _session() as db:
         if job == "nightly-backup":
-            today = datetime.now(mc.NY).date()
+            # the main run is often hours late (past midnight New York time), so "already ran" means a nightly
+            # scan started in the last 16 hours, not one dated today
+            since = datetime.now(timezone.utc) - timedelta(hours=16)
             for (started,) in db.execute(select(ScanRun.started_at).where(
                     ScanRun.kind == "close", ScanRun.triggered_by == "github-actions",
-                    ScanRun.started_at >= datetime.now(timezone.utc) - timedelta(days=2))).all():
+                    ScanRun.started_at >= since - timedelta(hours=1))).all():
                 st = started if started.tzinfo else started.replace(tzinfo=timezone.utc)
-                if st.astimezone(mc.NY).date() == today:
-                    return f"the nightly scan already ran today ({st.isoformat()})"
+                if st >= since:
+                    return f"the nightly scan already ran ({st.isoformat()})"
         else:
             last = db.scalar(select(func.max(SecFrameLoad.loaded_at)))
             if last is not None:

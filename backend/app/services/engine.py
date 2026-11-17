@@ -130,6 +130,9 @@ class ScanEngine:
         budget = get_settings().insider_filings_per_run or None
         for d in days:
             done = set(self.db.scalars(select(ProcessedFiling.accession).where(ProcessedFiling.filed == d)).all())
+            # hand the database connection back while the filings download (minutes): an idle connection held
+            # that long is closed by Neon, and the job failed with "SSL connection has been closed"
+            self.db.commit()
             res = await self._call("sec_edgar", self.ds.insider_filings(d, skip=done, limit=budget))
             if not res:
                 continue

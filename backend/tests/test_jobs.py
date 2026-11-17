@@ -163,3 +163,24 @@ def test_basket_is_kept_until_the_next_nightly_scan(client, db, monkeypatch):  #
     client.post("/api/basket", headers=h, json={"symbol": "NVDA"})  # added after it: kept
     assert [i["symbol"] for i in client.get("/api/basket", headers=h).json()["items"]] == ["NVDA"]
     assert client.delete("/api/basket", headers=h).json() == {"count": 0}
+
+
+def test_backup_skips_a_late_main_run_that_started_after_midnight_new_york(db):
+    """The main nightly run is often hours late: started 04:09 UTC = 11:09 pm New York the day before. The backup
+    at 05:14 UTC (after midnight in New York) must still see it and do nothing."""
+    from datetime import date, datetime, timedelta, timezone
+
+    from app import jobs
+    from app.models import ScanRun
+
+    started = datetime.now(timezone.utc) - timedelta(hours=1, minutes=5)
+    db.add(ScanRun(kind="close", session_date=date.today(), config_snapshot={}, relaxed_criteria=[],
+                   triggered_by="github-actions", funnel={}, errors=[], status="ok", started_at=started))
+    db.commit()
+    assert jobs._already_ran("nightly-backup") is not None
+    db.query(ScanRun).delete()
+    db.add(ScanRun(kind="close", session_date=date.today(), config_snapshot={}, relaxed_criteria=[],
+                   triggered_by="github-actions", funnel={}, errors=[], status="ok",
+                   started_at=datetime.now(timezone.utc) - timedelta(hours=26)))  # yesterday's: the main run was missed
+    db.commit()
+    assert jobs._already_ran("nightly-backup") is None
