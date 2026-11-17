@@ -4,16 +4,14 @@ name: data-jobs
 
 on:
   schedule:
-    # The nightly run is started on time by cron-job.org (4:40 pm New York, weekdays). These GitHub schedules are
+    # cron-job.org starts the jobs on time (New York time): insiders daily at 8:45 am and 4:10 pm, the nightly run
+    # on weekdays at 4:40 pm. These GitHub schedules are
     # backups: they run the nightly job only if no nightly scan started in the last 16 hours.
     - cron: "40 21 * * 1-5"  # weekdays ~21:40 UTC, after the US close: scan, prices, ratings (no SEC download)
     - cron: "17 4 * * 0"     # Sundays ~04:17 UTC: SEC figures for the Shariah engine (backup: cron-job.org starts it)
     # Backups: GitHub can delay or skip a scheduled run. These run the job only if the one above did not.
     - cron: "40 23 * * 1-5"
     - cron: "17 7 * * 0"
-    # Insider buying (SEC Form 4) twice a day, every day including weekends:
-    - cron: "23 12 * * *"    # ~12:23 UTC = 7:23 am New York (8:23 am in summer): before the 9:30 open
-    - cron: "7 21 * * *"     # ~21:07 UTC = 4:07 pm New York (5:07 pm in summer): after the 4:00 close
   workflow_dispatch:
     inputs:
       job:
@@ -61,6 +59,4 @@ jobs:
           || (github.event.schedule == '40 21 * * 1-5' && 'nightly-backup')
           || (github.event.schedule == '40 23 * * 1-5' && 'nightly-backup')
           || (github.event.schedule == '17 7 * * 0' && 'shariah-weekly-backup')
-          || (github.event.schedule == '23 12 * * *' && 'insiders')
-          || (github.event.schedule == '7 21 * * *' && 'insiders')
           || 'nightly' }}"
