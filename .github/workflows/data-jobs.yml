@@ -4,6 +4,8 @@ name: data-jobs
 
 on:
   schedule:
+    # The nightly run is started on time by cron-job.org (4:40 pm New York, weekdays). These GitHub schedules are
+    # backups: they run the nightly job only if no nightly scan started in the last 16 hours.
     - cron: "40 21 * * 1-5"  # weekdays ~21:40 UTC, after the US close: scan, prices, ratings (no SEC download)
     - cron: "17 4 * * 0"     # Sundays ~04:17 UTC: download the SEC figures for the Shariah engine again
     # Backups: GitHub can delay or skip a scheduled run. These run the job only if the one above did not.
@@ -56,6 +58,7 @@ jobs:
       - run: >-
           python -m app.jobs "${{ inputs.job
           || (github.event.schedule == '17 4 * * 0' && 'shariah-weekly')
+          || (github.event.schedule == '40 21 * * 1-5' && 'nightly-backup')
           || (github.event.schedule == '40 23 * * 1-5' && 'nightly-backup')
           || (github.event.schedule == '17 7 * * 0' && 'shariah-weekly-backup')
           || (github.event.schedule == '23 12 * * *' && 'insiders')
