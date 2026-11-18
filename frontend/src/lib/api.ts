@@ -71,13 +71,26 @@ export async function apiCached<T>(path: string, fresh = false): Promise<T> {
   return data;
 }
 
+// Writes that change only their own list: clear just those cached responses, so adding a ticker to the basket
+// does not make every other tab load again from the server.
+const LOCAL_WRITES: Record<string, string[]> = {
+  "/basket": ["/basket"],
+  "/custom-watchlist": ["/custom-watchlist", "/ratings"],  // the Ratings tab lists watchlist stocks too
+};
+function clearCachedPrefix(prefix: string) {
+  for (const k of [...mem.keys()]) if (k.startsWith(prefix)) mem.delete(k);
+  try { for (const k of Object.keys(localStorage)) if (k.startsWith(PREFIX + prefix)) localStorage.removeItem(k); } catch { /* storage unavailable */ }
+}
+
 export async function api<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const write = !!init.method && init.method.toUpperCase() !== "GET";
-  if (write) clearApiCache();
+  const local = write ? Object.keys(LOCAL_WRITES).find((p) => path.startsWith(p)) : undefined;
+  const clear = () => (local ? LOCAL_WRITES[local].forEach(clearCachedPrefix) : clearApiCache());
+  if (write) clear();
   try {
     return await request<T>(path, init);
   } finally {
-    if (write) clearApiCache(); // data changed on the server
+    if (write) clear(); // data changed on the server
   }
 }
 
