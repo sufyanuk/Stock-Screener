@@ -12,7 +12,8 @@ load; each tab shows the stored data. Importing an Unusual Options CSV starts a 
 be run by hand: GitHub → the repository → Actions → data-jobs → Run workflow. Every table column can be sorted by clicking its heading.
 
 **Dashboard** (opens first) — near-qualified stocks failing one or two rules (with reasons; after a CSV import the
-card updates by itself when the new scan finishes), and the top 5
+card updates by itself when the new scan finishes). The **Price under $40 only** switch at the top filters every Dashboard card to stocks below $40
+(Dashboard only; remembered in your browser). The insider card shows the latest 5 purchases above 1%, newest filing first, and the top 5
 from each tab: unusual options, insider buying (by % of outstanding
 shares), upcoming earnings and seasonality for this month.
 At the top, a **Market pulse** card (computed by the nightly job, so browsing costs nothing):
