@@ -25,12 +25,13 @@ export function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
   const [menu, setMenu] = useState(false);
   // New data from a scheduled job (insider filings, the nightly scan...): check on open, when the tab comes back
-  // into view and every 5 minutes while it is visible; pages on screen refresh by themselves when it changed.
+  // into view and every 15 minutes while it is visible (long enough for the database to pause in between);
+  // pages on screen refresh by themselves when it changed.
   useEffect(() => {
     const check = () => { if (document.visibilityState === "visible") void syncDataVersion(); };
     check();
     document.addEventListener("visibilitychange", check);
-    const t = setInterval(check, 5 * 60e3);
+    const t = setInterval(check, 15 * 60e3);
     return () => { document.removeEventListener("visibilitychange", check); clearInterval(t); };
   }, []);
   // Personal app: no sign-in. Access is restricted by Vercel Authentication on the deployment.
