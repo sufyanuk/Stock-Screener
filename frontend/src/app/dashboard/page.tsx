@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import Link from "next/link";
 import { ReactNode, useEffect, useState } from "react";
+import { IndexMoves } from "@/components/index-moves";
 import { MarketPulse } from "@/components/market-pulse";
 import { ScanBar } from "@/components/scan-bar";
 import { Card, Empty, ErrorBox, SortTable, Ticker } from "@/components/ui";
@@ -74,6 +75,7 @@ export default function DashboardPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <ScanBar title="Dashboard" onScanned={() => { dash.reload(); ins.reload(); }} />
+        <IndexMoves />
         <label className="flex cursor-pointer items-center gap-2 rounded-md border border-line px-3 py-1.5 text-sm">
           <input type="checkbox" role="switch" checked={under40} onChange={(e) => toggleUnder40(e.target.checked)} />
           Price under $40 only

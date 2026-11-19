@@ -16,6 +16,9 @@ card updates by itself when the new scan finishes). The **Price under $40 only**
 (Dashboard only; remembered in your browser). The insider card shows the latest 5 purchases above 1%, newest filing first, and the top 5
 from each tab: unusual options, insider buying (by % of outstanding
 shares), upcoming earnings and seasonality for this month.
+Next to the title, **S&P 500 (SPY)** and **Nasdaq-100 (QQQ)** % change from Alpaca: before the open their pre-market
+move (from 4:00 am New York time; it tracks the index futures closely), then today's, then after hours; refreshed
+every 2 minutes while the page is visible (no database use).
 At the top, a **Market pulse** card (computed by the nightly job, so browsing costs nothing):
 - **Market Mood** — SentiSense's 0–100 Market Mood (social sentiment, market direction, risk appetite, social
   momentum, S&P 500 trend, options flow): Extreme Fear ≤15, Fear ≤30, Anxiety ≤45, Neutral ≤55, Optimism ≤70,

@@ -503,6 +503,63 @@ def health_rows(db: Session) -> list[dict]:
     return out
 
 
+_INDEX_CACHE: dict = {"at": 0.0, "out": None}
+INDEX_ETFS = [("SPY", "S&P 500"), ("QQQ", "Nasdaq-100")]
+
+
+def index_move(snap: dict) -> float | None:
+    """% change of the latest trade (pre-market, regular or after-hours) against the last regular close before it.
+    Before the open the snapshot's daily bar is still yesterday's, so its close is the base; once today has a
+    daily bar, yesterday's close (prevDailyBar) is."""
+    price = snap.get("price")
+    trade_day = snap["market_ts"].astimezone(mc.NY).date() if snap.get("market_ts") else None
+    day_bar = snap.get("daily_bar_date")
+    base = snap.get("daily_close") if trade_day and day_bar and day_bar < trade_day else snap.get("prev_close")
+    return (price / base - 1) * 100 if price and base else None
+
+
+@app.get("/api/index-moves")
+async def index_moves():
+    """S&P 500 (SPY) and Nasdaq-100 (QQQ) % change from Alpaca, including pre-market from 4:00 am New York time.
+    Public market data: no database access (the page polls it, and the database can stay asleep). Cached 60 s."""
+    import time as _t
+
+    import pandas as pd
+
+    from app.providers.extra import Alpaca, parse_alpaca_snapshot
+    from app.providers.http import ProviderError
+
+    now = _t.time()
+    if _INDEX_CACHE["out"] is not None and now - _INDEX_CACHE["at"] < 60:
+        return _INDEX_CACHE["out"]
+    phase = mc.market_phase(datetime.now(timezone.utc))
+    try:
+        alp = Alpaca()
+        j = {}
+        for feed in (["sip", alp.feed] if alp.feed != "sip" else ["sip"]):
+            try:
+                j = await alp.http.get_json("/v2/stocks/snapshots", {"symbols": ",".join(s for s, _ in INDEX_ETFS),
+                                                                    "feed": feed}, cache_ttl=0)
+                break
+            except ProviderError as e:
+                if e.status not in (401, 403, 422):
+                    raise
+        rows = []
+        for sym, label in INDEX_ETFS:
+            raw = (j or {}).get(sym) or {}
+            snap = parse_alpaca_snapshot(raw)
+            day_bar = (raw.get("dailyBar") or {})
+            snap["daily_close"] = day_bar.get("c")
+            snap["daily_bar_date"] = (pd.Timestamp(day_bar["t"]).tz_convert(mc.NY).date() if day_bar.get("t") else None)
+            rows.append({"symbol": sym, "label": label, "price": snap.get("price"), "pct": index_move(snap),
+                         "as_of": snap["market_ts"].isoformat() if snap.get("market_ts") else None})
+        out = {"phase": phase, "rows": rows, "source": "Alpaca"}
+    except Exception as e:  # noqa: BLE001 - the dashboard line just stays empty
+        out = {"phase": phase, "rows": [], "error": str(e)[:200]}
+    _INDEX_CACHE.update(at=now, out=out)
+    return out
+
+
 @app.get("/api/data-version")
 def data_version(db: Session = Depends(get_db), _: User = Depends(current_user)):
     """When the stored data last changed (scans, insider filings, prices, ratings, market pulse, imports...).
