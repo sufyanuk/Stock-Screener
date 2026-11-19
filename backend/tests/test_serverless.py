@@ -353,3 +353,22 @@ def test_vercel_never_runs_a_scan_itself(client, db, monkeypatch):
 
 async def _false():
     return False
+
+
+def test_data_version_changes_when_a_job_adds_insider_filings(client, db):
+    """Pages keep data for the day; the data version tells them a scheduled job added something."""
+    import asyncio
+
+    import app.main as main
+    from app.services.engine import ScanEngine
+    from tests.conftest import AS_OF, FakeDataSource
+
+    main.app.dependency_overrides[main.current_user] = lambda: None
+    try:
+        before = client.get("/api/data-version").json()["version"]
+        asyncio.run(ScanEngine(db, FakeDataSource()).ingest_insiders([AS_OF]))
+        after = client.get("/api/data-version").json()["version"]
+        assert before != after
+        assert client.get("/api/data-version").json()["version"] == after  # stable until the next change
+    finally:
+        main.app.dependency_overrides.clear()

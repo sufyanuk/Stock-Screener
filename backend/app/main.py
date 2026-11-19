@@ -503,6 +503,24 @@ def health_rows(db: Session) -> list[dict]:
     return out
 
 
+@app.get("/api/data-version")
+def data_version(db: Session = Depends(get_db), _: User = Depends(current_user)):
+    """When the stored data last changed (scans, insider filings, prices, ratings, market pulse, imports...).
+    Pages keep data in the browser for the day; when this value changes they load it again, so data added by
+    a scheduled job (e.g. insider filings at 3:45 am) shows without waiting for the next day."""
+    from app.models import (AnalystSnapshot, EarningsEvent, KeyValue, OptionsImportBatch, PriceSnapshot,
+                            ProcessedFiling, SentiSenseRatingRow)
+
+    parts = [
+        db.scalar(select(func.max(ScanRun.started_at))), db.scalar(select(func.max(ScanRun.finished_at))),
+        db.scalar(select(func.max(ProcessedFiling.processed_at))), db.scalar(select(func.max(KeyValue.updated_at))),
+        db.scalar(select(func.max(OptionsImportBatch.imported_at))), db.scalar(select(func.count()).select_from(OptionsImportBatch)),
+        db.scalar(select(func.max(PriceSnapshot.imported_at))), db.scalar(select(func.max(AnalystSnapshot.retrieved_at))),
+        db.scalar(select(func.max(SentiSenseRatingRow.retrieved_at))), db.scalar(select(func.max(EarningsEvent.retrieved_at))),
+    ]
+    return {"version": "|".join("" if v is None else (v.isoformat() if hasattr(v, "isoformat") else str(v)) for v in parts)}
+
+
 @app.get("/api/health")
 def health(db: Session = Depends(get_db)):
     ds = make_datasource()

@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
 import { StockPane } from "@/components/stock-pane";
 import { TickerSearch } from "@/components/ticker-search";
-import { api, JOBS_ON_GITHUB, useApi } from "@/lib/api";
+import { api, JOBS_ON_GITHUB, syncDataVersion, useApi } from "@/lib/api";
 import { BasketProvider, useBasket } from "@/lib/basket";
 import { PaneProvider, usePane } from "@/lib/pane-context";
 
@@ -24,6 +24,15 @@ const NAV = [
 export function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
   const [menu, setMenu] = useState(false);
+  // New data from a scheduled job (insider filings, the nightly scan...): check on open, when the tab comes back
+  // into view and every 5 minutes while it is visible; pages on screen refresh by themselves when it changed.
+  useEffect(() => {
+    const check = () => { if (document.visibilityState === "visible") void syncDataVersion(); };
+    check();
+    document.addEventListener("visibilitychange", check);
+    const t = setInterval(check, 5 * 60e3);
+    return () => { document.removeEventListener("visibilitychange", check); clearInterval(t); };
+  }, []);
   // Personal app: no sign-in. Access is restricted by Vercel Authentication on the deployment.
   return (
     <PaneProvider>

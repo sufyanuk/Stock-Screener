@@ -60,6 +60,26 @@ function writeCache(path: string, data: unknown) {
   }
 }
 
+// Scheduled jobs (insider filings at 3:45 am, the nightly scan...) change the data without the browser knowing.
+// The server reports when its data last changed; when that differs from what this browser last saw, the cached
+// responses are dropped and every page on screen loads its data again (what is stored shows first).
+const DATA_VERSION = PREFIX + "dataver";
+export const STALE_EVENT = "apicache:stale";
+export async function syncDataVersion(): Promise<void> {
+  let v: string;
+  try {
+    v = (await request<{ version: string }>("/data-version", { method: "GET" })).version;
+  } catch { return; }  // offline / server waking up: keep what is stored
+  let seen: string | null = null;
+  try { seen = localStorage.getItem(DATA_VERSION); } catch { /* storage unavailable */ }
+  if (seen === v) return;
+  try { localStorage.setItem(DATA_VERSION, v); } catch { /* storage unavailable */ }
+  if (seen !== null) {
+    clearApiCache();
+    window.dispatchEvent(new Event(STALE_EVENT));
+  }
+}
+
 /** GET with the daily cache (``fresh`` skips it and stores the new response). */
 export async function apiCached<T>(path: string, fresh = false): Promise<T> {
   if (!fresh) {
@@ -135,5 +155,10 @@ export function useApi<T>(path: string | null) {
     fetchData(false);
   }, [fetchData]);
   const reload = useCallback(() => fetchData(true), [fetchData]);
+  useEffect(() => {  // the server's data changed (a scheduled job ran): load it again
+    const onStale = () => { void fetchData(true); };
+    window.addEventListener(STALE_EVENT, onStale);
+    return () => window.removeEventListener(STALE_EVENT, onStale);
+  }, [fetchData]);
   return { data, error, loading, reload };
 }
